@@ -4308,6 +4308,8 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 }
 
                 window.db = getFirestore(app);
+                // טעינת הפופ־אפ מחוברת לרגע שבו הענן באמת מוכן.
+                window.loadPopupAnnouncement?.();
 
                 // ניהול הזדהות ישיר מול Google, ללא Firebase Authentication.
                 onAuthStateChanged(auth, async (user) => {
@@ -9555,25 +9557,53 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
 
         // =================== POPUP ANNOUNCEMENT ===================
 
-        window.loadPopupAnnouncement = async function() {
-            if (!window.db) return;
-            try {
-                const { doc, getDoc } = window.firestoreModules;
-                const snap = await getDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'systemMeta', 'popupAnnouncement'));
-                const config = snap.exists() ? snap.data() : null;
-                window.state.popupAnnouncementConfig = config || null;
-                if (config && config.enabled) {
-                    window.showPopupAnnouncement(config);
+        function popupAnnouncementVersion(config) {
+            return String(config?.updatedAt || config?.imageUrl || 'current');
+        }
+
+        window.loadPopupAnnouncement = async function(retryCount = 0) {
+            if (!window.db || !window.firestoreModules?.doc || !window.firestoreModules?.getDoc) {
+                if (retryCount < 24) {
+                    clearTimeout(window._popupAnnouncementRetryTimer);
+                    window._popupAnnouncementRetryTimer = setTimeout(
+                        () => window.loadPopupAnnouncement?.(retryCount + 1),
+                        Math.min(3000, 250 + retryCount * 150)
+                    );
+                } else {
+                    console.warn('Popup load skipped: cloud connection was not ready.');
                 }
-            } catch (e) {
-                console.warn('Popup load failed:', e);
+                return;
             }
+            if (window._popupAnnouncementLoadPromise) return window._popupAnnouncementLoadPromise;
+            window._popupAnnouncementLoadPromise = (async () => {
+                try {
+                    const { doc, getDoc } = window.firestoreModules;
+                    const snap = await getDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'systemMeta', 'popupAnnouncement'));
+                    const config = snap.exists() ? snap.data() : null;
+                    window.state.popupAnnouncementConfig = config || null;
+                    window.renderPopupAnnouncementAdmin?.();
+                    if (config?.enabled) window.showPopupAnnouncement(config);
+                } catch (e) {
+                    console.warn('Popup load failed:', e);
+                    if (retryCount < 3) {
+                        clearTimeout(window._popupAnnouncementRetryTimer);
+                        window._popupAnnouncementRetryTimer = setTimeout(
+                            () => window.loadPopupAnnouncement?.(retryCount + 1),
+                            1000 * (retryCount + 1)
+                        );
+                    }
+                } finally {
+                    window._popupAnnouncementLoadPromise = null;
+                }
+            })();
+            return window._popupAnnouncementLoadPromise;
         };
 
         window.showPopupAnnouncement = function(config) {
             if (!config || !config.enabled || !config.imageUrl) return;
+            const version = popupAnnouncementVersion(config);
             try {
-                if (sessionStorage.getItem('popupAnnouncementDismissed') === '1') return;
+                if (sessionStorage.getItem('popupAnnouncementDismissedVersion') === version) return;
             } catch (e) { /* ignore */ }
 
             if (config.audience === 'approved') {
@@ -9586,16 +9616,29 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             if (!modal || !img) return;
 
             img.style.cursor = config.linkType && config.linkType !== 'none' ? 'pointer' : 'default';
+            img.onload = () => {
+                modal.classList.remove('hidden');
+                scheduleIconRefresh();
+            };
+            img.onerror = () => {
+                modal.classList.add('hidden');
+                console.warn('Popup image failed to load.');
+            };
             img.src = config.imageUrl;
-            modal.classList.remove('hidden');
-            scheduleIconRefresh();
+            if (img.complete && img.naturalWidth > 0) img.onload();
         };
 
         window.closePopupAnnouncement = function() {
             const modal = document.getElementById('popupAnnouncementModal');
             if (!modal) return;
             modal.classList.add('hidden');
-            try { sessionStorage.setItem('popupAnnouncementDismissed', '1'); } catch (e) { /* ignore */ }
+            try {
+                sessionStorage.setItem(
+                    'popupAnnouncementDismissedVersion',
+                    popupAnnouncementVersion(window.state?.popupAnnouncementConfig)
+                );
+                sessionStorage.removeItem('popupAnnouncementDismissed');
+            } catch (e) { /* ignore */ }
         };
 
         window.handlePopupAnnouncementClick = function() {
@@ -9699,7 +9742,10 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 window.state.popupAnnouncementConfig = config;
                 if (fileInput) fileInput.value = '';
                 window.renderPopupAnnouncementAdmin();
-                try { sessionStorage.removeItem('popupAnnouncementDismissed'); } catch (error) {}
+                try {
+                    sessionStorage.removeItem('popupAnnouncementDismissed');
+                    sessionStorage.removeItem('popupAnnouncementDismissedVersion');
+                } catch (error) {}
                 if (statusEl) statusEl.textContent = 'נשמר בהצלחה!';
                 window.showNotification('הפופ-אפ נשמר ופורסם.', true);
                 setTimeout(() => window.showPopupAnnouncement?.(config), 350);
