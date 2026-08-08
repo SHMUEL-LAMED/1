@@ -2776,6 +2776,12 @@
                     פתח לוח ניהול
                 </button>
 
+                <button type="button" onclick="openFavoritesFromProfile()" class="w-full py-3 btn-secondary-dark rounded-xl text-xs font-extrabold flex items-center justify-center gap-2">
+                    <i data-lucide="heart" class="w-4 h-4 text-red-400"></i>
+                    המועדפים שלי
+                    <span id="profileFavoritesCount" class="mr-auto min-w-6 px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px]">0</span>
+                </button>
+
                 <button id="contactManagerButton" type="button" onclick="openUserConversation()" class="w-full py-3 btn-primary-gold rounded-xl text-xs font-extrabold flex items-center justify-center gap-2">
                     <i data-lucide="message-circle-more" class="w-4 h-4"></i>
                     פנייה למנהל
@@ -7370,6 +7376,16 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             window.state.activeFolderId = safeFolderId; window.renderFolders(); window.renderImages();
         }
 
+        window.openFavoritesFromProfile = function() {
+            if (!window.state.isGoogleUser || window.state.userApprovalStatus !== 'approved') {
+                window.showNotification('המועדפים זמינים למשתמשים מאושרים בלבד.', false);
+                return;
+            }
+            setActiveFolder('favorites');
+            const panel = document.getElementById('floatingProfilePanel');
+            if (panel) panel.classList.remove('active');
+        };
+
         function handleSearch(val) { window.state.searchQuery = val; window.renderImages(); }
 
         window.setGallerySort = function(sort) {
@@ -7412,15 +7428,9 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             const folderList = document.getElementById('folderList'); if (!folderList) return;
             const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
             const folderParts = [];
-            if (window.state.isGoogleUser && window.state.userApprovalStatus === 'approved') {
-                const favoriteCount = window.state.images.filter(item => window.state.favorites.has(safeRecordId(item.id))).length;
-                folderParts.push(`
-                    <div class="folder-row flex items-center justify-between group p-1 ${window.state.activeFolderId === 'favorites' ? 'is-active' : ''}">
-                        <button type="button" onclick="setActiveFolder('favorites')" class="folder-button flex-1 flex items-center gap-3 px-3 py-2 text-sm" ${window.state.activeFolderId === 'favorites' ? 'aria-current="page"' : ''}>
-                            <i data-lucide="heart" class="w-4 h-4"></i><span class="truncate max-w-[120px]">המועדפים שלי</span><span class="folder-count mr-auto text-xs px-2 py-0.5 rounded-full">${favoriteCount}</span>
-                        </button>
-                    </div>`);
-            }
+            const favoriteCount = window.state.images.filter(item => window.state.favorites.has(safeRecordId(item.id))).length;
+            const profileFavoritesCount = document.getElementById('profileFavoritesCount');
+            if (profileFavoritesCount) profileFavoritesCount.textContent = String(favoriteCount);
             window.state.folders.forEach(folder => {
                 const folderId = safeRecordId(folder.id);
                 if (!folderId) return;
