@@ -1,5 +1,5 @@
 // ✅ FIX: עדכון גרסת cache — משתמשים יקבלו את cloudflare-client.js המתוקן
-const CACHE_NAME = "simchat-gallery-shell-v13-popup-timeout-fix";
+const CACHE_NAME = "simchat-gallery-shell-v14-popup-load-fix";
 const APP_SHELL = ["./", "./index.html", "./cloudflare-client.js", "./manifest.webmanifest"];
 
 self.addEventListener("install", event => {
