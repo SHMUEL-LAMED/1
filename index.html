@@ -1831,6 +1831,87 @@
             0% { transform: translateX(-100%); }
             100% { transform: translateX(100%); }
         }
+
+        /* מצב בהיר — שכבת הכרעה סופית. חייבת להופיע אחרי כל רכיבי ה־Luxury. */
+        html[data-theme="light"] .settings-trigger {
+            color: #9a6500 !important;
+            background: #ffffff !important;
+            border-color: rgba(214,139,0,.26) !important;
+            box-shadow: 0 12px 34px rgba(15,23,42,.12) !important;
+        }
+        html[data-theme="light"] .settings-trigger:hover {
+            color: #714a00 !important;
+            background: #fff8e8 !important;
+            box-shadow: 0 14px 38px rgba(214,139,0,.18) !important;
+        }
+        html[data-theme="light"] .google-auth-card,
+        html[data-theme="light"] .luxury-action-card {
+            color: #172033 !important;
+            background: #ffffff !important;
+            border-color: rgba(15,23,42,.11) !important;
+            box-shadow: 0 10px 30px rgba(15,23,42,.08) !important;
+        }
+        html[data-theme="light"] .luxury-icon-circle {
+            color: #9a6500 !important;
+            background: #fff7e2 !important;
+            border-color: rgba(214,139,0,.25) !important;
+            box-shadow: none !important;
+        }
+        html[data-theme="light"] .floating-profile-btn {
+            color: #9a6500 !important;
+            background: linear-gradient(145deg, #ffffff, #f4f7fb) !important;
+            border-color: rgba(214,139,0,.42) !important;
+            box-shadow: 0 10px 30px rgba(15,23,42,.16), 0 0 14px rgba(214,139,0,.1) !important;
+        }
+        html[data-theme="light"] .floating-profile-panel {
+            color: #172033 !important;
+            background: linear-gradient(150deg, rgba(255,255,255,.99), rgba(244,247,251,.99)) !important;
+            border-color: rgba(15,23,42,.12) !important;
+            box-shadow: 0 24px 70px rgba(15,23,42,.2), inset 0 1px #fff !important;
+        }
+        html[data-theme="light"] .floating-profile-panel [class*="text-white"],
+        html[data-theme="light"] .floating-profile-panel [class*="text-slate-1"],
+        html[data-theme="light"] .floating-profile-panel [class*="text-slate-2"],
+        html[data-theme="light"] .floating-profile-panel [class*="text-slate-3"] {
+            color: #263247 !important;
+        }
+        html[data-theme="light"] .floating-profile-panel [class*="text-slate-4"],
+        html[data-theme="light"] .floating-profile-panel [class*="text-slate-5"] {
+            color: #667085 !important;
+        }
+        html[data-theme="light"] .floating-profile-panel [class*="bg-white/"],
+        html[data-theme="light"] .floating-profile-panel [class*="bg-slate-8"],
+        html[data-theme="light"] .floating-profile-panel [class*="bg-slate-9"] {
+            background-color: rgba(15,23,42,.045) !important;
+        }
+        html[data-theme="light"] .floating-profile-panel [class*="border-white/"],
+        html[data-theme="light"] .floating-profile-panel [class*="border-slate"] {
+            border-color: rgba(15,23,42,.11) !important;
+        }
+        html[data-theme="light"] .neon-glow-gold,
+        html[data-theme="light"] .neon-glow-cyan {
+            box-shadow: 0 10px 30px rgba(15,23,42,.09) !important;
+        }
+        html[data-theme="light"] .conversation-composer input,
+        html[data-theme="light"] .conversation-composer textarea {
+            color: #172033 !important;
+            background: #ffffff !important;
+            border-color: rgba(15,23,42,.13) !important;
+        }
+        html[data-theme="light"] .conversation-composer input::placeholder,
+        html[data-theme="light"] .conversation-composer textarea::placeholder { color: #8390a3 !important; }
+        html[data-theme="light"] table {
+            color: #263247 !important;
+            background: #ffffff !important;
+        }
+        html[data-theme="light"] thead { background: #f1f5f9 !important; }
+        html[data-theme="light"] th { color: #475569 !important; border-color: rgba(15,23,42,.1) !important; }
+        html[data-theme="light"] td { border-color: rgba(15,23,42,.08) !important; }
+        html[data-theme="light"] tr:hover td { background: #f8fafc !important; }
+        html[data-theme="light"] .btn-primary-gold:disabled {
+            color: #94a3b8 !important;
+            background: #e2e8f0 !important;
+        }
     
     </style>
 </head>
