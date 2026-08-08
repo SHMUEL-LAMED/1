@@ -1,4 +1,5 @@
 {
+  "id": "./",
   "name": "גלריית שמחת התורה",
   "short_name": "שמחת התורה",
   "description": "ארכיון התמונות הדיגיטלי של ישיבת שמחת התורה",
@@ -7,6 +8,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#090b10",
-  "theme_color": "#090b10"
+  "theme_color": "#090b10",
+  "categories": ["photo", "education"]
 }

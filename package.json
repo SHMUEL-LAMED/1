@@ -1,0 +1,9 @@
+{
+  "name": "simchas-gallery",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test cloudflare-worker.test.mjs",
+    "check:syntax": "node --check cloudflare-worker.js && node --check cloudflare-client.js"
+  }
+}
