@@ -2421,7 +2421,7 @@
                             <span class="text-[10px] font-semibold text-slate-300">הפעל את הפופ-אפ</span>
                         </label>
                         <div class="flex gap-2">
-                            <button type="button" onclick="window.savePopupAnnouncement()" class="flex-1 py-2 btn-primary-gold rounded-xl text-xs font-bold">שמור ופרסם</button>
+                            <button type="button" id="popupSaveButton" onclick="window.savePopupAnnouncement()" class="flex-1 py-2 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50 disabled:cursor-wait">שמור ופרסם</button>
                             <button type="button" onclick="window.deletePopupAnnouncement()" class="py-2 px-3 rounded-xl text-xs font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">מחק</button>
                         </div>
                         <p id="popupSaveStatus" class="text-[9px] text-center text-slate-500 min-h-4"></p>
@@ -9560,7 +9560,13 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
         window.savePopupAnnouncement = async function() {
             if (!window.state.isSuperAdmin) { window.showNotification('פעולה זו זמינה למנהל-על בלבד.', false); return; }
             const statusEl = document.getElementById('popupSaveStatus');
-            if (statusEl) statusEl.textContent = 'שומר...';
+            const saveButton = document.getElementById('popupSaveButton');
+            if (saveButton?.disabled) return;
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.textContent = 'מכין...';
+            }
+            if (statusEl) statusEl.textContent = 'מכין את התמונה להעלאה מהירה...';
 
             try {
                 const fileInput = document.getElementById('popupImageInput');
@@ -9574,9 +9580,15 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 let r2Key = window.state.popupAnnouncementConfig?.r2Key || '';
 
                 if (file) {
-                    if (file.size > 5 * 1024 * 1024) throw new Error('גודל הקובץ מרבי 5MB.');
+                    if (!String(file.type || '').startsWith('image/')) throw new Error('יש לבחור קובץ תמונה תקין.');
+                    if (file.size > 20 * 1024 * 1024) throw new Error('גודל התמונה חייב להיות עד 20MB.');
+                    const compressedDataUrl = await compressAndConvertImage(file, 1600, 1600, 0.82);
+                    if (!compressedDataUrl) throw new Error('לא ניתן היה להכין את התמונה להעלאה.');
+                    const uploadBlob = dataUrlToBlob(compressedDataUrl);
+                    if (statusEl) statusEl.textContent = `מעלה תמונה ממוטבת (${Math.max(1, Math.round(uploadBlob.size / 1024))}KB)...`;
+                    if (saveButton) saveButton.textContent = 'מעלה...';
                     const popupId = 'popup_announcement_' + Date.now();
-                    const uploaded = await window.uploadMediaToR2(file, popupId, 'popup-announcement');
+                    const uploaded = await window.uploadMediaToR2(uploadBlob, popupId, 'popup-announcement');
                     if (!uploaded?.url) throw new Error('העלאת התמונה נכשלה.');
                     if (r2Key && r2Key !== uploaded.r2Key) {
                         await window.deleteImageFromR2({ r2Key }).catch(() => {});
@@ -9598,6 +9610,11 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             } catch (e) {
                 if (statusEl) statusEl.textContent = 'שגיאה: ' + (e.message || 'שמירה נכשלה');
                 window.showNotification('שגיאה בשמירת הפופ-אפ: ' + (e.message || ''), false);
+            } finally {
+                if (saveButton) {
+                    saveButton.disabled = false;
+                    saveButton.textContent = 'שמור ופרסם';
+                }
             }
         };
 
