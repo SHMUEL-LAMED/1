@@ -6219,7 +6219,17 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             const token = await window.getFirebaseIdToken();
             const headers = new Headers(options.headers || {});
             headers.set('Authorization', `Bearer ${token}`);
-            const response = await fetch(`${R2_WORKER_BASE_URL}${path}`, { ...options, headers });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000);
+            let response;
+            try {
+                response = await fetch(`${R2_WORKER_BASE_URL}${path}`, { ...options, headers, signal: controller.signal });
+            } catch (error) {
+                if (error?.name === 'AbortError') throw new Error('ההעלאה ארכה יותר מדי. בדוק את החיבור ונסה שוב.');
+                throw new Error('לא ניתן להתחבר לשרת האחסון. נסה שוב בעוד רגע.');
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
             let payload = null;
             try { payload = await response.json(); } catch (error) {}
@@ -9663,7 +9673,10 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 if (file) {
                     if (!String(file.type || '').startsWith('image/')) throw new Error('יש לבחור קובץ תמונה תקין.');
                     if (file.size > 20 * 1024 * 1024) throw new Error('גודל התמונה חייב להיות עד 20MB.');
-                    const compressedDataUrl = await compressAndConvertImage(file, 1600, 1600, 0.82);
+                    const compressedDataUrl = await Promise.race([
+                        compressAndConvertImage(file, 1280, 1280, 0.78),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('הכנת התמונה נתקעה. נסה קובץ JPG או PNG אחר.')), 20000))
+                    ]);
                     if (!compressedDataUrl) throw new Error('לא ניתן היה להכין את התמונה להעלאה.');
                     const uploadBlob = dataUrlToBlob(compressedDataUrl);
                     if (statusEl) statusEl.textContent = `מעלה תמונה ממוטבת (${Math.max(1, Math.round(uploadBlob.size / 1024))}KB)...`;
@@ -9686,8 +9699,10 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 window.state.popupAnnouncementConfig = config;
                 if (fileInput) fileInput.value = '';
                 window.renderPopupAnnouncementAdmin();
+                try { sessionStorage.removeItem('popupAnnouncementDismissed'); } catch (error) {}
                 if (statusEl) statusEl.textContent = 'נשמר בהצלחה!';
                 window.showNotification('הפופ-אפ נשמר ופורסם.', true);
+                setTimeout(() => window.showPopupAnnouncement?.(config), 350);
             } catch (e) {
                 if (statusEl) statusEl.textContent = 'שגיאה: ' + (e.message || 'שמירה נכשלה');
                 window.showNotification('שגיאה בשמירת הפופ-אפ: ' + (e.message || ''), false);
