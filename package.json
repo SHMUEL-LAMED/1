@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test cloudflare-worker.test.mjs",
-    "check:syntax": "node --check cloudflare-worker.js && node --check cloudflare-client.js"
+    "check:syntax": "node --check cloudflare-worker.js && node --check cloudflare-client.js && node --check app.js && node --check gallery.js && node --check drive-sync.js && node --check admin.js && node --check face-search.js && node --check sw.js"
   }
 }
