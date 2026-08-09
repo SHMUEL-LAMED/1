@@ -1,6 +1,14 @@
-// ✅ FIX: עדכון גרסת cache — משתמשים יקבלו את cloudflare-client.js המתוקן
-const CACHE_NAME = "simchat-gallery-shell-v14-popup-load-fix";
-const APP_SHELL = ["./", "./index.html", "./cloudflare-client.js", "./manifest.webmanifest"];
+// מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
+const CACHE_NAME = "simchat-gallery-shell-v15-brand-icon";
+const APP_SHELL = [
+  "./",
+  "./index.html",
+  "./cloudflare-client.js",
+  "./manifest.webmanifest",
+  "./favicon-32.png",
+  "./icon-192.png",
+  "./icon-512.png"
+];
 
 self.addEventListener("install", event => {
   event.waitUntil(
