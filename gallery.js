@@ -1306,6 +1306,40 @@ function showAiSearchResultBanner(count, query) {
     window.scheduleIconRefresh();
 }
 
+// חיפוש ה־AI מעבד קבוצה אחת בכל פעם. OpenAI מגביל את קצב הבקשות, ולכן יש
+// השהיה קצרה בין קבוצות וניסיון חוזר עם השהיה מכפילה כשמתקבל 429.
+const AI_SEARCH_BATCH_SIZE = 8;
+const AI_SEARCH_BATCH_DELAY_MS = 1200;
+const AI_SEARCH_MAX_RETRIES = 4;
+const AI_SEARCH_RETRY_BASE_MS = 2000;
+
+function aiSearchDelay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// מחזיר את תשובת ה־Worker לקבוצה אחת, עם ניסיונות חוזרים על עומס זמני בלבד.
+async function requestAiSearchBatch(query, batch, onRetryWait) {
+    let lastError;
+    for (let attempt = 0; attempt <= AI_SEARCH_MAX_RETRIES; attempt++) {
+        try {
+            return await window.r2Request('/ai-search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, images: batch })
+            });
+        } catch (error) {
+            lastError = error;
+            // מגבלת הקצב של האתר עצמו נמשכת כמה דקות, ולכן ניסיון חוזר קצר לא יועיל.
+            const retryable = error?.status === 429 && error?.code !== 'ai_rate_limit_exceeded';
+            if (!retryable || attempt === AI_SEARCH_MAX_RETRIES) break;
+            const wait = Math.round(AI_SEARCH_RETRY_BASE_MS * Math.pow(2, attempt) * (1 + Math.random() * 0.25));
+            if (typeof onRetryWait === 'function') onRetryWait(attempt + 1, wait);
+            await aiSearchDelay(wait);
+        }
+    }
+    throw lastError;
+}
+
 window.executeAiImageSearch = async function() {
     const queryInput = document.getElementById('aiImageSearchQuery');
     const status = document.getElementById('aiImageSearchStatus');
@@ -1349,19 +1383,37 @@ window.executeAiImageSearch = async function() {
         const matchedIds = new Set();
         // שומרים תאימות ל־Worker החי, שמקבל כרגע עד שמונה תמונות בבקשה.
         // לאחר פריסת גרסת ה־Worker החדשה אפשר להעלות את הקבוצה ל־20.
-        const batchSize = 8;
+        const batchSize = AI_SEARCH_BATCH_SIZE;
         const totalBatches = Math.ceil(candidates.length / batchSize);
+        let succeededBatches = 0;
+        let failedBatches = 0;
+        let lastBatchError = null;
+
         for (let offset = 0; offset < candidates.length; offset += batchSize) {
             const batch = candidates.slice(offset, offset + batchSize);
             const batchNumber = Math.floor(offset / batchSize) + 1;
             if (status) status.textContent = `ה־AI סורק קבוצה ${batchNumber} מתוך ${totalBatches}…`;
-            const result = await window.r2Request('/ai-search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, images: batch })
-            });
-            (result?.matches || []).forEach(id => matchedIds.add(window.safeRecordId(id)));
+
+            try {
+                const result = await requestAiSearchBatch(query, batch, (retryNumber, wait) => {
+                    if (status) {
+                        status.textContent = `מנוע ה־AI עמוס. ניסיון ${retryNumber} מתוך ${AI_SEARCH_MAX_RETRIES} לקבוצה ${batchNumber} בעוד ${Math.round(wait / 1000)} שניות…`;
+                    }
+                });
+                (result?.matches || []).forEach(id => matchedIds.add(window.safeRecordId(id)));
+                succeededBatches++;
+            } catch (error) {
+                // כישלון בקבוצה אחת אינו מבטל את התוצאות שכבר נאספו מקבוצות קודמות.
+                failedBatches++;
+                lastBatchError = error;
+                console.warn(`AI image search batch ${batchNumber} of ${totalBatches} failed:`, error?.code || error?.message || error);
+            }
+
+            if (offset + batchSize < candidates.length) await aiSearchDelay(AI_SEARCH_BATCH_DELAY_MS);
         }
+
+        // רק אם כל הקבוצות נכשלו מוצגת שגיאה במקום תוצאות חלקיות.
+        if (!succeededBatches) throw lastBatchError || new Error('חיפוש ה־AI נכשל.');
 
         const matches = window.state.images.filter(image => matchedIds.has(window.safeRecordId(image.id)));
         window.state.tempSearchResults = matches;
@@ -1371,8 +1423,11 @@ window.executeAiImageSearch = async function() {
         window.renderImages();
         showAiSearchResultBanner(matches.length, query);
         window.closeModal('aiImageSearchModal');
+        const partialNote = failedBatches ? ` (${failedBatches} מתוך ${totalBatches} קבוצות לא נסרקו)` : '';
         window.showNotification(
-            matches.length ? `נמצאו ${matches.length} תמונות מתאימות.` : 'לא נמצאו תמונות שמתאימות לתיאור.',
+            matches.length
+                ? `נמצאו ${matches.length} תמונות מתאימות${partialNote}.`
+                : `לא נמצאו תמונות שמתאימות לתיאור${partialNote}.`,
             matches.length > 0
         );
     } catch (error) {
