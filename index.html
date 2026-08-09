@@ -3635,10 +3635,55 @@
                     window.state.activeFolderId = 'all';
                 }
             }
+            // Remove Drive-synced folders that are empty after a successful full scan.
+            // Work from the deepest folders upward so an empty parent is removed only
+            // after all of its empty descendants have been removed.
+            const removedFolderIds = new Set(staleFolders.map(folder => safeRecordId(folder.id)));
+            const remainingImageFolderIds = new Set(
+                (window.state.images || []).map(image => safeRecordId(image.folderId)).filter(Boolean)
+            );
+            const emptyDriveFolders = (window.state.folders || []).filter(function(folder) {
+                return folder.syncedFromDrive === true
+                    && folder.driveRootFolderId === rootFolderId
+                    && !removedFolderIds.has(safeRecordId(folder.id));
+            }).sort(function(a, b) {
+                return (Number(b.driveDepth) || 0) - (Number(a.driveDepth) || 0);
+            });
+            const additionallyDeletedFolderIds = new Set();
+
+            for (const folder of emptyDriveFolders) {
+                const folderId = safeRecordId(folder.id);
+                if (!folderId || remainingImageFolderIds.has(folderId)) continue;
+
+                const hasRemainingChild = (window.state.folders || []).some(function(child) {
+                    const childId = safeRecordId(child.id);
+                    return childId
+                        && !removedFolderIds.has(childId)
+                        && !additionallyDeletedFolderIds.has(childId)
+                        && safeRecordId(child.parentFolderId) === folderId;
+                });
+                if (hasRemainingChild) continue;
+
+                await window.deleteFolderCloud(folderId);
+                additionallyDeletedFolderIds.add(folderId);
+            }
+
+            if (additionallyDeletedFolderIds.size) {
+                window.state.folders = (window.state.folders || []).filter(function(folder) {
+                    return !additionallyDeletedFolderIds.has(safeRecordId(folder.id));
+                });
+                if (additionallyDeletedFolderIds.has(safeRecordId(window.state.activeFolderId))) {
+                    window.state.activeFolderId = 'all';
+                }
+            }
+
             window.renderFolders();
             window.renderImages();
             window.populateFolderSelects?.();
-            return { deletedImages: staleImages.length, deletedFolders: staleFolders.length };
+            return {
+                deletedImages: staleImages.length,
+                deletedFolders: staleFolders.length + additionallyDeletedFolderIds.size
+            };
         }
 
         async function syncDriveFolderTree(rootFolder) {
