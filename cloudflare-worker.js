@@ -17,7 +17,10 @@ const DEFAULT_DRIVE_SITE_URL = "https://shmuel-lamed.github.io/1/";
 const DRIVE_STATE_TTL_MS = 10 * 60 * 1000;
 const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 const DATABASE_SCHEMA_VERSION = 3;
-const AI_SEARCH_RATE_LIMIT = 12;
+// כל בקשה ל־/ai-search צורכת מכסה אחת, כולל ניסיונות חוזרים אחרי 429.
+// חיפוש מלא הוא עד 10 קבוצות, וכל קבוצה עשויה להגיע לשישה ניסיונות —
+// כלומר עד 60 בקשות. המגבלה גבוהה מכך כדי שחיפוש אחד לא יחסום את עצמו.
+const AI_SEARCH_RATE_LIMIT = 80;
 const AI_SEARCH_RATE_WINDOW_MS = 5 * 60 * 1000;
 const UPLOAD_RATE_LIMIT = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
