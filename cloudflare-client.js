@@ -7,8 +7,12 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 // ✅ FIX: הפחתת מספר הניסיונות מ-80 ל-30 (7.5 שניות מקס' במקום 20)
 const GOOGLE_LIBRARY_MAX_ATTEMPTS = 30;
+const EMPTY_FOLDER_CLEANUP_AFTER_DELETE_MS = 3 * 1000;
+const EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS = 90 * 1000;
 
 const authState = { currentUser: null, listeners: new Set(), ready: false };
+let emptyFolderCleanupTimer = null;
+let emptyFolderCleanupRunning = false;
 
 function decodeJwtPayload(token) {
   try {
@@ -64,6 +68,7 @@ export async function setGoogleIdToken(token) {
   if (value && tokenIsUsable(value)) {
     sessionStorage.setItem(TOKEN_STORAGE_KEY, value);
     authState.currentUser = userFromToken(value);
+    scheduleEmptyFolderCleanup(15 * 1000);
   } else {
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     authState.currentUser = null;
@@ -190,6 +195,82 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+function scheduleEmptyFolderCleanup(delay = EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS) {
+  clearTimeout(emptyFolderCleanupTimer);
+  emptyFolderCleanupTimer = setTimeout(() => {
+    cleanupEmptyGalleryFolders().catch(error => {
+      console.warn("Empty folder cleanup skipped:", error);
+    });
+  }, Math.max(1000, Number(delay) || EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS));
+}
+
+async function cleanupEmptyGalleryFolders() {
+  if (emptyFolderCleanupRunning) return;
+
+  const state = window.state;
+  if (!state?.isSuperAdmin || !window.db || !Array.isArray(state.folders) || !Array.isArray(state.images)) return;
+
+  const folders = state.folders.filter(folder => {
+    const id = String(folder?.id || "").trim();
+    return id && id !== "all" && folder?.isDefault !== true;
+  });
+  if (!folders.length) return;
+
+  emptyFolderCleanupRunning = true;
+  try {
+    const foldersById = new Map(folders.map(folder => [String(folder.id), folder]));
+    const usedFolderIds = new Set();
+
+    const markFolderAndParents = folderId => {
+      let currentId = String(folderId || "").trim();
+      const visited = new Set();
+      while (currentId && foldersById.has(currentId) && !visited.has(currentId)) {
+        visited.add(currentId);
+        usedFolderIds.add(currentId);
+        const currentFolder = foldersById.get(currentId);
+        currentId = String(currentFolder?.parentFolderId || "").trim();
+      }
+    };
+
+    for (const image of state.images || []) markFolderAndParents(image?.folderId);
+    for (const pendingImage of state.pendingImages || []) markFolderAndParents(pendingImage?.folderId);
+
+    const emptyFolders = folders
+      .filter(folder => !usedFolderIds.has(String(folder.id)))
+      .sort((a, b) => {
+        const depthA = Number(a?.driveDepth) || 0;
+        const depthB = Number(b?.driveDepth) || 0;
+        if (depthA !== depthB) return depthB - depthA;
+        return String(b?.parentFolderId || "").length - String(a?.parentFolderId || "").length;
+      });
+
+    if (!emptyFolders.length) return;
+
+    const removedIds = new Set();
+    for (const folder of emptyFolders) {
+      const folderId = String(folder.id || "").trim();
+      if (!folderId) continue;
+      try {
+        await apiRequest(`/data/folders/${encodeURIComponent(folderId)}`, { method: "DELETE" });
+        removedIds.add(folderId);
+      } catch (error) {
+        console.warn(`Could not delete empty folder ${folderId}:`, error);
+      }
+    }
+
+    if (removedIds.size) {
+      state.folders = (state.folders || []).filter(folder => !removedIds.has(String(folder?.id || "")));
+      if (removedIds.has(String(state.activeFolderId || ""))) state.activeFolderId = "all";
+      window.renderFolders?.();
+      window.renderImages?.();
+      window.populateFolderSelects?.();
+      window.updateAdminOverview?.();
+    }
+  } finally {
+    emptyFolderCleanupRunning = false;
+  }
+}
+
 function documentSnapshot(id, data, exists = true) {
   return {
     id,
@@ -261,11 +342,17 @@ export async function getDocs(reference) {
     forEach: callback => allDocs.forEach(callback)
   };
 }
+
 export async function setDoc(reference, data, options = {}) {
-  return apiRequest(
-    `/data/${encodeURIComponent(collectionName(reference))}/${encodeURIComponent(documentId(reference))}`,
+  const name = collectionName(reference);
+  const result = await apiRequest(
+    `/data/${encodeURIComponent(name)}/${encodeURIComponent(documentId(reference))}`,
     { method: "PUT", body: JSON.stringify({ data, merge: options?.merge === true }) }
   );
+  if (["images", "pendingImages", "folders"].includes(name)) {
+    scheduleEmptyFolderCleanup(EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS);
+  }
+  return result;
 }
 
 export async function updateDoc(reference, data) {
@@ -273,10 +360,15 @@ export async function updateDoc(reference, data) {
 }
 
 export async function deleteDoc(reference) {
-  return apiRequest(
-    `/data/${encodeURIComponent(collectionName(reference))}/${encodeURIComponent(documentId(reference))}`,
+  const name = collectionName(reference);
+  const result = await apiRequest(
+    `/data/${encodeURIComponent(name)}/${encodeURIComponent(documentId(reference))}`,
     { method: "DELETE" }
   );
+  if (["images", "pendingImages", "folders"].includes(name)) {
+    scheduleEmptyFolderCleanup(EMPTY_FOLDER_CLEANUP_AFTER_DELETE_MS);
+  }
+  return result;
 }
 
 // --- Google Button Logic ---
