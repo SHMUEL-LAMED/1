@@ -3473,10 +3473,9 @@
         }
 
         async function saveDriveGalleryFolder(folder) {
-            const folderName = folder.path.length > 60 ? '…' + folder.path.slice(-59) : folder.path;
             await window.saveFolderToCloud({
                 id: makeDriveRecordId('drivefolder', folder.id),
-                name: folderName,
+                name: folder.name || 'תיקייה ללא שם',
                 icon: 'folder-sync',
                 isDefault: false,
                 driveFolderId: folder.id,
@@ -3484,6 +3483,7 @@
                 parentFolderId: folder.parentDriveFolderId
                     ? makeDriveRecordId('drivefolder', folder.parentDriveFolderId)
                     : null,
+                driveRootFolderId: driveFolderPickerState.rootFolderId || folder.id,
                 drivePath: folder.path,
                 driveDepth: Number(folder.depth) || 0,
                 syncedFromDrive: true
@@ -3597,15 +3597,63 @@
             return { addedOrUpdated, unchanged, failed, total };
         }
 
+        async function reconcileDriveMirror(rootFolderId, seenDriveFileIds, seenDriveFolderIds) {
+            if (!window.state.isSuperAdmin) {
+                throw new Error('מחיקת פריטים שנעלמו מ־Drive דורשת חשבון מנהל־על.');
+            }
+
+            const staleImages = (window.state.images || []).filter(function(image) {
+                return image.syncedFromDrive === true
+                    && image.driveRootFolderId === rootFolderId
+                    && image.driveFileId
+                    && !seenDriveFileIds.has(image.driveFileId);
+            });
+            const staleFolders = (window.state.folders || []).filter(function(folder) {
+                return folder.syncedFromDrive === true
+                    && folder.driveRootFolderId === rootFolderId
+                    && folder.driveFolderId
+                    && !seenDriveFolderIds.has(folder.driveFolderId);
+            }).sort(function(a, b) {
+                return (Number(b.driveDepth) || 0) - (Number(a.driveDepth) || 0);
+            });
+
+            for (const image of staleImages) {
+                await window.deleteImageCloud(image.id);
+            }
+            for (const folder of staleFolders) {
+                await window.deleteFolderCloud(folder.id);
+            }
+
+            if (staleImages.length) {
+                const removedImageIds = new Set(staleImages.map(image => safeRecordId(image.id)));
+                window.state.images = (window.state.images || []).filter(image => !removedImageIds.has(safeRecordId(image.id)));
+            }
+            if (staleFolders.length) {
+                const removedFolderIds = new Set(staleFolders.map(folder => safeRecordId(folder.id)));
+                window.state.folders = (window.state.folders || []).filter(folder => !removedFolderIds.has(safeRecordId(folder.id)));
+                if (removedFolderIds.has(safeRecordId(window.state.activeFolderId))) {
+                    window.state.activeFolderId = 'all';
+                }
+            }
+            window.renderFolders();
+            window.renderImages();
+            window.populateFolderSelects?.();
+            return { deletedImages: staleImages.length, deletedFolders: staleFolders.length };
+        }
+
         async function syncDriveFolderTree(rootFolder) {
             const discovered = await collectDriveFolders(rootFolder.id, true);
             const folders = discovered.folders;
             const previousRootId = driveFolderPickerState.rootFolderId;
             driveFolderPickerState.rootFolderId = rootFolder.id;
+            const seenDriveFolderIds = new Set(folders.map(folder => folder.id));
+            const seenDriveFileIds = new Set();
             let addedOrUpdated = 0;
             let unchanged = 0;
             let failed = 0;
             let total = 0;
+            let deletedImages = 0;
+            let deletedFolders = 0;
             try {
                 for (let index = 0; index < folders.length; index++) {
                     setDriveSyncProgress(index, folders.length, 'יוצר מבנה תיקיות: ' + folders[index].path);
@@ -3615,18 +3663,31 @@
                     const folder = folders[index];
                     setDriveSyncProgress(index, folders.length, 'מסנכרן תיקייה ' + (index + 1) + ' מתוך ' + folders.length + ': ' + folder.path);
                     const mediaFiles = await collectSingleDriveFolderMedia(folder);
+                    mediaFiles.forEach(media => seenDriveFileIds.add(media.id));
                     const result = await syncDriveMediaFiles(folder, mediaFiles);
                     addedOrUpdated += result.addedOrUpdated || 0;
                     unchanged += result.unchanged || 0;
                     failed += result.failed || 0;
                     total += result.total || 0;
                 }
+
+                if (failed === 0) {
+                    setDriveSyncProgress(folders.length, folders.length, 'משווה מחיקות מול Google Drive…');
+                    const cleanup = await reconcileDriveMirror(rootFolder.id, seenDriveFileIds, seenDriveFolderIds);
+                    deletedImages = cleanup.deletedImages;
+                    deletedFolders = cleanup.deletedFolders;
+                }
             } finally {
                 driveFolderPickerState.rootFolderId = previousRootId;
             }
+            const deletionSummary = deletedImages || deletedFolders
+                ? ' נמחקו מהאתר ' + deletedImages + ' קבצים ו־' + deletedFolders + ' תיקיות שכבר אינם ב־Drive.'
+                : '';
+            const skippedCleanup = failed ? ' ניקוי מחיקות דולג בגלל קבצים שלא הסתנכרנו.' : '';
             setDriveSyncProgress(folders.length, folders.length,
-                'הסנכרון הושלם: ' + folders.length + ' תיקיות, ' + addedOrUpdated + ' קבצים נוספו או עודכנו.');
-            return { addedOrUpdated, unchanged, failed, total, folders: folders.length };
+                'הסנכרון הושלם: ' + folders.length + ' תיקיות, ' + addedOrUpdated + ' קבצים נוספו או עודכנו.'
+                    + deletionSummary + skippedCleanup);
+            return { addedOrUpdated, unchanged, failed, total, folders: folders.length, deletedImages, deletedFolders };
         }
 
         function ensureDriveFolderPickerModal() {
@@ -7553,7 +7614,19 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
             const favoriteCount = window.state.images.filter(item => window.state.favorites.has(safeRecordId(item.id))).length;
             const profileFavoritesCount = document.getElementById('profileFavoritesCount');
             if (profileFavoritesCount) profileFavoritesCount.textContent = String(favoriteCount);
-            window.state.folders.forEach(folder => {
+
+            const folders = [...(window.state.folders || [])].sort(function(a, b) {
+                if (a.id === 'all') return -1;
+                if (b.id === 'all') return 1;
+                if (a.syncedFromDrive !== b.syncedFromDrive) return a.syncedFromDrive ? 1 : -1;
+                if (a.syncedFromDrive && b.syncedFromDrive) {
+                    const pathCompare = String(a.drivePath || a.name || '').localeCompare(String(b.drivePath || b.name || ''), 'he');
+                    if (pathCompare) return pathCompare;
+                }
+                return String(a.name || '').localeCompare(String(b.name || ''), 'he');
+            });
+
+            folders.forEach(folder => {
                 const folderId = safeRecordId(folder.id);
                 if (!folderId) return;
                 const isActive = window.state.activeFolderId === folder.id;
@@ -7563,11 +7636,14 @@ document.addEventListener('DOMContentLoaded', scheduleDriveAutoSync);
                 const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="p-1 hover:text-red-500 rounded" aria-label="מחיקת התיקייה ${escapeHtml(folder.name)}"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
                 const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="p-1 hover:text-amber-400 rounded" aria-label="פתיחת עמוד האירוע ${escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="panel-top-open" class="w-4 h-4"></i></button>` : '';
                 const count = folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length;
+                const depth = folder.syncedFromDrive ? Math.max(0, Math.min(12, Number(folder.driveDepth) || 0)) : 0;
+                const nestingStyle = depth ? `style="margin-inline-start:${Math.min(depth * 18, 144)}px"` : '';
+                const branchIcon = depth ? '<span class="text-slate-600 shrink-0" aria-hidden="true">↳</span>' : '';
 
                 folderParts.push(`
-                    <div class="folder-row flex items-center justify-between group p-1 ${isActive ? 'is-active' : ''}">
+                    <div class="folder-row flex items-center justify-between group p-1 ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
                         <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button flex-1 flex items-center gap-3 px-3 py-2 text-sm" ${isActive ? 'aria-current="page"' : ''}>
-                            <i data-lucide="${safeIconName(folder.icon)}" class="w-4 h-4"></i><span class="truncate max-w-[120px]">${escapeHtml(folder.name)}</span><span class="folder-count mr-auto text-xs px-2 py-0.5 rounded-full">${count}</span>
+                            ${branchIcon}<i data-lucide="${safeIconName(folder.icon)}" class="w-4 h-4"></i><span class="truncate max-w-[150px]">${escapeHtml(folder.name)}</span><span class="folder-count mr-auto text-xs px-2 py-0.5 rounded-full">${count}</span>
                         </button><div class="flex items-center gap-1 pl-2 text-slate-400">${eventBtn}${delBtn}</div>
                     </div>`);
             });
