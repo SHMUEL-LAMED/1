@@ -2381,7 +2381,7 @@
 
                         <label class="block">
                             <span class="text-[9px] font-bold text-slate-400 block mb-1">קישור לתיקיית Drive או מזהה תיקייה:</span>
-                            <input type="text" id="driveFolderInput" inputmode="url" autocomplete="off" placeholder="https://drive.google.com/drive/folders/..." class="w-full rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20" dir="ltr">
+                            <input type="text" id="driveFolderInput" inputmode="url" autocomplete="off" value="https://drive.google.com/drive/folders/1Hb8mCpdnKcax8T6Xulq8PLXzlGcJaBhF" placeholder="https://drive.google.com/drive/folders/..." class="w-full rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20" dir="ltr">
                         </label>
 
                         <div class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] font-semibold leading-relaxed text-amber-300">
@@ -2412,7 +2412,7 @@
 
   <div class="grid grid-cols-2 gap-2">
     <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
-      <input type="checkbox" id="driveAutoSyncEnabled" class="rounded text-amber-500 focus:ring-amber-500">
+      <input type="checkbox" id="driveAutoSyncEnabled" checked disabled class="rounded text-amber-500 focus:ring-amber-500">
       <span class="text-[10px] font-semibold text-slate-300">הפעל אוטומטית</span>
     </label>
     <select id="driveAutoSyncInterval" class="rounded-xl border border-white/10 bg-slate-900 px-2 py-2 text-[10px] text-slate-200">
@@ -3821,11 +3821,39 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
+const DEFAULT_DRIVE_SYNC_FOLDER = Object.freeze({
+  url: 'https://drive.google.com/drive/folders/1Hb8mCpdnKcax8T6Xulq8PLXzlGcJaBhF',
+  label: "שמחס'",
+  autoSync: true
+});
+
+function getDriveAutoSyncSettings() {
+  let stored = {};
+  try {
+    stored = JSON.parse(localStorage.getItem('simchatDriveAutoSync') || '{}');
+  } catch (error) {
+    console.warn('Invalid Drive sync settings were reset:', error);
+  }
+  const folders = Array.isArray(stored.folders) ? stored.folders.filter(Boolean) : [];
+  const defaultId = parseDriveFolderId(DEFAULT_DRIVE_SYNC_FOLDER.url);
+  const withoutDuplicate = folders.filter(folder => parseDriveFolderId(folder?.url) !== defaultId);
+  const settings = {
+    ...stored,
+    folders: [DEFAULT_DRIVE_SYNC_FOLDER, ...withoutDuplicate],
+    enabled: true,
+    intervalMinutes: Math.max(15, Number(stored.intervalMinutes || 15))
+  };
+  localStorage.setItem('simchatDriveAutoSync', JSON.stringify(settings));
+  return settings;
+}
+
 async function loadDriveFolders() {
+  const folderInput = document.getElementById('driveFolderInput');
+  if (folderInput && !parseDriveFolderId(folderInput.value)) folderInput.value = DEFAULT_DRIVE_SYNC_FOLDER.url;
   const existingList = document.getElementById('driveFoldersList');
   if (existingList) existingList.innerHTML = '';
   try {
-    const settings = JSON.parse(localStorage.getItem('simchatDriveAutoSync') || '{}');
+    const settings = getDriveAutoSyncSettings();
     const folders = Array.isArray(settings.folders) ? settings.folders : [];
     const noMsg = document.getElementById('noFoldersMsg');
     const enabled = document.getElementById('driveAutoSyncEnabled');
@@ -3899,10 +3927,10 @@ async function saveDriveFoldersToWorker() {
 
   const resultEl = document.getElementById('workerSyncResult');
   try {
-    const previous = JSON.parse(localStorage.getItem('simchatDriveAutoSync') || '{}');
+    const previous = getDriveAutoSyncSettings();
     const settings = {
       folders,
-      enabled: document.getElementById('driveAutoSyncEnabled')?.checked === true,
+      enabled: true,
       intervalMinutes: Number(document.getElementById('driveAutoSyncInterval')?.value || 30),
       lastSync: previous.lastSync || null
     };
@@ -3924,7 +3952,7 @@ async function syncNowFromWorker() {
   try {
     if (!driveAccessToken) await restoreDriveConnection(false, true);
     if (!driveAccessToken) throw new Error('יש לחבר את Google Drive לפני הסנכרון.');
-    const settings = JSON.parse(localStorage.getItem('simchatDriveAutoSync') || '{}');
+    const settings = getDriveAutoSyncSettings();
     const folders = (settings.folders || []).filter(folder => folder.autoSync !== false && parseDriveFolderId(folder.url));
     if (!folders.length) throw new Error('לא הוגדרו תיקיות תקינות לסנכרון.');
     let total = 0;
@@ -3957,7 +3985,7 @@ async function syncNowFromWorker() {
 let driveAutoSyncTimer = null;
 function scheduleDriveAutoSync() {
   if (driveAutoSyncTimer) clearInterval(driveAutoSyncTimer);
-  const settings = JSON.parse(localStorage.getItem('simchatDriveAutoSync') || '{}');
+  const settings = getDriveAutoSyncSettings();
   if (!settings.enabled) return;
   const delay = Math.max(15, Number(settings.intervalMinutes || 30)) * 60000;
   driveAutoSyncTimer = setInterval(() => syncNowFromWorker(), delay);
