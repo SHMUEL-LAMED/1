@@ -1,0 +1,12 @@
+name = "simchas-gallery-api"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-08-02"
+
+[[r2_buckets]]
+binding = "GALLERY_BUCKET"
+bucket_name = "simchas-gallery"
+
+[[d1_databases]]
+binding = "GALLERY_DB"
+database_name = "simchas-gallery-db"
+database_id = "3b0ff7a3-153d-4cd8-a817-416a02b437bc"
