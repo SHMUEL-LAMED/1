@@ -1310,7 +1310,10 @@ function showAiSearchResultBanner(count, query) {
 // השהיה קצרה בין קבוצות וניסיון חוזר עם השהיה מכפילה כשמתקבל 429.
 const AI_SEARCH_BATCH_SIZE = 8;
 const AI_SEARCH_BATCH_DELAY_MS = 1200;
-const AI_SEARCH_MAX_RETRIES = 4;
+// חמישה ניסיונות פורשים 2+4+8+16+32 שניות, כלומר יותר מדקה. מגבלת הקצב של
+// OpenAI מתאפסת בחלון של דקה, ולכן ארבעה ניסיונות (30 שניות) עלולים להסתיים
+// כולם בתוך אותו חלון חסום.
+const AI_SEARCH_MAX_RETRIES = 5;
 const AI_SEARCH_RETRY_BASE_MS = 2000;
 
 function aiSearchDelay(ms) {
@@ -1421,7 +1424,12 @@ window.executeAiImageSearch = async function() {
         const regularSearch = document.getElementById('searchInput');
         if (regularSearch) regularSearch.value = '';
         window.renderImages();
-        showAiSearchResultBanner(matches.length, query);
+        // תקלה בעיטור התצוגה לא תהפוך חיפוש שהצליח לכישלון ולא תסתיר תוצאות.
+        try {
+            showAiSearchResultBanner(matches.length, query);
+        } catch (bannerError) {
+            console.warn('AI search banner failed to render:', bannerError);
+        }
         window.closeModal('aiImageSearchModal');
         const partialNote = failedBatches ? ` (${failedBatches} מתוך ${totalBatches} קבוצות לא נסרקו)` : '';
         window.showNotification(
