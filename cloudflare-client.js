@@ -9,6 +9,8 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 const GOOGLE_LIBRARY_MAX_ATTEMPTS = 30;
 const EMPTY_FOLDER_CLEANUP_AFTER_DELETE_MS = 3 * 1000;
 const EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS = 90 * 1000;
+// גודל העמוד שנשלח ל־Worker. אוסף גדול נטען בכמה עמודים ברצף.
+const DATA_PAGE_SIZE = 1000;
 
 const authState = { currentUser: null, listeners: new Set(), ready: false };
 let emptyFolderCleanupTimer = null;
@@ -295,7 +297,9 @@ export async function getDoc(reference) {
 
 export async function getDocs(reference) {
   const params = new URLSearchParams();
-  let requestedLimit = 5000;
+  // בלי limit() מפורש נטענים כל המסמכים באוסף. הקריאה עצמה עדיין מחולקת
+  // לעמודים של DATA_PAGE_SIZE כדי שתשובה בודדת לא תגדל בלי גבול.
+  let requestedLimit = Infinity;
 
   for (const constraint of reference.constraints || []) {
     if (constraint.kind === "orderBy") {
@@ -313,27 +317,27 @@ export async function getDocs(reference) {
     }
   }
 
-  // ✅ טעינת כל הדפים אוטומטית אם אין limit מפורש
+  const name = encodeURIComponent(collectionName(reference));
   const allDocs = [];
+  // כתיבה או מחיקה בין עמוד לעמוד מזיזה את ה־OFFSET, ואז אותה שורה
+  // עלולה לחזור פעמיים. המזהים שכבר נאספו מסננים את החזרות האלה.
+  const seenIds = new Set();
   let offset = 0;
-  const pageSize = 1000;
 
-  while (true) {
-    params.set("limit", String(Math.min(pageSize, requestedLimit - allDocs.length)));
+  while (allDocs.length < requestedLimit) {
+    params.set("limit", String(Math.min(DATA_PAGE_SIZE, requestedLimit - allDocs.length)));
     params.set("offset", String(offset));
 
-    const payload = await apiRequest(
-      `/data/${encodeURIComponent(collectionName(reference))}?${params}`
-    );
+    const payload = await apiRequest(`/data/${name}?${params}`);
+    const pageDocs = payload.documents || [];
 
-    const pageDocs = (payload.documents || []).map(item =>
-      documentSnapshot(item.id, item.data, true)
-    );
+    for (const item of pageDocs) {
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      allDocs.push(documentSnapshot(item.id, item.data, true));
+    }
 
-    allDocs.push(...pageDocs);
-
-    // עצור אם: אין עוד דפים, הגענו למגבלה, או אין hasMore
-    if (!payload.hasMore || allDocs.length >= requestedLimit || pageDocs.length === 0) break;
+    if (!payload.hasMore || pageDocs.length === 0) break;
     offset += pageDocs.length;
   }
 
