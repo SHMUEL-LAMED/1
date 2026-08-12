@@ -420,6 +420,55 @@ async function ensureInitialSuperAdminProfile(account, env) {
   return profile;
 }
 
+function sessionUser(account, profile) {
+  return {
+    uid: account.localId,
+    email: account.email,
+    displayName: profile?.displayName || account.displayName,
+    photoURL: profile?.photoURL || account.photoUrl || "",
+    status: profile?.status || "pending",
+    role: profile?.role || "viewer"
+  };
+}
+
+// אימות שרתי של אסימון Google מיד לאחר ההתחברות: הדפדפן שולח את ה־ID Token,
+// והשרת מאמת מול Google, יוצר פרופיל ממתין למשתמש חדש ומחזיר דרגה ומצב אישור.
+async function establishGoogleSession(request, env) {
+  const idToken = getBearerToken(request);
+  const account = await verifyGoogleAccount(idToken, env);
+  await ensureDatabaseSchema(env);
+
+  if (isInitialSuperAdminHash(await sha256(account.email))) {
+    const profile = await ensureInitialSuperAdminProfile(account, env);
+    return json(request, { success: true, isNewUser: false, user: sessionUser(account, profile) });
+  }
+
+  const now = Date.now();
+  const existing = await readUserProfile(account.localId, env, account.email);
+  if (existing?.status === "blocked") throw apiError("החשבון חסום.", 403, "account_blocked");
+
+  const profile = {
+    ...(existing || {}),
+    uid: account.localId,
+    displayName: account.displayName || existing?.displayName || "משתמש Google",
+    email: account.email,
+    photoURL: account.photoUrl || existing?.photoURL || "",
+    status: existing?.status || "pending",
+    role: existing?.role || "viewer",
+    requestedAt: existing?.requestedAt || now,
+    lastLoginAt: now
+  };
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+     VALUES ('userProfiles', ?, ?, ?, ?, ?)
+     ON CONFLICT(collection_name, document_id) DO UPDATE SET
+       data_json = excluded.data_json, owner_uid = excluded.owner_uid, updated_at = excluded.updated_at`
+  ).bind(account.localId, JSON.stringify(profile), account.localId, existing?.requestedAt || now, now).run();
+  await updateUserEmailIndex(env, account.localId, account.email, now);
+
+  return json(request, { success: true, isNewUser: !existing, user: sessionUser(account, profile) });
+}
+
 function assertDataPermission(actor, collectionName, method, documentId = "") {
   const approved = actor.status === "approved" || actor.initialAdmin;
   const admin = approved && ["admin", "super_admin"].includes(actor.role);
@@ -1326,6 +1375,9 @@ export default {
           bucketConnected: true,
           objectsFound: result.objects.length
         });
+      }
+      if (request.method === "POST" && url.pathname === "/auth/session") {
+        return await establishGoogleSession(request, env);
       }
       if (request.method === "POST" && url.pathname === "/upload") {
         return await uploadImage(request, env);

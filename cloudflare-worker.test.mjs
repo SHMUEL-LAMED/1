@@ -57,16 +57,22 @@ class MockD1 {
 
 const originalFetch = globalThis.fetch;
 
+const DEFAULT_TOKEN_INFO = {
+  sub: "google-user-1",
+  email: "user@example.com",
+  email_verified: "true",
+  aud: "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com",
+  name: "Test User",
+  picture: "https://lh3.googleusercontent.com/test"
+};
+let tokenInfo = DEFAULT_TOKEN_INFO;
+
+test.beforeEach(() => { tokenInfo = DEFAULT_TOKEN_INFO; });
+
 test.before(() => {
   globalThis.fetch = async url => {
     if (String(url).startsWith("https://oauth2.googleapis.com/tokeninfo")) {
-      return Response.json({
-        sub: "google-user-1",
-        email: "user@example.com",
-        email_verified: "true",
-        aud: "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com",
-        name: "Test User"
-      });
+      return Response.json(tokenInfo);
     }
     return new Response("not mocked", { status: 500 });
   };
@@ -119,6 +125,67 @@ test("approved uploader can create image metadata but cannot delete it", async (
 
   const remove = await worker.fetch(request("/data/images/image-1", "DELETE"), env(database));
   assert.equal(remove.status, 403);
+});
+
+test("sign-in verifies the Google token and stores a pending profile", async () => {
+  const database = new MockD1();
+  const response = await worker.fetch(request("/auth/session", "POST"), env(database));
+  assert.equal(response.status, 200);
+
+  const payload = await response.json();
+  assert.equal(payload.isNewUser, true);
+  assert.equal(payload.user.status, "pending");
+  assert.equal(payload.user.role, "viewer");
+  assert.equal(payload.user.email, "user@example.com");
+  assert.equal(payload.user.displayName, "Test User");
+  assert.equal(payload.user.photoURL, "https://lh3.googleusercontent.com/test");
+
+  const stored = JSON.parse(database.rows.get("userProfiles/google-user-1").data_json);
+  assert.equal(stored.status, "pending");
+});
+
+test("sign-in keeps the approved status and role of an existing user", async () => {
+  const database = new MockD1();
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "approved", role: "admin" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+  const response = await worker.fetch(request("/auth/session", "POST"), env(database));
+  assert.equal(response.status, 200);
+
+  const payload = await response.json();
+  assert.equal(payload.isNewUser, false);
+  assert.equal(payload.user.status, "approved");
+  assert.equal(payload.user.role, "admin");
+});
+
+test("sign-in rejects a Google token issued for another client id", async () => {
+  tokenInfo = { ...DEFAULT_TOKEN_INFO, aud: "999999-someone-else.apps.googleusercontent.com" };
+  const response = await worker.fetch(request("/auth/session", "POST"), env(new MockD1()));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "account_unavailable");
+});
+
+test("sign-in rejects an unverified Google email", async () => {
+  tokenInfo = { ...DEFAULT_TOKEN_INFO, email_verified: "false" };
+  const response = await worker.fetch(request("/auth/session", "POST"), env(new MockD1()));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "email_not_verified");
+});
+
+test("sign-in rejects a blocked account", async () => {
+  const database = new MockD1();
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "blocked", role: "viewer" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+  const response = await worker.fetch(request("/auth/session", "POST"), env(database));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "account_blocked");
 });
 
 test("health reports both D1 and R2", async () => {

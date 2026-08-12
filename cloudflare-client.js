@@ -115,6 +115,8 @@ export async function signInWithCredential(_auth, credential) {
 
 export async function signOut() {
   await setGoogleIdToken("");
+  // ביטול הבחירה האוטומטית מבטיח שבכניסה הבאה ייפתח שוב חלון בחירת החשבון.
+  try { window.google?.accounts?.id?.disableAutoSelect(); } catch { /* לא קריטי */ }
 }
 
 export function onAuthStateChanged(_auth, callback) {
@@ -371,9 +373,8 @@ export async function deleteDoc(reference) {
   return result;
 }
 
-// --- Google Button Logic ---
+// --- התחברות באמצעות חלון Google הרשמי (Google Identity Services) ---
 let googleButtonLibraryPromise = null;
-let googleButtonObserver = null;
 
 function waitForGoogleIdentityLibrary() {
   if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
@@ -396,106 +397,209 @@ function waitForGoogleIdentityLibrary() {
   return googleButtonLibraryPromise;
 }
 
-async function handleOfficialGoogleCredential(response) {
-  if (!response?.credential) {
-    window.showNotification?.("Google לא החזירה פרטי התחברות.", false);
-    return;
-  }
-  try {
-    const user = await setGoogleIdToken(response.credential);
-    if (!user) throw new Error("אסימון Google אינו תקין.");
-    window.showNotification?.("התחברת בהצלחה באמצעות Google!", true);
-  } catch (error) {
-    console.error("Official Google button sign-in failed:", error);
-    window.showNotification?.(error?.message || "ההתחברות באמצעות Google נכשלה.", false);
-  }
+// כתובת ההגדרות הרשמית של Google עבור FedCM. היא מאפשרת לדפדפן להציג את
+// חלון בחירת החשבון הרשמי של Google מעל האתר, בלי שהאתר רואה את רשימת החשבונות.
+const GOOGLE_FEDCM_CONFIG_URL = "https://accounts.google.com/gsi/fedcm.json";
+
+let googleIdentityInitialized = false;
+let googleFallbackButtonHost = null;
+let googleChooserInFlight = null;
+
+function ensureGoogleIdentityInitialized(googleIdentity) {
+  if (googleIdentityInitialized) return;
+  googleIdentity.initialize({
+    client_id: GOOGLE_WEB_CLIENT_ID,
+    callback: handleOfficialGoogleCredential,
+    context: "signin",
+    ux_mode: "popup",
+    // בחירה אוטומטית מבוטלת כדי שהמשתמש יוכל לבחור חשבון בכל כניסה.
+    auto_select: false,
+    cancel_on_tap_outside: false,
+    use_fedcm_for_prompt: true,
+    use_fedcm_for_button: true,
+    itp_support: true
+  });
+  googleIdentityInitialized = true;
 }
 
-function findLegacyGoogleButtons(root = document) {
-  if (!root?.querySelectorAll) return [];
-  return [...root.querySelectorAll(
-    'button[onclick*="signInWithGoogleAccount"], a[onclick*="signInWithGoogleAccount"]'
-  )];
+function googleUserCancelled(error) {
+  const name = String(error?.name || "");
+  return name === "NotAllowedError" || name === "AbortError";
 }
 
-async function replaceLegacyGoogleButton(button) {
-  if (!button || button.dataset.googleButtonReplacementStarted === "true") return;
-  button.dataset.googleButtonReplacementStarted = "true";
+function fedcmActiveModeSupported() {
+  return typeof window.IdentityCredential === "function"
+    && typeof navigator.credentials?.get === "function";
+}
 
-  const host = document.createElement("div");
-  host.dataset.officialGoogleButtonHost = "true";
-  host.setAttribute("role", "group");
-  host.setAttribute("aria-label", "התחברות באמצעות Google");
-  host.style.cssText = "display:flex;justify-content:center;align-items:center;width:100%;min-height:44px;direction:ltr;";
-  if (button.id) host.id = button.id;
-
-  // ✅ FIX: בדיקה שה-button עדיין ב-DOM לפני ה-replaceWith
-  if (!button.isConnected) return;
-  button.replaceWith(host);
-
-  try {
-    const googleIdentity = await waitForGoogleIdentityLibrary();
-
-    // ✅ FIX: בדיקה שה-host עדיין ב-DOM אחרי ה-await (מניעת race condition)
-    if (!host.isConnected) return;
-
-    googleIdentity.initialize({
-      client_id: GOOGLE_WEB_CLIENT_ID,
-      callback: handleOfficialGoogleCredential,
+// מצב "active" של FedCM הוא חלון בחירת החשבון הרשמי של Google שנפתח בעקבות
+// לחיצת המשתמש. mediation: "required" מבטיח שהחלון ייפתח בכל פעם ולא ייבחר
+// חשבון אוטומטית.
+async function requestGoogleAccountWithFedcm() {
+  const credential = await navigator.credentials.get({
+    identity: {
       context: "signin",
-      ux_mode: "popup",
-      auto_select: false,
-      cancel_on_tap_outside: false
-    });
-    const availableWidth = Math.round(host.getBoundingClientRect().width || 320);
-    googleIdentity.renderButton(host, {
-      type: "standard",
-      theme: "outline",
-      size: "large",
-      text: "signin_with",
-      shape: "pill",
-      logo_alignment: "left",
-      locale: "he",
-      width: Math.max(240, Math.min(400, availableWidth))
-    });
+      mode: "active",
+      providers: [{
+        configURL: GOOGLE_FEDCM_CONFIG_URL,
+        clientId: GOOGLE_WEB_CLIENT_ID
+      }]
+    },
+    mediation: "required"
+  });
+  return String(credential?.token || "");
+}
+
+function waitForRenderedGoogleButton(host) {
+  return new Promise(resolve => {
+    let attempts = 0;
+    const check = () => {
+      const target = host.querySelector('[role="button"]') || host.querySelector("iframe");
+      if (target) { resolve(target); return; }
+      attempts += 1;
+      if (attempts >= 40) { resolve(null); return; }
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
+// גיבוי לדפדפנים שאינם תומכים ב־FedCM: כפתור Google רשמי מוסתר, שלחיצה עליו
+// פותחת את חלון בחירת החשבון הרשמי במצב popup.
+async function ensureGoogleFallbackButton(googleIdentity) {
+  if (googleFallbackButtonHost?.isConnected) return googleFallbackButtonHost;
+  const host = document.createElement("div");
+  host.dataset.officialGoogleButtonHost = "fallback";
+  host.setAttribute("aria-hidden", "true");
+  host.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:44px;opacity:0;";
+  document.body.appendChild(host);
+  googleIdentity.renderButton(host, {
+    type: "standard",
+    theme: "outline",
+    size: "large",
+    text: "signin_with",
+    shape: "pill",
+    logo_alignment: "left",
+    locale: "he",
+    width: 320
+  });
+  googleFallbackButtonHost = host;
+  return host;
+}
+
+async function openGoogleChooserWithPopupButton(googleIdentity) {
+  const host = await ensureGoogleFallbackButton(googleIdentity);
+  const target = await waitForRenderedGoogleButton(host);
+  if (!target) return false;
+  target.click();
+  return true;
+}
+
+async function handleOfficialGoogleCredential(response) {
+  const idToken = String(response?.credential || "");
+  if (!idToken) {
+    window.showNotification?.("Google לא החזירה פרטי התחברות. נסה להתחבר שוב.", false);
+    return null;
+  }
+  try {
+    const user = await setGoogleIdToken(idToken);
+    if (!user) throw new Error("אסימון Google אינו תקין. נסה להתחבר שוב.");
+
+    // אימות האסימון בצד השרת לפני שמכריזים על התחברות מוצלחת.
+    const session = await verifyGoogleSessionOnServer(idToken);
+    const displayName = session?.user?.displayName || user.displayName;
+    // כשהשרת עדיין לא מכיר את הנתיב, מצב האישור מגיע מסנכרון הפרופיל הרגיל.
+    const awaitingApproval = session?.user ? session.user.status !== "approved" : false;
+    window.showNotification?.(
+      awaitingApproval
+        ? `שלום ${displayName}, בקשת ההצטרפות נשלחה לאישור מנהל.`
+        : `שלום ${displayName}, התחברת בהצלחה.`,
+      true
+    );
+    return user;
   } catch (error) {
-    console.error("Rendering the official Google button failed:", error);
-    // ✅ FIX: בדיקת isConnected גם בטיפול בשגיאה
-    if (!host.isConnected) return;
-    const fallback = document.createElement("button");
-    fallback.type = "button";
-    fallback.textContent = "התחברות באמצעות Google";
-    fallback.style.cssText = "width:100%;min-height:44px;";
-    fallback.onclick = () => window.showNotification?.(error?.message || "לא ניתן לטעון את Google.", false);
-    host.replaceChildren(fallback);
+    console.error("Google sign-in failed:", error);
+    // אסימון שנדחה בשרת לא נשאר בדפדפן.
+    if (["invalid_token", "account_unavailable", "email_not_verified", "account_blocked"].includes(error?.code)) {
+      await setGoogleIdToken("");
+    }
+    window.showNotification?.(error?.message || "ההתחברות באמצעות Google נכשלה.", false);
+    return null;
   }
 }
 
-function installOfficialGoogleButtons(root = document) {
-  for (const button of findLegacyGoogleButtons(root)) {
-    replaceLegacyGoogleButton(button);
+async function verifyGoogleSessionOnServer(idToken) {
+  const response = await fetch(`${API_BASE_URL}/auth/session`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${idToken}` }
+  });
+
+  // ה־Worker נפרס בנפרד מהאתר, ולכן ייתכן שהאתר כבר עודכן והשרת עדיין לא.
+  // במצב הזה ממשיכים בלי הבדיקה הנוספת: כל בקשת נתונים מאמתת ממילא את
+  // האסימון מול Google מחדש, כך שאין כאן ויתור על אבטחה.
+  if (response.status === 404) {
+    console.warn("Worker route POST /auth/session is not deployed yet; continuing without the extra sign-in check.");
+    return null;
   }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.message || `אימות ההתחברות בשרת נכשל (${response.status}).`);
+    error.code = payload?.code || "session_verification_failed";
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
 }
 
-function startOfficialGoogleButtonUpgrade() {
-  installOfficialGoogleButtons();
-  if (googleButtonObserver) return;
-  googleButtonObserver = new MutationObserver(mutations => {
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (!(node instanceof Element)) continue;
-        if (node.matches?.('button[onclick*="signInWithGoogleAccount"], a[onclick*="signInWithGoogleAccount"]')) {
-          replaceLegacyGoogleButton(node);
-        }
-        installOfficialGoogleButtons(node);
+// פותח את חלון בחירת החשבון הרשמי של Google. אין כאן שום רשימת חשבונות
+// מקומית — כל התצוגה מגיעה מ־Google עצמה.
+export async function openGoogleAccountChooser() {
+  if (googleChooserInFlight) return googleChooserInFlight;
+
+  googleChooserInFlight = (async () => {
+    let googleIdentity;
+    try {
+      googleIdentity = await waitForGoogleIdentityLibrary();
+    } catch (error) {
+      console.error("Google Identity Services failed to load:", error);
+      window.showNotification?.(
+        "ספריית ההתחברות של Google לא נטענה. בדוק את החיבור לאינטרנט או חוסם פרסומות, ורענן את הדף.",
+        false
+      );
+      return false;
+    }
+
+    ensureGoogleIdentityInitialized(googleIdentity);
+    // מבטל בחירה אוטומטית כדי שחלון בחירת החשבון ייפתח בכל לחיצה.
+    try { googleIdentity.disableAutoSelect(); } catch { /* לא קריטי */ }
+
+    if (fedcmActiveModeSupported()) {
+      try {
+        const idToken = await requestGoogleAccountWithFedcm();
+        if (idToken) return Boolean(await handleOfficialGoogleCredential({ credential: idToken }));
+      } catch (error) {
+        if (googleUserCancelled(error)) return false;
+        console.warn("FedCM chooser unavailable, falling back to the Google popup window:", error);
       }
     }
-  });
-  googleButtonObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    try {
+      if (await openGoogleChooserWithPopupButton(googleIdentity)) return true;
+      throw new Error("הכפתור הרשמי של Google לא נטען.");
+    } catch (error) {
+      console.error("Opening the Google account chooser failed:", error);
+      window.showNotification?.(
+        "לא ניתן היה לפתוח את חלון ההתחברות של Google. ייתכן שהדפדפן חוסם חלונות קופצים — אפשר חלונות קופצים עבור אתר זה ונסה שוב.",
+        false
+      );
+      return false;
+    }
+  })().finally(() => { googleChooserInFlight = null; });
+
+  return googleChooserInFlight;
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", startOfficialGoogleButtonUpgrade, { once: true });
-} else {
-  startOfficialGoogleButtonUpgrade();
-}
+// כל כפתור "התחבר באמצעות Google" באתר קורא לפונקציה הזו.
+window.signInWithGoogleAccount = openGoogleAccountChooser;
+window.openGoogleAccountChooser = openGoogleAccountChooser;
