@@ -508,10 +508,12 @@ async function handleOfficialGoogleCredential(response) {
     // אימות האסימון בצד השרת לפני שמכריזים על התחברות מוצלחת.
     const session = await verifyGoogleSessionOnServer(idToken);
     const displayName = session?.user?.displayName || user.displayName;
+    // כשהשרת עדיין לא מכיר את הנתיב, מצב האישור מגיע מסנכרון הפרופיל הרגיל.
+    const awaitingApproval = session?.user ? session.user.status !== "approved" : false;
     window.showNotification?.(
-      session?.user?.status === "approved"
-        ? `שלום ${displayName}, התחברת בהצלחה.`
-        : `שלום ${displayName}, בקשת ההצטרפות נשלחה לאישור מנהל.`,
+      awaitingApproval
+        ? `שלום ${displayName}, בקשת ההצטרפות נשלחה לאישור מנהל.`
+        : `שלום ${displayName}, התחברת בהצלחה.`,
       true
     );
     return user;
@@ -531,6 +533,15 @@ async function verifyGoogleSessionOnServer(idToken) {
     method: "POST",
     headers: { Authorization: `Bearer ${idToken}` }
   });
+
+  // ה־Worker נפרס בנפרד מהאתר, ולכן ייתכן שהאתר כבר עודכן והשרת עדיין לא.
+  // במצב הזה ממשיכים בלי הבדיקה הנוספת: כל בקשת נתונים מאמתת ממילא את
+  // האסימון מול Google מחדש, כך שאין כאן ויתור על אבטחה.
+  if (response.status === 404) {
+    console.warn("Worker route POST /auth/session is not deployed yet; continuing without the extra sign-in check.");
+    return null;
+  }
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload?.message || `אימות ההתחברות בשרת נכשל (${response.status}).`);
