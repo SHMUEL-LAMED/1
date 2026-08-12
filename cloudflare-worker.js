@@ -17,6 +17,10 @@ const DEFAULT_DRIVE_SITE_URL = "https://shmuel-lamed.github.io/1/";
 const DRIVE_STATE_TTL_MS = 10 * 60 * 1000;
 const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 const DATABASE_SCHEMA_VERSION = 3;
+// גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
+// על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
+const DATA_PAGE_MAX_LIMIT = 1000;
+const DATA_PAGE_DEFAULT_LIMIT = 500;
 // כל בקשה ל־/ai-search צורכת מכסה אחת, כולל ניסיונות חוזרים אחרי 429.
 // חיפוש מלא הוא עד 10 קבוצות, וכל קבוצה עשויה להגיע לשישה ניסיונות —
 // כלומר עד 60 בקשות. המגבלה גבוהה מכך כדי שחיפוש אחד לא יחסום את עצמו.
@@ -538,17 +542,24 @@ async function handleDataRequest(request, env, url) {
   }
 
   if (request.method === "GET") {
-    const rowLimit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 500));
+    const rowLimit = Math.max(1, Math.min(DATA_PAGE_MAX_LIMIT, Number(url.searchParams.get("limit")) || DATA_PAGE_DEFAULT_LIMIT));
+    const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset")) || 0));
     const orderField = safeDataPart(url.searchParams.get("orderBy") || "updatedAt", "שדה המיון");
     const direction = url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
+    // document_id הוא שובר־שוויון: בלי סדר מלא ויציב, OFFSET על שדה עם ערכים
+    // חוזרים עלול להחזיר את אותה שורה בשני עמודים או לדלג על שורה.
+    // שורה אחת מעבר לעמוד מגלה אם קיים המשך, בלי שאילתת ספירה נוספת.
     const result = await env.GALLERY_DB.prepare(
       `SELECT document_id, data_json FROM gallery_documents
        WHERE collection_name = ?
-       ORDER BY CAST(COALESCE(json_extract(data_json, '$.${orderField}'), 0) AS REAL) ${direction}
-       LIMIT ?`
-    ).bind(collectionName, rowLimit).all();
-    const documents = (result.results || []).map(row => ({ id: row.document_id, data: parseDocumentData(row) }));
-    return json(request, { success: true, documents });  }
+       ORDER BY CAST(COALESCE(json_extract(data_json, '$.${orderField}'), 0) AS REAL) ${direction}, document_id ASC
+       LIMIT ? OFFSET ?`
+    ).bind(collectionName, rowLimit + 1, offset).all();
+    const rows = result.results || [];
+    const hasMore = rows.length > rowLimit;
+    const documents = rows.slice(0, rowLimit).map(row => ({ id: row.document_id, data: parseDocumentData(row) }));
+    return json(request, { success: true, documents, offset, limit: rowLimit, hasMore });
+  }
 
   if (request.method === "PUT" && documentId) {
     const payload = await request.json().catch(() => ({}));

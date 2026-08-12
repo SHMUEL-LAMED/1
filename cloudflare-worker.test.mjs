@@ -24,12 +24,23 @@ class MockD1 {
         return row ? { ...row } : null;
       },
       async all() {
-        const collection = bindings[0];
-        return {
-          results: [...database.rows.entries()]
-            .filter(([key]) => key.startsWith(`${collection}/`))
-            .map(([, row]) => ({ ...row }))
-        };
+        if (sql.includes("PRAGMA")) return { results: [] };
+        const [collection, rowLimit, offset] = bindings;
+        // מחקה את ORDER BY / LIMIT / OFFSET של D1 כדי שהדפדוף ייבדק באמת.
+        const orderField = /json_extract\(data_json, '\$\.([^']+)'\)/.exec(sql)?.[1] || "updatedAt";
+        const descending = /AS REAL\) DESC/.test(sql);
+        const rows = [...database.rows.entries()]
+          .filter(([key]) => key.startsWith(`${collection}/`))
+          .map(([, row]) => ({ ...row }))
+          .sort((left, right) => {
+            const a = Number(JSON.parse(left.data_json)?.[orderField]) || 0;
+            const b = Number(JSON.parse(right.data_json)?.[orderField]) || 0;
+            if (a !== b) return descending ? b - a : a - b;
+            return String(left.document_id).localeCompare(String(right.document_id));
+          });
+        const start = Math.max(0, Number(offset) || 0);
+        const size = Number(rowLimit);
+        return { results: Number.isFinite(size) ? rows.slice(start, start + size) : rows.slice(start) };
       },
       async run() {
         if (sql.trim().startsWith("INSERT INTO gallery_documents")) {
@@ -194,4 +205,107 @@ test("health reports both D1 and R2", async () => {
   const payload = await response.json();
   assert.equal(payload.databaseConnected, true);
   assert.equal(payload.bucketConnected, true);
+});
+
+// גלריה גדולה. הערכים החוזרים ב-uploadedAt הם העיקר: בלי שובר־שוויון
+// יציב במיון, OFFSET מחזיר שורות כפולות ומדלג על אחרות.
+const LARGE_GALLERY_SIZE = 1500;
+
+function seedApprovedViewer(database) {
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "approved", role: "viewer" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+}
+
+function seedImages(database, count) {
+  const ids = [];
+  for (let index = 0; index < count; index += 1) {
+    const id = `image-${String(index).padStart(5, "0")}`;
+    ids.push(id);
+    database.rows.set(`images/${id}`, {
+      document_id: id,
+      data_json: JSON.stringify({ id, title: `תמונה ${index}`, uploadedAt: 1_700_000_000_000 + Math.floor(index / 100) }),
+      owner_uid: "google-user-1",
+      created_at: Date.now(),
+      updated_at: Date.now()
+    });
+  }
+  return ids;
+}
+
+test("listing pages through a large collection with offset and hasMore", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  seedImages(database, LARGE_GALLERY_SIZE);
+
+  const first = await (await worker.fetch(
+    request("/data/images?orderBy=uploadedAt&direction=desc&limit=1000&offset=0"), env(database)
+  )).json();
+  assert.equal(first.documents.length, 1000);
+  assert.equal(first.hasMore, true);
+
+  const second = await (await worker.fetch(
+    request("/data/images?orderBy=uploadedAt&direction=desc&limit=1000&offset=1000"), env(database)
+  )).json();
+  assert.equal(second.documents.length, LARGE_GALLERY_SIZE - 1000);
+  assert.equal(second.hasMore, false);
+
+  const firstIds = new Set(first.documents.map(item => item.id));
+  assert.equal(second.documents.some(item => firstIds.has(item.id)), false);
+});
+
+test("the client loads every image of a 1500 image gallery without duplicates", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const seededIds = seedImages(database, LARGE_GALLERY_SIZE);
+
+  const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    sub: "google-user-1",
+    email: "user@example.com",
+    email_verified: true,
+    name: "Test User",
+    exp: Math.floor(Date.now() / 1000) + 3600
+  })).toString("base64url");
+  const idToken = `${header}.${payload}.signature`;
+
+  const store = new Map([["simchas_gallery_google_id_token", idToken]]);
+  globalThis.window = {};
+  globalThis.document = { readyState: "loading", addEventListener() {} };
+  globalThis.sessionStorage = {
+    getItem: key => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: key => store.delete(key)
+  };
+
+  // הלקוח פונה ל־Worker דרך fetch; כאן הבקשה מנותבת ישירות אליו.
+  const mockedFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const href = String(url);
+    if (!href.includes("workers.dev")) return mockedFetch(url, options);
+    requestCount += 1;
+    const headers = new Headers(options.headers || {});
+    headers.set("Origin", "https://shmuel-lamed.github.io");
+    return worker.fetch(new Request(href, { method: options.method || "GET", headers, body: options.body }), env(database));
+  };
+
+  try {
+    const client = await import("./cloudflare-client.js");
+    const snapshot = await client.getDocs(
+      client.query(client.collection(null, "images"), client.orderBy("uploadedAt", "desc"))
+    );
+
+    assert.equal(snapshot.size, LARGE_GALLERY_SIZE);
+    const loadedIds = snapshot.docs.map(item => item.id);
+    assert.equal(new Set(loadedIds).size, LARGE_GALLERY_SIZE);
+    assert.deepEqual([...loadedIds].sort(), [...seededIds].sort());
+    // 1500 מסמכים בעמודים של 1000: שני עמודים, לא בקשה אחת ולא לולאה אינסופית.
+    assert.equal(requestCount, 2);
+  } finally {
+    globalThis.fetch = mockedFetch;
+  }
 });
