@@ -1,7 +1,7 @@
 // drive-sync.js — חיבור וסנכרון Google Drive, סריקה רקורסיבית, מחיקות ותיקיות ריקות
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
-import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithCredential, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit } from "./cloudflare-client.js";
+import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit } from "./cloudflare-client.js";
 
 // שכבת תאימות: הממשק הקיים נשאר זהה, והנתונים נשמרים ב־Cloudflare D1.
 window.db = null;
@@ -95,9 +95,6 @@ let driveAccessToken = null;
 let driveAccessTokenExpiresAt = 0;
 let driveRestorePromise = null;
 let driveRestoredForUid = '';
-let oneTapInitialized = false;
-let oneTapPromptRequested = false;
-const GOOGLE_ONE_TAP_CLIENT_ID = '601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com';
 const DRIVE_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
 const driveReturnStatus = new URLSearchParams(window.location.search).get('drive');
 // נשמרות רק טביעות SHA-256 של חשבון מנהל-העל, לא הכתובת או המזהה עצמם.
@@ -106,9 +103,6 @@ const INITIAL_SUPER_ADMIN_EMAIL_SHA256S = new Set([
     '0c70c93b21ed7d7ac11f8a0e41cf0811b221f8e16524ed71d8b1822661edc137',
     'd2632af59d29239eef52f10e1cfbf38e27c65c55470b355134b1cd1fb4f809d6'
 ]);
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
-
 function dismissGoogleOneTap() {
     try {
         window.google?.accounts?.id?.cancel();
@@ -133,58 +127,6 @@ async function isInitialSuperAdmin(user) {
     ]);
     return uidHash === INITIAL_ADMIN_UID_SHA256 || INITIAL_SUPER_ADMIN_EMAIL_SHA256S.has(emailHash);
 }
-
-async function handleGoogleOneTapCredential(response) {
-    if (!response?.credential) return;
-    try {
-        const credential = GoogleAuthProvider.credential(response.credential);
-        await signInWithCredential(auth, credential);
-        dismissGoogleOneTap();
-        window.showNotification('התחברת בהצלחה באמצעות Google!', true);
-    } catch (error) {
-        console.error('Google One Tap sign-in failed:', error);
-        window.showNotification('ההתחברות המהירה באמצעות Google נכשלה. אפשר להשתמש בכפתור ההתחברות הרגיל.', false);
-    }
-}
-
-function showGoogleOneTapWhenReady(force = false) {
-    // מבקשים מ-Google להציג את בוחר החשבון בכל ביקור בדף, גם אם
-    // הדפדפן עשוי לזכור התחברות קודמת. Google עצמה עשויה להסתיר את
-    // החלון בזמן השהיה לאחר שהמשתמש סגר אותו.
-    if (force) oneTapPromptRequested = false;
-    if (oneTapPromptRequested) return;
-    let attempts = 0;
-    const tryShow = () => {
-        const googleIdentity = window.google?.accounts?.id;
-        if (!googleIdentity) {
-            attempts += 1;
-            if (attempts < 40) setTimeout(tryShow, 250);
-            return;
-        }
-        if (!oneTapInitialized) {
-            googleIdentity.initialize({
-                client_id: GOOGLE_ONE_TAP_CLIENT_ID,
-                callback: handleGoogleOneTapCredential,
-                context: 'signin',
-                auto_select: false,
-                cancel_on_tap_outside: false,
-                use_fedcm_for_prompt: true,
-                itp_support: true
-            });
-            oneTapInitialized = true;
-        }
-        oneTapPromptRequested = true;
-        googleIdentity.prompt();
-    };
-    tryShow();
-}
-
-// גם חזרה לדף מהמטמון של הדפדפן נחשבת ביקור חדש.
-window.addEventListener('pageshow', (event) => {
-    if (!event.persisted) return;
-    oneTapPromptRequested = false;
-    showGoogleOneTapWhenReady();
-});
 
 function setDriveConnectionUI(email = '') {
     const connected = Boolean(driveAccessToken);
@@ -1175,16 +1117,11 @@ window.startGoogleDriveSync = async function(confirmed = false) {
     }
 };
 
+// ההתחברות עצמה מנוהלת ב־cloudflare-client.js, שם נפתח חלון בחירת החשבון
+// הרשמי של Google. כאן רק מוודאים שאין חלון Google פתוח שמסתיר אותו.
 window.signInWithGoogleAccount = async function() {
-    if (!auth) { window.showNotification("המערכת עדיין מתחברת...", false); return; }
-    try {
-        dismissGoogleOneTap();
-        window.showNotification("פותח התחברות באמצעות Google...", true);
-        showGoogleOneTapWhenReady(true);
-    } catch (e) {
-        console.error("Google sign-in error", e);
-        window.showNotification("ההתחברות באמצעות Google נכשלה.", false);
-    }
+    dismissGoogleOneTap();
+    return window.openGoogleAccountChooser();
 };
 
 window.signOutGoogleAccount = async function(confirmed = false) {
@@ -1483,7 +1420,6 @@ async function initFirebase() {
                 window.state.userApprovalStatus = isInitialAdmin ? 'approved' : (isGoogleUser ? 'pending' : 'signed_out');
 
                 window.updateAdminUI();
-                showGoogleOneTapWhenReady();
                 // סנכרון הפרופיל ואתחול המאזינים רצים במקביל —
                 // המאזין על הפרופיל מפעיל את טעינת הגלריה ברגע שהפרופיל זמין.
                 if (isGoogleUser) {
@@ -1531,7 +1467,6 @@ async function initFirebase() {
                 window.state.selectedMediaIds = new Set();
                 window.state.bulkSelectionMode = false;
                 window.updateAdminUI();
-                showGoogleOneTapWhenReady();
                 window.renderFolders();
                 window.renderImages();
                 // אם אין משתמש מחובר בכלל, נבצע התחברות אנונימית לקריאת נתונים
