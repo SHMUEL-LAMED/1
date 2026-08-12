@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v16";
+const CACHE_VERSION = "v17";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -75,6 +75,20 @@ function staleWhileRevalidate(request, cacheName) {
   );
 }
 
+// קודם רשת, ובנפילה בלבד חוזרים למטמון. מתאים לקוד של האתר: גרסה חדשה
+// מגיעה למשתמש כבר בטעינה הראשונה אחרי פריסה, והמטמון נשאר גיבוי לאופליין.
+function networkFirst(request, cacheName) {
+  return fetch(request)
+    .then(response => {
+      if (response && response.ok) {
+        const copy = response.clone();
+        caches.open(cacheName).then(cache => cache.put(request, copy)).catch(() => {});
+      }
+      return response;
+    })
+    .catch(() => caches.match(request, { cacheName }).then(cached => cached || caches.match(request)));
+}
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -109,8 +123,16 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // CSS, JavaScript, אייקונים וקבצים סטטיים אחרים.
-  if (STATIC_DESTINATIONS.has(request.destination) || /\.(?:css|js|mjs|png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(url.pathname)) {
+  // קוד האתר. stale-while-revalidate היה מגיש כאן את הגרסה הישנה מהמטמון
+  // ומרענן רק לפעם הבאה, כך שאחרי כל פריסה הטעינה הראשונה עדיין הריצה קוד ישן.
+  if (request.destination === "script" || request.destination === "style"
+    || /\.(?:css|js|mjs)$/i.test(url.pathname)) {
+    event.respondWith(networkFirst(request, CACHE_NAME));
+    return;
+  }
+
+  // אייקונים, גופנים וקבצים סטטיים אחרים משתנים לעתים רחוקות.
+  if (STATIC_DESTINATIONS.has(request.destination) || /\.(?:png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(url.pathname)) {
     event.respondWith(staleWhileRevalidate(request, CACHE_NAME));
   }
 });
