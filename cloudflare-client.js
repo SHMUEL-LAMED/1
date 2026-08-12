@@ -397,12 +397,7 @@ function waitForGoogleIdentityLibrary() {
   return googleButtonLibraryPromise;
 }
 
-// כתובת ההגדרות הרשמית של Google עבור FedCM. היא מאפשרת לדפדפן להציג את
-// חלון בחירת החשבון הרשמי של Google מעל האתר, בלי שהאתר רואה את רשימת החשבונות.
-const GOOGLE_FEDCM_CONFIG_URL = "https://accounts.google.com/gsi/fedcm.json";
-
 let googleIdentityInitialized = false;
-let googleChooserInFlight = null;
 let officialButtonsInstalled = false;
 let googleButtonObserver = null;
 
@@ -423,59 +418,10 @@ function ensureGoogleIdentityInitialized(googleIdentity) {
   googleIdentityInitialized = true;
 }
 
-function googleUserCancelled(error) {
-  const name = String(error?.name || "");
-  return name === "NotAllowedError" || name === "AbortError";
-}
-
-function fedcmActiveModeSupported() {
-  return typeof window.IdentityCredential === "function"
-    && typeof navigator.credentials?.get === "function";
-}
-
-// מצב "active" של FedCM הוא חלון בחירת החשבון הרשמי של Google שנפתח בעקבות
-// לחיצת המשתמש. mediation: "required" מבטיח שהחלון ייפתח בכל פעם ולא ייבחר
-// חשבון אוטומטית.
-async function requestGoogleAccountWithFedcm() {
-  const credential = await navigator.credentials.get({
-    identity: {
-      context: "signin",
-      mode: "active",
-      providers: [{
-        configURL: GOOGLE_FEDCM_CONFIG_URL,
-        clientId: GOOGLE_WEB_CLIENT_ID
-      }]
-    },
-    mediation: "required"
-  });
-  return String(credential?.token || "");
-}
-
-// מסלול יחיד וסופי: ברגע שחלון FedCM נפתח, שום מסלול אחר לא מופעל אחריו.
-// כל שגיאה מטופלת כאן ומסתיימת כאן, כדי שלא ייפתח חלון שני על אותה לחיצה.
-async function signInWithGoogleFedcm() {
-  try {
-    const idToken = await requestGoogleAccountWithFedcm();
-    if (!idToken) {
-      window.showNotification?.("Google לא החזירה פרטי התחברות. נסה להתחבר שוב.", false);
-      return false;
-    }
-    return Boolean(await handleOfficialGoogleCredential({ credential: idToken }));
-  } catch (error) {
-    // סגירת החלון על ידי המשתמש אינה שגיאה.
-    if (googleUserCancelled(error)) return false;
-    console.error("The Google account chooser (FedCM) failed:", error);
-    window.showNotification?.(
-      "לא ניתן היה להשלים את ההתחברות מול Google. בדוק שחלונות קופצים אינם חסומים ונסה שוב.",
-      false
-    );
-    return false;
-  }
-}
-
-// דפדפנים ללא FedCM מקבלים את הכפתור הרשמי של Google במקום כפתור האתר.
-// הלחיצה חייבת להיות לחיצת משתמש אמיתית על הכפתור של Google — לחיצה
-// תכנותית מייצרת בקשת OAuth פגומה (Required parameter is missing: response_type).
+// כל הדפדפנים מקבלים את הכפתור הרשמי של Google במקום כפתור האתר. ספריית
+// Google Identity Services מנהלת בעצמה את FedCM ואת בקשת OAuth התקינה.
+// הלחיצה חייבת להיות לחיצת משתמש אמיתית על הכפתור של Google — אין להפעיל
+// navigator.credentials.get או לחיצה תכנותית, שיצרו בקשת OAuth פגומה.
 function renderOfficialGoogleButton(host, googleIdentity) {
   host.replaceChildren();
   const width = Math.round(host.getBoundingClientRect().width || 320);
@@ -513,9 +459,10 @@ function replaceSiteButtonWithOfficialButton(button, googleIdentity) {
   renderOfficialGoogleButton(host, googleIdentity);
 }
 
-// מותקן רק כשאין FedCM. בדפדפנים עם FedCM כפתורי האתר נשארים כמו שהם.
+// מתקין את כפתורי Google הרשמיים פעם אחת ומשגיח גם על חלקי ממשק שנבנים
+// מאוחר יותר. FedCM, כשהוא זמין, מופעל על ידי ספריית Google עצמה.
 async function installOfficialGoogleButtons() {
-  if (fedcmActiveModeSupported() || officialButtonsInstalled) return false;
+  if (officialButtonsInstalled) return true;
 
   let googleIdentity;
   try {
@@ -612,49 +559,22 @@ async function verifyGoogleSessionOnServer(idToken) {
 // פותח את חלון בחירת החשבון הרשמי של Google. אין כאן שום רשימת חשבונות
 // מקומית — כל התצוגה מגיעה מ־Google עצמה.
 export async function openGoogleAccountChooser() {
-  if (googleChooserInFlight) return googleChooserInFlight;
-
-  googleChooserInFlight = (async () => {
-    let googleIdentity;
-    try {
-      googleIdentity = await waitForGoogleIdentityLibrary();
-    } catch (error) {
-      console.error("Google Identity Services failed to load:", error);
-      window.showNotification?.(
-        "ספריית ההתחברות של Google לא נטענה. בדוק את החיבור לאינטרנט או חוסם פרסומות, ורענן את הדף.",
-        false
-      );
-      return false;
-    }
-
-    ensureGoogleIdentityInitialized(googleIdentity);
-    // מבטל בחירה אוטומטית כדי שחלון בחירת החשבון ייפתח בכל לחיצה.
-    try { googleIdentity.disableAutoSelect(); } catch { /* לא קריטי */ }
-
-    // בכל לחיצה מופעל מסלול אחד בלבד. כשיש FedCM זהו המסלול היחיד, ואין
-    // אחריו נפילה למסלול נוסף — אחרת נפתחים שני חלונות על אותה לחיצה.
-    if (fedcmActiveModeSupported()) return signInWithGoogleFedcm();
-
-    // ללא FedCM ההתחברות מתבצעת בלחיצה על הכפתור הרשמי של Google עצמו.
-    const installed = await installOfficialGoogleButtons();
-    window.showNotification?.(
-      installed
-        ? "לחץ על כפתור Google כדי לבחור חשבון."
-        : "ספריית ההתחברות של Google לא נטענה. בדוק את החיבור לאינטרנט או חוסם פרסומות, ורענן את הדף.",
-      installed
-    );
-    return false;
-  })().finally(() => { googleChooserInFlight = null; });
-
-  return googleChooserInFlight;
+  const installed = await installOfficialGoogleButtons();
+  window.showNotification?.(
+    installed
+      ? "לחץ על כפתור Google הרשמי כדי לבחור חשבון."
+      : "ספריית ההתחברות של Google לא נטענה. בדוק את החיבור לאינטרנט או חוסם פרסומות, ורענן את הדף.",
+    installed
+  );
+  return false;
 }
 
 // כל כפתור "התחבר באמצעות Google" באתר קורא לפונקציה הזו.
 window.signInWithGoogleAccount = openGoogleAccountChooser;
 window.openGoogleAccountChooser = openGoogleAccountChooser;
 
-// בדפדפנים ללא FedCM מחליפים את כפתורי האתר בכפתור הרשמי כבר בטעינה,
-// כדי שגם שם ההתחברות תושלם בלחיצה אחת.
+// מחליפים את כפתורי האתר בכפתור הרשמי כבר בטעינה, כדי שההתחברות תושלם
+// בלחיצת משתמש אחת ובמסלול היחיד שנתמך על ידי Google Identity Services.
 function startOfficialGoogleButtonSetup() {
   installOfficialGoogleButtons().catch(error => {
     console.warn("Installing the official Google buttons failed:", error);
