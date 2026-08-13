@@ -924,68 +924,93 @@
     </div>
 
     <!-- NATIVE IN-APP SUPER ADMIN MESSAGE CENTER -->
-    <div id="adminMessagesCenterModal" class="fixed inset-0 z-[110] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="מרכז שליחת הודעות">
-        <div class="admin-messages-window w-full h-full max-w-6xl mx-auto rounded-3xl overflow-hidden flex flex-col modal-animate-popup">
-            <div class="flex items-center justify-between gap-4 px-5 sm:px-7 py-4 border-b border-white/10">
-                <div>
-                    <h3 class="text-base sm:text-xl font-extrabold text-white flex items-center gap-2"><i data-lucide="messages-square" class="w-5 h-5 text-amber-400"></i> מרכז שליחת הודעות</h3>
-                    <p class="text-[10px] sm:text-xs text-slate-400 mt-1">פועל בתוך הגלריה ובאותו חשבון Google שכבר מחובר</p>
+    <div id="adminMessagesCenterModal" class="fixed inset-0 z-[110] hidden admin-messages-overlay" role="dialog" aria-modal="true" aria-labelledby="adminMessagesCenterTitle">
+        <div class="admin-messages-window modal-animate-popup">
+            <header class="admin-messages-header">
+                <div class="admin-messages-brand">
+                    <span class="admin-messages-brand-icon"><i data-lucide="messages-square" class="w-6 h-6"></i></span>
+                    <div>
+                        <p>תקשורת עם משתמשי הגלריה</p>
+                        <h2 id="adminMessagesCenterTitle">מרכז ההודעות</h2>
+                    </div>
                 </div>
-                <button type="button" onclick="closeModal('adminMessagesCenterModal')" class="px-3.5 h-11 btn-secondary-dark rounded-xl flex items-center justify-center gap-2 shrink-0" aria-label="חזרה ללוח הניהול">
-                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                    <span class="text-xs font-bold">חזרה לניהול</span>
+                <button type="button" onclick="closeModal('adminMessagesCenterModal')" class="admin-messages-close" aria-label="סגירת מרכז ההודעות">
+                    <i data-lucide="x" class="w-5 h-5"></i><span>סגירה</span>
                 </button>
-            </div>
-            <div class="flex-1 min-h-0 grid lg:grid-cols-[minmax(0,1fr)_390px]">
-                <section class="min-h-0 flex flex-col border-b lg:border-b-0 lg:border-l border-white/10">
-                    <div class="p-4 sm:p-5 border-b border-white/10 space-y-3">
-                        <div class="flex items-center justify-between gap-3">
-                            <p id="adminMessageUsersSummary" class="text-xs font-bold text-slate-300">טוען משתמשים…</p>
-                            <div class="flex gap-2">
-                                <button type="button" onclick="selectAllAdminMessageUsers()" class="px-3 py-2 btn-secondary-dark rounded-lg text-[10px] font-bold">בחר הכול</button>
-                                <button type="button" onclick="clearAdminMessageUsers()" class="px-3 py-2 btn-secondary-dark rounded-lg text-[10px] font-bold">נקה</button>
-                            </div>
-                        </div>
-                        <label class="relative block">
-                            <i data-lucide="search" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"></i>
-                            <input id="adminMessageUserSearch" type="search" autocomplete="off" oninput="renderAdminMessageUsers()" placeholder="חיפוש לפי שם, מייל או דרגה…" class="w-full rounded-xl py-3 pr-10 pl-3 text-sm">
-                        </label>
-                    </div>
-                    <div id="adminMessageUsersList" class="flex-1 overflow-y-auto p-4 sm:p-5 grid sm:grid-cols-2 gap-3 content-start"></div>
-                </section>
-                <aside class="p-5 sm:p-6 overflow-y-auto" aria-label="כתיבת הודעה למשתמשים">
-                    <div class="flex items-center justify-between gap-3">
+            </header>
+
+            <section class="admin-messages-stats" aria-label="מצב מרכז ההודעות">
+                <div><span class="is-cyan"><i data-lucide="mail-warning" class="w-4 h-4"></i></span><strong id="adminMessagesUnreadStat">0</strong><small>לא נקראו</small></div>
+                <div><span class="is-amber"><i data-lucide="message-circle" class="w-4 h-4"></i></span><strong id="adminMessagesOpenStat">0</strong><small>שיחות פתוחות</small></div>
+                <div><span class="is-green"><i data-lucide="circle-check-big" class="w-4 h-4"></i></span><strong id="adminMessagesResolvedStat">0</strong><small>שיחות שטופלו</small></div>
+                <div><span class="is-slate"><i data-lucide="users" class="w-4 h-4"></i></span><strong id="adminMessagesUsersStat">0</strong><small>משתמשים</small></div>
+                <div><span class="is-purple"><i data-lucide="user-check" class="w-4 h-4"></i></span><strong id="adminMessagesSelectedStat">0</strong><small>נבחרו לשליחה</small></div>
+            </section>
+
+            <div class="admin-messages-layout">
+                <section class="admin-conversations-pane" aria-label="שיחות עם משתמשים">
+                    <div class="admin-pane-heading">
                         <div>
-                            <h4 class="text-lg font-extrabold text-white">כתיבת הודעה</h4>
-                            <p id="adminMessageSelectionSummary" class="text-xs text-amber-400 mt-1">לא נבחרו נמענים</p>
+                            <span>תיבת שיחות</span>
+                            <h3>פניות אחרונות</h3>
                         </div>
-                        <span class="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center"><i data-lucide="send" class="w-5 h-5"></i></span>
+                        <span id="adminMessageRepliesCount" class="admin-pane-count">0</span>
                     </div>
-                    <label class="block mt-5">
-                        <span class="text-xs font-bold text-slate-300">תוכן ההודעה</span>
-                        <textarea id="adminBulkMessageText" maxlength="1500" rows="9" oninput="updateAdminMessageCenterUI()" placeholder="כתוב כאן את ההודעה שתופיע באזור האישי…" class="w-full mt-2 rounded-2xl p-4 text-sm leading-7 resize-y"></textarea>
+                    <div class="admin-conversation-filters" aria-label="סינון שיחות">
+                        <button type="button" data-admin-conversation-filter="all" class="is-active" aria-pressed="true" onclick="setAdminConversationFilter('all')">הכול</button>
+                        <button type="button" data-admin-conversation-filter="unread" aria-pressed="false" onclick="setAdminConversationFilter('unread')">לא נקראו</button>
+                        <button type="button" data-admin-conversation-filter="open" aria-pressed="false" onclick="setAdminConversationFilter('open')">פתוחות</button>
+                        <button type="button" data-admin-conversation-filter="resolved" aria-pressed="false" onclick="setAdminConversationFilter('resolved')">טופלו</button>
+                    </div>
+                    <div id="adminMessageRepliesList" class="admin-conversation-list">
+                        <div class="admin-conversation-empty"><span>טוען שיחות…</span></div>
+                    </div>
+                </section>
+
+                <section class="admin-recipients-pane" aria-label="בחירת נמענים">
+                    <div class="admin-pane-heading">
+                        <div>
+                            <span>ספר משתמשים</span>
+                            <h3>בחירת נמענים</h3>
+                        </div>
+                        <p id="adminMessageUsersSummary">טוען משתמשים…</p>
+                    </div>
+                    <div class="admin-recipient-controls">
+                        <label>
+                            <i data-lucide="search" class="w-4 h-4"></i>
+                            <input id="adminMessageUserSearch" type="search" autocomplete="off" oninput="renderAdminMessageUsers()" placeholder="חיפוש שם, מייל או דרגה…">
+                        </label>
+                        <div>
+                            <button type="button" onclick="selectAllAdminMessageUsers()"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i>בחר הכול</button>
+                            <button type="button" onclick="clearAdminMessageUsers()"><i data-lucide="eraser" class="w-3.5 h-3.5"></i>נקה</button>
+                        </div>
+                    </div>
+                    <div id="adminMessageUsersList" class="admin-message-users-list"></div>
+                </section>
+
+                <aside class="admin-compose-pane" aria-label="כתיבת הודעה למשתמשים">
+                    <div class="admin-compose-heading">
+                        <span><i data-lucide="send" class="w-5 h-5"></i></span>
+                        <div><small>הודעה חדשה</small><h3>כתיבת הודעה</h3></div>
+                    </div>
+                    <p id="adminMessageSelectionSummary" class="admin-compose-selection">לא נבחרו נמענים</p>
+                    <label class="admin-compose-field">
+                        <span>תוכן ההודעה</span>
+                        <textarea id="adminBulkMessageText" maxlength="1500" rows="10" oninput="updateAdminMessageCenterUI()" placeholder="כתוב כאן הודעה שתופיע באזור האישי של הנמענים…"></textarea>
                     </label>
-                    <div class="flex justify-between text-[10px] text-slate-500 mt-1">
-                        <span>ההודעה תופיע באזור האישי</span>
-                        <span id="adminBulkMessageCharacterCount">0/1500</span>
+                    <div class="admin-compose-meta">
+                        <span><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> ההודעה נשמרת באזור האישי</span>
+                        <b id="adminBulkMessageCharacterCount">0/1500</b>
                     </div>
-                    <button id="adminBulkMessageSendBtn" type="button" onclick="sendAdminBulkMessages()" disabled class="w-full mt-5 py-3.5 btn-primary-gold rounded-xl font-extrabold flex items-center justify-center gap-2">
+                    <button id="adminBulkMessageSendBtn" type="button" onclick="sendAdminBulkMessages()" disabled class="admin-compose-send">
                         <i data-lucide="send-horizontal" class="w-5 h-5"></i>
                         <span id="adminBulkMessageSendText">שלח הודעה</span>
                     </button>
-                    <div id="adminBulkMessageProgress" class="hidden mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300" aria-live="polite"></div>
-                    <section class="mt-6 pt-5 border-t border-white/10" aria-label="פניות ושיחות ממשתמשים">
-                        <div class="flex items-center justify-between gap-3">
-                            <h4 class="text-sm font-extrabold text-white flex items-center gap-2">
-                                <i data-lucide="reply" class="w-4 h-4 text-cyan-300"></i>
-                                פניות ושיחות
-                            </h4>
-                            <span id="adminMessageRepliesCount" class="text-[10px] px-2 py-1 rounded-full bg-cyan-500/10 text-cyan-300">0</span>
-                        </div>
-                        <div id="adminMessageRepliesList" class="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
-                            <p class="text-[10px] text-slate-500 text-center py-5">עדיין לא התקבלו פניות.</p>
-                        </div>
-                    </section>
+                    <div id="adminBulkMessageProgress" class="hidden admin-compose-progress" aria-live="polite"></div>
+                    <div class="admin-compose-tip">
+                        <i data-lucide="lightbulb" class="w-4 h-4"></i>
+                        <p><strong>רוצה שיחה אישית?</strong><span>פתח שיחה מהרשימה משמאל ושלח גם קבצים ואימוג׳ים.</span></p>
+                    </div>
                 </aside>
             </div>
         </div>
@@ -1097,25 +1122,56 @@
             <div id="conversationMessages" class="conversation-stream flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3" aria-live="polite">
                 <div class="h-full flex items-center justify-center text-sm text-slate-500">טוען את השיחה…</div>
             </div>
-            <footer class="p-3 sm:p-4 border-t border-white/10 bg-black/15">
-                <div class="conversation-composer p-2.5">
+            <footer class="conversation-footer p-3 sm:p-4 border-t border-white/10 bg-black/15">
+                <div class="conversation-tools">
+                    <button id="conversationAttachmentButton" type="button" onclick="document.getElementById('conversationAttachmentInput').click()" class="conversation-tool-button" aria-label="צירוף תמונה או קובץ" title="צירוף קובץ">
+                        <i data-lucide="paperclip" class="w-4 h-4"></i><span>קובץ</span>
+                    </button>
+                    <button id="conversationEmojiButton" type="button" onclick="toggleConversationEmojiPicker()" class="conversation-tool-button" aria-label="פתיחת דף האימוג׳ים" aria-controls="conversationEmojiPicker" aria-expanded="false" title="אימוג׳ים">
+                        <i data-lucide="smile-plus" class="w-4 h-4"></i><span>אימוג׳ים</span>
+                    </button>
+                    <span class="conversation-private-note"><i data-lucide="lock-keyhole" class="w-3.5 h-3.5"></i> הקבצים נשמרים בשיחה הפרטית</span>
+                </div>
+                <div id="conversationEmojiPicker" class="conversation-emoji-picker hidden" aria-label="דף אימוג׳ים">
+                    <div class="conversation-emoji-heading">
+                        <div><strong>אימוג׳ים</strong><small>בחר אימוג׳י להוספה להודעה</small></div>
+                        <button type="button" onclick="toggleConversationEmojiPicker(false)" aria-label="סגירת דף האימוג׳ים"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div id="conversationEmojiTabs" class="conversation-emoji-tabs" role="tablist"></div>
+                    <div id="conversationEmojiGrid" class="conversation-emoji-grid"></div>
+                </div>
+                <div class="conversation-composer p-2.5" ondrop="handleConversationDrop(event)" ondragover="handleConversationDragOver(event)" ondragleave="handleConversationDragLeave(event)">
                     <input id="conversationAttachmentInput" type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z" onchange="handleConversationAttachment(this)">
                     <div id="conversationAttachmentPreview" class="conversation-attachment-preview hidden"></div>
-                    <div class="flex items-end gap-2">
-                        <button type="button" onclick="document.getElementById('conversationAttachmentInput').click()" class="w-12 h-12 btn-secondary-dark rounded-2xl flex items-center justify-center shrink-0" aria-label="צירוף תמונה או קובץ" title="צירוף תמונה או קובץ">
-                            <i data-lucide="paperclip" class="w-5 h-5"></i>
-                        </button>
-                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתוב הודעה…" class="flex-1 rounded-2xl p-3 text-sm resize-none" onkeydown="handleConversationKeydown(event)"></textarea>
-                        <button id="conversationSendButton" type="button" onclick="sendConversationMessage()" class="w-12 h-12 btn-primary-gold rounded-2xl flex items-center justify-center shrink-0" aria-label="שליחת ההודעה">
-                            <i data-lucide="send-horizontal" class="w-5 h-5"></i>
+                    <div class="conversation-compose-row">
+                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתוב הודעה… אפשר גם לגרור לכאן קובץ" class="conversation-textarea" onkeydown="handleConversationKeydown(event)" oninput="updateConversationCharacterCount()"></textarea>
+                        <button id="conversationSendButton" type="button" onclick="sendConversationMessage()" class="conversation-send-button" aria-label="שליחת ההודעה">
+                            <i data-lucide="send-horizontal" class="w-5 h-5"></i><span>שלח</span>
                         </button>
                     </div>
                 </div>
-                <div class="mt-2 px-1 flex items-center justify-between gap-3 text-[9px] text-slate-500">
-                    <span>Enter לשליחה · Shift+Enter לשורה חדשה</span>
+                <div class="conversation-compose-status">
+                    <span><b id="conversationCharacterCount">0/1500</b> · Enter לשליחה · Shift+Enter לשורה חדשה</span>
                     <span id="conversationUploadStatus" aria-live="polite">תמונות וקבצים עד 25MB</span>
                 </div>
             </footer>
+        </div>
+    </div>
+
+    <!-- CHAT ATTACHMENT PREVIEW -->
+    <div id="conversationAttachmentViewer" class="conversation-attachment-viewer hidden" role="dialog" aria-modal="true" aria-labelledby="conversationAttachmentViewerTitle" onclick="if(event.target === this) closeConversationAttachmentPreview()">
+        <div class="conversation-viewer-window">
+            <header class="conversation-viewer-header">
+                <div class="min-w-0">
+                    <span>קובץ מצורף</span>
+                    <h3 id="conversationAttachmentViewerTitle" class="truncate">תצוגה מקדימה</h3>
+                </div>
+                <div class="conversation-viewer-actions">
+                    <button id="conversationAttachmentViewerDownload" type="button" title="הורדת הקובץ" aria-label="הורדת הקובץ"><i data-lucide="download" class="w-5 h-5"></i></button>
+                    <button type="button" onclick="closeConversationAttachmentPreview()" title="סגירה" aria-label="סגירת התצוגה"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </header>
+            <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
         </div>
     </div>
 

@@ -714,8 +714,15 @@ function safeImageId(value) {
 
 function validateObjectKey(value, requiredState = "") {
   const key = String(value || "");
-  const match = key.match(/^(approved|pending)\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
-  if (!match || (requiredState && match[1] !== requiredState) || !ALLOWED_MEDIA_EXTENSIONS.has(match[4])) {
+  const galleryMatch = key.match(/^(approved|pending)\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
+  const chatMatch = key.match(/^chat\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
+  const extension = galleryMatch?.[4] || chatMatch?.[4] || "";
+  const state = galleryMatch?.[1] || (chatMatch ? "chat" : "");
+  if (
+    (!galleryMatch && !chatMatch) ||
+    (requiredState && state !== requiredState) ||
+    !ALLOWED_MEDIA_EXTENSIONS.has(extension)
+  ) {
     throw apiError("מזהה הקובץ אינו תקין.", 400, "invalid_object_key");
   }
   return key;
@@ -1017,9 +1024,21 @@ async function uploadImage(request, env) {
 
   const imageId = safeImageId(form.get("imageId"));
   const title = String(form.get("title") || originalName).trim().slice(0, 120);
-  const state = user.role === "viewer" ? "pending" : "approved";
-  const key = `${state}/${user.uid}/${imageId}.${extension}`;
-  const mediaType = isImage ? "image" : (isVideo ? "video" : "file");
+  let conversationUid = "";
+  if (isChatAttachment) {
+    conversationUid = String(form.get("conversationUid") || user.uid)
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .slice(0, 160);
+    if (!conversationUid) throw apiError("מזהה השיחה אינו תקין.", 400, "invalid_conversation");
+    if (!["admin", "super_admin"].includes(user.role) && conversationUid !== user.uid) {
+      throw apiError("אין הרשאה לצרף קובץ לשיחה הזו.", 403, "permission_denied");
+    }
+  }
+  const state = isChatAttachment ? "private" : (user.role === "viewer" ? "pending" : "approved");
+  const key = isChatAttachment
+    ? `chat/${conversationUid}/${user.uid}/${imageId}.${extension}`
+    : `${state}/${user.uid}/${imageId}.${extension}`;
+  const mediaType = isImage ? "image" : (isVideo ? "video" : (mimeType.startsWith("audio/") ? "audio" : "file"));
 
   await env.GALLERY_BUCKET.put(key, await file.arrayBuffer(), {
     httpMetadata: { contentType: mimeType },
@@ -1050,6 +1069,14 @@ async function uploadImage(request, env) {
 
 async function serveImage(request, env, pathname) {
   const key = decodeObjectKey(pathname, "/media/");
+
+  if (key.startsWith("chat/")) {
+    const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+    const conversationUid = key.split("/")[1] || "";
+    if (user.uid !== conversationUid && !["admin", "super_admin"].includes(user.role)) {
+      throw apiError("אין הרשאה לפתוח קובץ מהשיחה הזו.", 403, "permission_denied");
+    }
+  }
 
   if (key.startsWith("pending/")) {
     const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);

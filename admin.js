@@ -8,6 +8,21 @@ let activeConversationMode = '';
 let conversationSending = false;
 let activeConversationAttachment = null;
 let conversationAttachmentPreviewUrl = '';
+const CONVERSATION_FILE_LIMIT_BYTES = 25 * 1024 * 1024;
+const CONVERSATION_FILE_EXTENSIONS = new Set([
+    'jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov',
+    'mp3', 'm4a', 'wav', 'ogg', 'pdf', 'doc', 'docx', 'xls', 'xlsx',
+    'ppt', 'pptx', 'txt', 'csv', 'json', 'zip', 'rar', '7z'
+]);
+const CONVERSATION_EMOJI_GROUPS = [
+    { id: 'recent', label: 'נפוצים', icon: 'clock-3', emojis: ['😊','😂','😍','👍','🙏','❤️','🎉','🔥','👏','😇','🤝','✅'] },
+    { id: 'faces', label: 'פנים', icon: 'smile', emojis: ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😋','😎','🤓','🧐','🤔','🤗','🤭','🤫','😐','😑','😶','🙄','😏','😣','😥','😮','😯','😲','😴','🤤','😪','😵','🤐','🥴','🤢','🤧','🥳','🥺','😭','😤','😡'] },
+    { id: 'gestures', label: 'ידיים', icon: 'hand', emojis: ['👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','✋','🤚','🖐️','🖖','👋','🤝','👏','🙌','👐','🤲','🙏','✍️','💪'] },
+    { id: 'hearts', label: 'לבבות', icon: 'heart', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟'] },
+    { id: 'objects', label: 'סמלים', icon: 'sparkles', emojis: ['🎉','🎊','🎈','🎁','🏆','🥇','⭐','🌟','✨','⚡','🔥','💥','✅','❌','❗','❓','💯','📸','📎','📁','🖼️','🔔','💬','📅','🕐'] }
+];
+let activeEmojiGroup = 'recent';
+let adminConversationFilter = 'all';
 
 function messageDirection(message) {
     return message?.direction === 'user_to_admin' ? 'user_to_admin' : 'admin_to_user';
@@ -73,6 +88,79 @@ window.downloadConversationAttachment = async function(url, fileName) {
         setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (error) {
         window.showNotification(error.message || 'הורדת הקובץ נכשלה.', false);
+    }
+};
+
+function conversationAttachmentCanPreview(attachment) {
+    const type = String(attachment?.type || '').toLowerCase();
+    const extension = String(attachment?.name || '').split('.').pop().toLowerCase();
+    return attachment?.kind === 'image' ||
+        type.startsWith('video/') ||
+        type.startsWith('audio/') ||
+        type === 'application/pdf' ||
+        extension === 'pdf';
+}
+
+window.closeConversationAttachmentPreview = function() {
+    const modal = document.getElementById('conversationAttachmentViewer');
+    const content = document.getElementById('conversationAttachmentViewerContent');
+    const objectUrl = modal?.dataset.objectUrl;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (modal) {
+        modal.dataset.objectUrl = '';
+        modal.classList.add('hidden');
+    }
+    content?.replaceChildren();
+};
+
+window.openConversationAttachment = async function(attachment) {
+    const normalized = normalizeConversationAttachment(attachment);
+    if (!normalized) {
+        window.showNotification('הקובץ אינו זמין.', false);
+        return;
+    }
+    if (!conversationAttachmentCanPreview(normalized)) {
+        window.showNotification('אין תצוגה מקדימה לסוג הקובץ הזה. השתמש בכפתור ההורדה שלידו.', true, 'info');
+        return;
+    }
+    const modal = document.getElementById('conversationAttachmentViewer');
+    const content = document.getElementById('conversationAttachmentViewerContent');
+    const title = document.getElementById('conversationAttachmentViewerTitle');
+    const download = document.getElementById('conversationAttachmentViewerDownload');
+    if (!modal || !content) return;
+    modal.classList.remove('hidden');
+    content.innerHTML = '<div class="conversation-viewer-loading"><i data-lucide="loader-circle" class="w-7 h-7"></i><span>טוען תצוגה מקדימה…</span></div>';
+    if (title) title.textContent = normalized.name || 'קובץ מצורף';
+    if (download) download.onclick = () => window.downloadConversationAttachment(normalized.url, normalized.name);
+    window.scheduleIconRefresh?.();
+    try {
+        const blob = await fetchConversationAttachment(normalized.url);
+        if (modal.classList.contains('hidden')) return;
+        const objectUrl = URL.createObjectURL(blob);
+        modal.dataset.objectUrl = objectUrl;
+        content.replaceChildren();
+        const type = String(normalized.type || blob.type || '').toLowerCase();
+        let viewer;
+        if (normalized.kind === 'image' || type.startsWith('image/')) {
+            viewer = document.createElement('img');
+            viewer.alt = normalized.name || 'תמונה מצורפת';
+        } else if (type.startsWith('video/')) {
+            viewer = document.createElement('video');
+            viewer.controls = true;
+            viewer.playsInline = true;
+        } else if (type.startsWith('audio/')) {
+            viewer = document.createElement('audio');
+            viewer.controls = true;
+        } else {
+            viewer = document.createElement('iframe');
+            viewer.title = normalized.name || 'תצוגת PDF';
+        }
+        viewer.className = 'conversation-viewer-media';
+        viewer.src = objectUrl;
+        content.appendChild(viewer);
+    } catch (error) {
+        content.innerHTML = '<div class="conversation-viewer-error"><i data-lucide="file-warning" class="w-8 h-8"></i><strong>לא ניתן להציג את הקובץ</strong><span>אפשר לנסות להוריד אותו למחשב.</span></div>';
+        window.scheduleIconRefresh?.();
     }
 };
 
@@ -159,25 +247,35 @@ window.renderActiveConversation = function() {
             if (entry.attachment) {
                 const attachmentBox = document.createElement('div');
                 attachmentBox.className = 'conversation-attachment';
+                const canPreview = conversationAttachmentCanPreview(entry.attachment);
+
                 if (entry.attachment.kind === 'image') {
                     const imageButton = document.createElement('button');
                     imageButton.type = 'button';
-                    imageButton.className = 'block w-full';
-                    imageButton.title = 'הורדת התמונה';
+                    imageButton.className = 'conversation-image-preview';
+                    imageButton.title = 'פתיחת התמונה';
                     const image = document.createElement('img');
                     image.className = 'conversation-attachment-image';
                     image.alt = entry.attachment.name || 'תמונה מצורפת';
-                    imageButton.appendChild(image);
-                    imageButton.onclick = () => window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
+                    const overlay = document.createElement('span');
+                    overlay.innerHTML = '<i data-lucide="maximize-2" class="w-4 h-4"></i><span>פתח תצוגה</span>';
+                    imageButton.append(image, overlay);
+                    imageButton.onclick = () => window.openConversationAttachment(entry.attachment);
                     attachmentBox.appendChild(imageButton);
                     window.loadConversationImage(image, entry.attachment.url);
                 } else {
+                    const fileRow = document.createElement('div');
+                    fileRow.className = 'conversation-file-row';
+
                     const fileButton = document.createElement('button');
                     fileButton.type = 'button';
                     fileButton.className = 'conversation-file-card';
+                    fileButton.title = canPreview ? 'פתיחת תצוגה מקדימה' : 'הורדת הקובץ';
                     const icon = document.createElement('span');
                     icon.className = 'conversation-file-icon';
-                    icon.innerHTML = '<i data-lucide="file-down" class="w-5 h-5"></i>';
+                    icon.innerHTML = canPreview
+                        ? '<i data-lucide="file-search" class="w-5 h-5"></i>'
+                        : '<i data-lucide="file" class="w-5 h-5"></i>';
                     const details = document.createElement('span');
                     details.className = 'min-w-0 flex-1';
                     const name = document.createElement('strong');
@@ -185,11 +283,25 @@ window.renderActiveConversation = function() {
                     name.textContent = entry.attachment.name;
                     const size = document.createElement('small');
                     size.className = 'block mt-0.5 text-[9px] opacity-65';
-                    size.textContent = entry.attachment.size ? window.formatBytes(entry.attachment.size) : 'לחץ להורדה';
+                    const sizeLabel = entry.attachment.size ? window.formatBytes(entry.attachment.size) : 'קובץ מצורף';
+                    size.textContent = `${sizeLabel} · ${canPreview ? 'לחץ לפתיחה' : 'זמין להורדה'}`;
                     details.append(name, size);
                     fileButton.append(icon, details);
-                    fileButton.onclick = () => window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
-                    attachmentBox.appendChild(fileButton);
+                    fileButton.onclick = () => window.openConversationAttachment(entry.attachment);
+
+                    const downloadButton = document.createElement('button');
+                    downloadButton.type = 'button';
+                    downloadButton.className = 'conversation-file-download';
+                    downloadButton.title = 'הורדת הקובץ';
+                    downloadButton.setAttribute('aria-label', `הורדת ${entry.attachment.name}`);
+                    downloadButton.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i>';
+                    downloadButton.onclick = event => {
+                        event.stopPropagation();
+                        window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
+                    };
+
+                    fileRow.append(fileButton, downloadButton);
+                    attachmentBox.appendChild(fileRow);
                 }
                 bubble.appendChild(attachmentBox);
             }
@@ -350,17 +462,51 @@ function renderConversationAttachmentPreview() {
     window.scheduleIconRefresh();
 }
 
-window.handleConversationAttachment = function(input) {
-    const file = input?.files?.[0];
-    if (!file) return;
-    const maximumBytes = 25 * 1024 * 1024;
-    if (!Number.isFinite(file.size) || file.size <= 0 || file.size > maximumBytes) {
-        input.value = '';
+function conversationFileExtension(file) {
+    return String(file?.name || '').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function setConversationAttachment(file, input = null) {
+    if (!file) return false;
+    if (!Number.isFinite(file.size) || file.size <= 0 || file.size > CONVERSATION_FILE_LIMIT_BYTES) {
+        if (input) input.value = '';
         window.showNotification('אפשר לצרף קובץ בגודל עד 25MB.', false);
-        return;
+        return false;
+    }
+    const extension = conversationFileExtension(file);
+    const supportedMime = /^(image|video|audio)\//.test(String(file.type || ''));
+    if (!supportedMime && !CONVERSATION_FILE_EXTENSIONS.has(extension)) {
+        if (input) input.value = '';
+        window.showNotification('סוג הקובץ אינו נתמך. אפשר לשלוח תמונות, וידאו, שמע, מסמכים וקובצי ZIP.', false);
+        return false;
     }
     activeConversationAttachment = file;
     renderConversationAttachmentPreview();
+    const status = document.getElementById('conversationUploadStatus');
+    if (status) status.textContent = `${file.name || 'קובץ'} · ${window.formatBytes(file.size)}`;
+    return true;
+}
+
+window.handleConversationAttachment = function(input) {
+    setConversationAttachment(input?.files?.[0], input);
+};
+
+window.handleConversationDrop = function(event) {
+    event.preventDefault();
+    event.currentTarget?.classList.remove('is-dragging');
+    const files = event.dataTransfer?.files;
+    if (files?.length) setConversationAttachment(files[0]);
+};
+
+window.handleConversationDragOver = function(event) {
+    event.preventDefault();
+    event.currentTarget?.classList.add('is-dragging');
+};
+
+window.handleConversationDragLeave = function(event) {
+    if (!event.currentTarget?.contains(event.relatedTarget)) {
+        event.currentTarget?.classList.remove('is-dragging');
+    }
 };
 
 window.clearConversationAttachment = function() {
@@ -370,18 +516,47 @@ window.clearConversationAttachment = function() {
     renderConversationAttachmentPreview();
 };
 
-async function uploadConversationAttachment(file, messageId) {
+async function uploadConversationForm(form, onProgress) {
+    const token = await window.getFirebaseIdToken();
+    return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', `${window.R2_WORKER_BASE_URL}/upload`);
+        request.timeout = 180000;
+        request.setRequestHeader('Authorization', `Bearer ${token}`);
+        request.upload.onprogress = event => {
+            if (event.lengthComputable) onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        };
+        request.onerror = () => reject(new Error('לא ניתן להתחבר לשרת הקבצים. בדוק את החיבור ונסה שוב.'));
+        request.ontimeout = () => reject(new Error('העלאת הקובץ ארכה יותר משלוש דקות ונעצרה.'));
+        request.onload = () => {
+            let payload = null;
+            try { payload = JSON.parse(request.responseText || '{}'); } catch {}
+            if (request.status < 200 || request.status >= 300) {
+                const error = new Error(payload?.message || payload?.error || `העלאת הקובץ נכשלה (שגיאה ${request.status}).`);
+                error.status = request.status;
+                error.code = payload?.code || 'upload_failed';
+                reject(error);
+                return;
+            }
+            resolve(payload);
+        };
+        request.send(form);
+    });
+}
+
+async function uploadConversationAttachment(file, messageId, conversationUid, onProgress) {
     const form = new FormData();
     form.append('file', file, file.name || 'attachment');
     form.append('imageId', `chat_${window.safeRecordId(messageId)}`);
     form.append('title', String(file.name || 'קובץ').slice(0, 120));
     form.append('context', 'chat');
-    const result = await window.r2Request('/upload', { method: 'POST', body: form });
-    if (!result?.url || !result?.key) throw new Error('העלאת הקובץ לא הושלמה.');
+    form.append('conversationUid', window.safeRecordId(conversationUid));
+    const result = await uploadConversationForm(form, onProgress);
+    if (!result?.url || !result?.key) throw new Error('שרת הקבצים לא החזיר קישור תקין.');
     return {
         url: result.url,
         key: result.key,
-        name: String(file.name || result.fileName || 'קובץ').slice(0, 180),
+        name: String(result.fileName || file.name || 'קובץ').slice(0, 180),
         type: result.mimeType || file.type || 'application/octet-stream',
         size: Number(result.size) || file.size || 0,
         kind: result.mediaType === 'image' ? 'image' : 'file'
@@ -393,6 +568,68 @@ window.handleConversationKeydown = function(event) {
         event.preventDefault();
         window.sendConversationMessage();
     }
+};
+
+window.updateConversationCharacterCount = function() {
+    const input = document.getElementById('conversationInput');
+    const counter = document.getElementById('conversationCharacterCount');
+    if (counter) counter.textContent = `${String(input?.value || '').length}/1500`;
+};
+
+window.setConversationEmojiGroup = function(groupId) {
+    activeEmojiGroup = CONVERSATION_EMOJI_GROUPS.some(group => group.id === groupId) ? groupId : 'recent';
+    window.renderConversationEmojiPicker();
+};
+
+window.renderConversationEmojiPicker = function() {
+    const tabs = document.getElementById('conversationEmojiTabs');
+    const grid = document.getElementById('conversationEmojiGrid');
+    if (!tabs || !grid) return;
+    tabs.replaceChildren();
+    CONVERSATION_EMOJI_GROUPS.forEach(group => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = `conversation-emoji-tab ${group.id === activeEmojiGroup ? 'is-active' : ''}`;
+        tab.title = group.label;
+        tab.setAttribute('aria-label', group.label);
+        tab.innerHTML = `<i data-lucide="${group.icon}" class="w-4 h-4"></i>`;
+        tab.onclick = () => window.setConversationEmojiGroup(group.id);
+        tabs.appendChild(tab);
+    });
+    grid.replaceChildren();
+    const group = CONVERSATION_EMOJI_GROUPS.find(item => item.id === activeEmojiGroup) || CONVERSATION_EMOJI_GROUPS[0];
+    group.emojis.forEach(emoji => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'conversation-emoji';
+        button.textContent = emoji;
+        button.setAttribute('aria-label', `הוספת ${emoji}`);
+        button.onclick = () => window.insertConversationEmoji(emoji);
+        grid.appendChild(button);
+    });
+    window.scheduleIconRefresh?.();
+};
+
+window.toggleConversationEmojiPicker = function(force) {
+    const picker = document.getElementById('conversationEmojiPicker');
+    const button = document.getElementById('conversationEmojiButton');
+    if (!picker) return;
+    const shouldOpen = typeof force === 'boolean' ? force : picker.classList.contains('hidden');
+    picker.classList.toggle('hidden', !shouldOpen);
+    button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) window.renderConversationEmojiPicker();
+};
+
+window.insertConversationEmoji = function(emoji) {
+    const input = document.getElementById('conversationInput');
+    if (!input) return;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    input.value = `${input.value.slice(0, start)}${emoji}${input.value.slice(end)}`.slice(0, 1500);
+    const cursor = Math.min(input.value.length, start + emoji.length);
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+    window.updateConversationCharacterCount();
 };
 
 window.sendConversationMessage = async function() {
@@ -409,6 +646,8 @@ window.sendConversationMessage = async function() {
 
     conversationSending = true;
     if (button) button.disabled = true;
+    document.getElementById('conversationAttachmentButton')?.setAttribute('disabled', '');
+    document.getElementById('conversationEmojiButton')?.setAttribute('disabled', '');
     try {
         const { doc, getDoc, setDoc } = window.firestoreModules;
         const profileRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userProfiles', uid);
@@ -417,8 +656,12 @@ window.sendConversationMessage = async function() {
         const currentMessages = Array.isArray(snapshot.data().messages) ? snapshot.data().messages : [];
         const fromAdmin = activeConversationMode === 'admin';
         const messageId = crypto.randomUUID();
-        if (status && file) status.textContent = 'מעלה את הקובץ…';
-        const attachment = file ? await uploadConversationAttachment(file, messageId) : null;
+        if (status && file) status.textContent = 'מכין את הקובץ להעלאה…';
+        const attachment = file
+            ? await uploadConversationAttachment(file, messageId, uid, progress => {
+                if (status) status.textContent = `מעלה את הקובץ… ${progress}%`;
+            })
+            : null;
         const message = {
             id: messageId,
             text,
@@ -443,6 +686,8 @@ window.sendConversationMessage = async function() {
         profile.messages = updatedMessages;
         if (!fromAdmin) profile.supportStatus = 'open';
         if (input) input.value = '';
+        window.updateConversationCharacterCount();
+        window.toggleConversationEmojiPicker(false);
         window.clearConversationAttachment();
         if (status) status.textContent = 'תמונות וקבצים עד 25MB';
         window.renderActiveConversation();
@@ -455,6 +700,8 @@ window.sendConversationMessage = async function() {
     } finally {
         conversationSending = false;
         if (button) button.disabled = false;
+        document.getElementById('conversationAttachmentButton')?.removeAttribute('disabled');
+        document.getElementById('conversationEmojiButton')?.removeAttribute('disabled');
         input?.focus();
     }
 };
@@ -503,6 +750,10 @@ window.renderAdminMessageUsers = function() {
     const users = adminMessageCenterUsers();
     list.replaceChildren();
     if (summary) summary.textContent = `${users.length} משתמשים · ${adminMessageRecipients.size} נבחרו`;
+    const usersStat = document.getElementById('adminMessagesUsersStat');
+    const selectedStat = document.getElementById('adminMessagesSelectedStat');
+    if (usersStat) usersStat.textContent = String(users.length);
+    if (selectedStat) selectedStat.textContent = String(adminMessageRecipients.size);
 
     if (!users.length) {
         const empty = document.createElement('p');
@@ -522,7 +773,7 @@ window.renderAdminMessageUsers = function() {
     users.forEach(user => {
         const card = document.createElement('label');
         card.dataset.adminMessageUser = user.uid;
-        card.className = 'admin-message-user-card cursor-pointer rounded-2xl p-4 flex gap-3 items-start';
+        card.className = 'admin-message-user-card';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -533,8 +784,21 @@ window.renderAdminMessageUsers = function() {
             else adminMessageRecipients.delete(user.uid);
             window.updateAdminMessageCenterUI();
             if (summary) summary.textContent = `${users.length} משתמשים · ${adminMessageRecipients.size} נבחרו`;
+            const selectedStat = document.getElementById('adminMessagesSelectedStat');
+            if (selectedStat) selectedStat.textContent = String(adminMessageRecipients.size);
         });
 
+        const avatar = document.createElement('span');
+        avatar.className = 'admin-message-user-avatar';
+        if (user.photoURL) {
+            const image = document.createElement('img');
+            image.src = window.safeImageUrl(user.photoURL);
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            avatar.appendChild(image);
+        } else {
+            avatar.textContent = String(user.displayName || user.email || 'מ').trim().charAt(0).toUpperCase();
+        }
         const body = document.createElement('div');
         body.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
@@ -547,7 +811,7 @@ window.renderAdminMessageUsers = function() {
         role.className = 'text-[10px] text-amber-400 mt-2';
         role.textContent = roleLabels[user.role] || 'ללא דרגה';
         body.append(name, email, role);
-        card.append(checkbox, body);
+        card.append(checkbox, avatar, body);
         list.appendChild(card);
     });
     window.updateAdminMessageCenterUI();
@@ -641,26 +905,39 @@ function collectAdminMessageReplies() {
         if (!uid) return;
         const messages = Array.isArray(user.messages) ? user.messages : [];
         messages.forEach((message, messageIndex) => {
-            if (messageDirection(message) === 'user_to_admin' && String(message.text || '').trim()) {
+            const directAttachment = normalizeConversationAttachment(message?.attachment);
+            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment)) {
                 replies.push({
                     user,
                     uid,
                     message,
                     messageIndex,
                     reply: {
-                        text: message.text,
+                        text: String(message.text || ''),
+                        attachment: directAttachment,
                         sentAt: message.sentAt,
                         readByAdmin: message.readByAdmin === true
                     }
                 });
             }
             const reply = message?.reply;
-            if (!reply || !String(reply.text || '').trim()) return;
-            replies.push({ user, uid, message, messageIndex, reply });
+            const replyAttachment = normalizeConversationAttachment(reply?.attachment);
+            if (!reply || (!String(reply.text || '').trim() && !replyAttachment)) return;
+            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment } });
         });
     });
     return replies.sort((a, b) => Number(b.reply.sentAt || 0) - Number(a.reply.sentAt || 0));
 }
+
+window.setAdminConversationFilter = function(filter) {
+    adminConversationFilter = ['all', 'unread', 'open', 'resolved'].includes(filter) ? filter : 'all';
+    document.querySelectorAll('[data-admin-conversation-filter]').forEach(button => {
+        const active = button.dataset.adminConversationFilter === adminConversationFilter;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    window.renderAdminMessageReplies();
+};
 
 window.renderAdminMessageReplies = function() {
     const list = document.getElementById('adminMessageRepliesList');
@@ -671,21 +948,35 @@ window.renderAdminMessageReplies = function() {
     incomingMessages.forEach(item => {
         const existing = conversations.get(item.uid);
         const sentAt = new Date(item.reply.sentAt || 0).getTime() || Number(item.reply.sentAt || 0) || 0;
+        const unread = item.reply.readByAdmin === true ? 0 : 1;
         if (!existing || sentAt > existing.latestAt) {
             conversations.set(item.uid, {
                 ...item,
                 latestAt: sentAt,
-                unread: (existing?.unread || 0) + (item.reply.readByAdmin === true ? 0 : 1)
+                unread: (existing?.unread || 0) + unread
             });
-        } else if (item.reply.readByAdmin !== true) {
-            existing.unread++;
+        } else if (unread) {
+            existing.unread += 1;
         }
     });
-    const replies = Array.from(conversations.values()).sort((a, b) => b.latestAt - a.latestAt);
+
+    const allConversations = Array.from(conversations.values()).sort((left, right) => {
+        if (Boolean(right.unread) !== Boolean(left.unread)) return Number(Boolean(right.unread)) - Number(Boolean(left.unread));
+        return right.latestAt - left.latestAt;
+    });
     const unreadCount = incomingMessages.filter(item => item.reply.readByAdmin !== true).length;
+    const openCount = allConversations.filter(item => item.user.supportStatus !== 'resolved').length;
+    const resolvedCount = allConversations.length - openCount;
+    const replies = allConversations.filter(item => {
+        if (adminConversationFilter === 'unread') return item.unread > 0;
+        if (adminConversationFilter === 'open') return item.user.supportStatus !== 'resolved';
+        if (adminConversationFilter === 'resolved') return item.user.supportStatus === 'resolved';
+        return true;
+    });
+
     const drawerBadge = document.getElementById('adminChatsUnreadBadge');
     if (count) {
-        count.textContent = unreadCount ? `${unreadCount} חדשות` : String(replies.length);
+        count.textContent = unreadCount ? `${unreadCount} חדשות` : String(allConversations.length);
         count.classList.toggle('animate-pulse', unreadCount > 0);
     }
     if (drawerBadge) {
@@ -693,55 +984,77 @@ window.renderAdminMessageReplies = function() {
         drawerBadge.classList.toggle('hidden', unreadCount === 0);
         drawerBadge.classList.toggle('flex', unreadCount > 0);
     }
+    const stats = {
+        adminMessagesUnreadStat: unreadCount,
+        adminMessagesOpenStat: openCount,
+        adminMessagesResolvedStat: resolvedCount,
+        adminMessagesConversationStat: allConversations.length
+    };
+    Object.entries(stats).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = String(value);
+    });
+
     list.replaceChildren();
     if (!replies.length) {
-        const empty = document.createElement('p');
-        empty.className = 'text-[10px] text-slate-500 text-center py-5';
-        empty.textContent = 'עדיין לא התקבלו פניות.';
+        const empty = document.createElement('div');
+        empty.className = 'admin-conversation-empty';
+        empty.innerHTML = '<i data-lucide="message-circle-dashed" class="w-8 h-8"></i><strong>אין שיחות בתצוגה הזו</strong><span>אפשר לעבור למסנן אחר או לבחור משתמש ולשלוח הודעה.</span>';
         list.appendChild(empty);
+        window.scheduleIconRefresh?.();
         return;
     }
 
-    replies.forEach(({ user, uid, message, reply }) => {
-        const card = document.createElement('article');
-        card.className = `rounded-xl border p-3 space-y-2 ${reply.readByAdmin === true ? 'border-white/10 bg-white/5' : 'border-cyan-400/25 bg-cyan-400/10'}`;
+    replies.forEach(({ user, uid, reply, unread, latestAt }) => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `admin-conversation-card ${unread ? 'is-unread' : ''} ${user.supportStatus === 'resolved' ? 'is-resolved' : ''}`;
+        card.onclick = () => window.openAdminConversation(uid);
 
-        const header = document.createElement('div');
-        header.className = 'flex items-center justify-between gap-2';
+        const avatar = document.createElement('span');
+        avatar.className = 'admin-conversation-avatar';
+        if (user.photoURL) {
+            const image = document.createElement('img');
+            image.src = window.safeImageUrl(user.photoURL);
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            avatar.appendChild(image);
+        } else {
+            avatar.textContent = String(user.displayName || user.email || 'מ').trim().charAt(0).toUpperCase();
+        }
+
+        const body = document.createElement('span');
+        body.className = 'admin-conversation-body';
+        const headline = document.createElement('span');
+        headline.className = 'admin-conversation-headline';
         const name = document.createElement('strong');
-        name.className = 'text-[11px] text-white truncate';
         name.textContent = user.displayName || user.email || 'משתמש';
-        const headerMeta = document.createElement('div');
-        headerMeta.className = 'flex items-center gap-1.5 shrink-0';
-        const unread = conversations.get(uid)?.unread || 0;
+        const time = document.createElement('time');
+        time.textContent = window.formatDate(latestAt);
+        headline.append(name, time);
+
+        const preview = document.createElement('span');
+        preview.className = 'admin-conversation-preview';
+        preview.textContent = String(reply.text || '').trim() || (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` : 'הודעה חדשה');
+
+        const meta = document.createElement('span');
+        meta.className = 'admin-conversation-meta';
+        const status = document.createElement('span');
+        status.className = 'admin-conversation-status';
+        status.textContent = user.supportStatus === 'resolved' ? 'טופלה' : 'פתוחה';
+        meta.appendChild(status);
         if (unread) {
             const unreadBadge = document.createElement('span');
-            unreadBadge.className = 'min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center';
+            unreadBadge.className = 'admin-conversation-unread';
             unreadBadge.textContent = String(unread);
-            headerMeta.appendChild(unreadBadge);
+            meta.appendChild(unreadBadge);
         }
-        const time = document.createElement('span');
-        time.className = 'text-[9px] text-slate-500';
-        time.textContent = window.formatDate(reply.sentAt);
-        headerMeta.appendChild(time);
-        header.append(name, headerMeta);
+        body.append(headline, preview, meta);
 
-        const original = document.createElement('p');
-        original.className = 'text-[9px] text-slate-500 line-clamp-2';
-        original.textContent = conversations.get(uid)?.unread
-            ? `${conversations.get(uid).unread} הודעות חדשות בשיחה`
-            : 'השיחה נקראה';
-        const replyText = document.createElement('p');
-        replyText.className = 'text-[11px] text-cyan-100 leading-relaxed whitespace-pre-wrap';
-        replyText.textContent = reply.text;
-        card.append(header, original, replyText);
-
-        const openChatButton = document.createElement('button');
-        openChatButton.type = 'button';
-        openChatButton.className = 'w-full py-2 rounded-lg btn-primary-gold text-[10px] font-bold flex items-center justify-center gap-1.5';
-        openChatButton.innerHTML = '<i data-lucide="messages-square" class="w-3.5 h-3.5"></i> פתח את השיחה';
-        openChatButton.onclick = () => window.openAdminConversation(uid);
-        card.appendChild(openChatButton);
+        const arrow = document.createElement('span');
+        arrow.className = 'admin-conversation-arrow';
+        arrow.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4"></i>';
+        card.append(avatar, body, arrow);
         list.appendChild(card);
     });
     window.scheduleIconRefresh();
