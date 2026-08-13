@@ -1024,9 +1024,11 @@
         #sidebarAdminPanel .admin-control-card > button [id$="Arrow"] {
             transform: rotate(90deg);
         }
+        /* הכרטיסים והתוויות נפתחים דרך חלונות הקטגוריות, ולכן אינם מוצגים
+           בתפריט עצמו. הפעולה הראשית והיציאה מהניהול כן נשארות בתפריט. */
         #sidebarAdminPanel > .admin-control-card,
         #sidebarAdminPanel > .admin-section-label,
-        #sidebarAdminPanel > button:not(.admin-logout) {
+        #sidebarAdminPanel > button:not(.admin-logout):not(.admin-primary-action) {
             display: none !important;
         }
         .admin-topic-grid {
@@ -4361,28 +4363,71 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     color: #7f8ca1;
     background: rgba(255,255,255,.04);
 }
+/* שני טורים, לא ארבעה: ברוחב המגירה ארבעה טורים נשברו לשורות עקומות
+   והכיתוב הצטמצם ל-8px. שניים נותנים יעד לחיצה נוח וטקסט קריא. */
 .admin-quick-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0,1fr));
-    gap: 7px;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 8px;
     margin-top: 10px;
 }
 .admin-quick-grid button {
-    min-height: 56px;
-    padding: 8px 3px;
+    min-height: 46px;
+    padding: 10px 12px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 5px;
+    justify-content: flex-start;
+    gap: 9px;
     border: 1px solid rgba(255,255,255,.07);
-    border-radius: 12px;
+    border-radius: 13px;
     color: #cbd5e1;
     background: rgba(255,255,255,.035);
-    font-size: 8px;
-    font-weight: 850;
+    font-size: 11px;
+    font-weight: 800;
+    text-align: right;
 }
+.admin-quick-grid button:hover { color: #f8fafc; background: rgba(255,255,255,.07); border-color: rgba(255,182,39,.28); }
+.admin-quick-grid button svg { flex: none; }
+/* קיצורי מנהל־על הם תאים רגילים ברשת הזאת; בלי זה כל אחד מהם נדחף
+   לטור הראשון ותופס שורה שלמה לעצמו. */
+#sidebarAdminPanel .admin-quick-grid .super-admin-only { grid-column: auto; }
 .admin-quick-grid button svg { color: #ffc14b; }
+.admin-menu-results {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.admin-menu-results.hidden { display: none; }
+.admin-menu-result {
+    width: 100%;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 13px;
+    color: #e2e8f0;
+    background: rgba(255,255,255,.04);
+    text-align: right;
+    cursor: pointer;
+}
+.admin-menu-result:hover { background: rgba(255,255,255,.08); border-color: rgba(255,182,39,.3); }
+.admin-menu-result-icon {
+    width: 32px;
+    height: 32px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: #ffc14b;
+    background: rgba(255,182,39,.1);
+    border: 1px solid rgba(255,182,39,.2);
+}
+.admin-menu-result span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.admin-menu-result strong { font-size: 11.5px; font-weight: 800; }
+.admin-menu-result small { margin-top: 2px; color: #8591a3; font-size: 9px; line-height: 1.4; }
 .admin-menu-empty {
     margin-top: 10px;
     padding: 10px;
@@ -4411,16 +4456,33 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 }
 .admin-stat strong { font-size: 16px !important; }
 .admin-stat span { color: #8e9aad !important; }
+/* בתוך המגירה הכרטיסים הם שורות: סמל, שם ותיאור, וחץ — במקום עמודה
+   גבוהה שהסמל צף בראשה והשאר נשאר ריק. */
 .admin-topic-grid { gap: 9px !important; }
 .admin-topic-card {
-    min-height: 78px !important;
-    padding: 12px !important;
+    min-height: 66px !important;
+    padding: 12px 14px !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
     border-radius: 17px !important;
     background: linear-gradient(135deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
     box-shadow: none !important;
 }
-.admin-topic-card strong { color: #f1f5f9 !important; }
-.admin-topic-card small { color: #8591a3 !important; line-height: 1.45 !important; }
+.admin-topic-card > span:nth-child(2) { flex: 1; min-width: 0; }
+.admin-topic-card strong { color: #f1f5f9 !important; font-size: 13px !important; }
+.admin-topic-card small { color: #8591a3 !important; font-size: 9.5px !important; line-height: 1.45 !important; margin-top: 3px !important; }
+.admin-topic-card::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-left: 1.5px solid rgba(255,255,255,.3);
+    border-bottom: 1.5px solid rgba(255,255,255,.3);
+    transform: rotate(45deg);
+}
+.admin-topic-icon { flex: none; }
 .admin-control-card {
     border: 1px solid rgba(255,255,255,.07) !important;
     border-radius: 16px !important;

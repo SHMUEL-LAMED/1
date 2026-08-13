@@ -386,8 +386,7 @@
 
                 <section class="admin-command-center" style="order: 3" aria-label="חיפוש וקיצורי ניהול">
                     <div class="admin-command-title">
-                        <span><strong>גישה מהירה</strong><small>בחרו משימה או חפשו בתפריט</small></span>
-                        <span class="admin-live-chip"><i data-lucide="circle" class="w-2.5 h-2.5"></i> פעיל</span>
+                        <span><strong>גישה מהירה</strong><small>בחרו משימה או חפשו כל פעולה בניהול</small></span>
                     </div>
                     <div class="admin-menu-search">
                         <i data-lucide="search" class="w-4 h-4"></i>
@@ -400,6 +399,7 @@
                         <button type="button" onclick="openAdminCategory('users')" class="hidden super-admin-only"><i data-lucide="users-round" class="w-4 h-4"></i><span>משתמשים</span></button>
                         <button type="button" onclick="openAdminMessagesCenter()" class="hidden super-admin-only"><i data-lucide="messages-square" class="w-4 h-4"></i><span>הודעות</span></button>
                     </div>
+                    <div id="adminMenuResults" class="admin-menu-results hidden" role="listbox" aria-label="תוצאות חיפוש בניהול"></div>
                     <p id="adminMenuNoResults" class="admin-menu-empty hidden">לא נמצאו פעולות מתאימות.</p>
                 </section>
 

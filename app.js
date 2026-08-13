@@ -397,25 +397,61 @@ window.openAdminCategory = function(categoryId) {
     scheduleIconRefresh();
 };
 
+// החיפוש בתפריט הניהול מוצא כל משימת ניהול לפי שם או תיאור — גם משימות
+// שאינן מוצגות ככרטיס בתפריט — ופותח אותה בלחיצה אחת.
+function adminSearchableTasks() {
+    return Object.entries(adminTaskDefinitions)
+        .filter(([, definition]) => !definition.superAdminOnly || window.state.isSuperAdmin)
+        .map(([id, definition]) => ({ id, ...definition }));
+}
+
 window.filterAdminMenu = function(value = '') {
     const panel = document.getElementById('sidebarAdminPanel');
     if (!panel) return;
     const query = String(value).trim().toLocaleLowerCase('he');
-    const items = [...panel.querySelectorAll('.admin-topic-card, .admin-control-card')];
-    let visibleMatches = 0;
+    const results = document.getElementById('adminMenuResults');
+    const empty = document.getElementById('adminMenuNoResults');
 
-    items.forEach(item => {
+    // הכרטיסים והקיצורים שבתפריט מסוננים במקום, כדי שהמבנה יישאר מוכר.
+    let visibleMatches = 0;
+    panel.querySelectorAll('.admin-topic-card, .admin-quick-grid button').forEach(item => {
         const matches = !query || item.textContent.toLocaleLowerCase('he').includes(query);
         item.classList.toggle('admin-search-hidden', !matches);
         if (matches && !item.classList.contains('hidden')) visibleMatches += 1;
     });
 
-    panel.querySelectorAll('.admin-section-label').forEach(label => {
-        label.classList.toggle('admin-search-hidden', Boolean(query));
+    if (!results) return;
+    results.replaceChildren();
+    if (!query) {
+        results.classList.add('hidden');
+        if (empty) empty.classList.add('hidden');
+        return;
+    }
+
+    const matchedTasks = adminSearchableTasks().filter(task =>
+        `${task.title} ${task.description}`.toLocaleLowerCase('he').includes(query)
+    );
+    matchedTasks.forEach(task => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-menu-result';
+        button.onclick = () => window.openAdminTaskWindow(task.id);
+        const icon = document.createElement('span');
+        icon.className = 'admin-menu-result-icon';
+        icon.innerHTML = `<i data-lucide="${safeIconName(task.icon)}" class="w-4 h-4"></i>`;
+        const text = document.createElement('span');
+        const title = document.createElement('strong');
+        title.textContent = task.title;
+        const description = document.createElement('small');
+        description.textContent = task.description;
+        text.append(title, description);
+        button.append(icon, text);
+        results.appendChild(button);
     });
 
-    const empty = document.getElementById('adminMenuNoResults');
-    if (empty) empty.classList.toggle('hidden', !query || visibleMatches > 0);
+    results.classList.toggle('hidden', matchedTasks.length === 0);
+    if (empty) empty.classList.toggle('hidden', matchedTasks.length > 0 || visibleMatches > 0);
+    scheduleIconRefresh();
 };
 
 window.clearAdminMenuSearch = function() {
