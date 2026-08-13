@@ -349,6 +349,68 @@ export async function getDocs(reference) {
   };
 }
 
+async function legacyConversationMutation(conversationUid, action, payload = {}) {
+  // שכבת תאימות זמנית: שומרת על הצ'אט פעיל עד שה־Worker החדש נפרס ידנית.
+  // לאחר הפריסה כל הפעולות עוברות למסלול האטומי /chat/messages.
+  const path = `/data/userProfiles/${encodeURIComponent(conversationUid)}`;
+  const current = await apiRequest(path);
+  const profile = current?.data || {};
+  let messages = Array.isArray(profile.messages) ? [...profile.messages] : [];
+  const now = Date.now();
+  const fromAdmin = window.state?.isSuperAdmin === true;
+
+  if (action === "append") {
+    const source = payload?.message || {};
+    const message = {
+      id: String(source.id || crypto.randomUUID()),
+      text: String(source.text || "").trim().slice(0, 1500),
+      direction: fromAdmin ? "admin_to_user" : "user_to_admin",
+      sender: window.state?.currentUser?.displayName || (fromAdmin ? "מנהל הגלריה" : "משתמש"),
+      senderUid: window.state?.currentUser?.uid || "",
+      recipientUid: fromAdmin ? conversationUid : "gallery-admin",
+      sentAt: now,
+      read: !fromAdmin,
+      readAt: fromAdmin ? null : now,
+      readByAdmin: fromAdmin,
+      readByAdminAt: fromAdmin ? now : null,
+      ...(source.attachment ? { attachment: source.attachment } : {}),
+      ...(source.sticker ? { sticker: source.sticker } : {})
+    };
+    if (!messages.some(item => String(item?.id || "") === message.id)) messages.unshift(message);
+  } else if (action === "mark_read") {
+    messages = messages.map(message => {
+      const direction = message?.direction === "user_to_admin" ? "user_to_admin" : "admin_to_user";
+      if (fromAdmin && direction === "user_to_admin" && message.readByAdmin !== true) {
+        return { ...message, readByAdmin: true, readByAdminAt: now };
+      }
+      if (!fromAdmin && direction === "admin_to_user" && message.read !== true) {
+        return { ...message, read: true, readAt: now };
+      }
+      return message;
+    });
+  } else if (action === "delete") {
+    const messageId = String(payload?.messageId || "");
+    messages = messages.filter(message => String(message?.id || "") !== messageId);
+  } else {
+    throw new Error("פעולת הצ'אט אינה נתמכת.");
+  }
+
+  messages = messages
+    .sort((a, b) => Number(b?.sentAt || 0) - Number(a?.sentAt || 0))
+    .slice(0, 150);
+  await apiRequest(path, {
+    method: "PUT",
+    body: JSON.stringify({
+      data: {
+        messages,
+        ...(action === "append" && !fromAdmin ? { supportStatus: "open" } : {})
+      },
+      merge: true
+    })
+  });
+  return { success: true, messages, legacyFallback: true };
+}
+
 export async function mutateConversationMessages(conversationUid, action, payload = {}) {
   const safeUid = String(conversationUid || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 160);
   if (!safeUid) throw new Error("מזהה השיחה אינו תקין.");
@@ -358,6 +420,9 @@ export async function mutateConversationMessages(conversationUid, action, payloa
     try {
       return await apiRequest("/chat/messages", { method: "POST", body: requestBody });
     } catch (error) {
+      if (error?.status === 404) {
+        return legacyConversationMutation(safeUid, action, payload);
+      }
       lastError = error;
       const retryable = !error?.status || error.status >= 500 || error.status === 409;
       if (!retryable || attempt === 2) throw error;
