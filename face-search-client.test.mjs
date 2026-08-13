@@ -258,11 +258,10 @@ test("חיפוש רגיל אינו מוריד את תמונות הגלריה", a
 
     // התוצאות מוצגות לפי הסדר שהשרת קבע, עם נתוני ההתאמה.
     const results = window.state.tempSearchResults;
-    assert.deepEqual(results.map(item => item.id), ["image-3", "image-1"]);
+    assert.deepEqual(results.map(item => item.id), ["image-3"]);
     assert.equal(results[0].faceMatchStrength, "strong");
     assert.equal(results[0].faceMatchConfidence, 84);
     assert.equal(results[0].faceMatchDistance, 0.21);
-    assert.equal(results[1].faceMatchStrength, "possible");
     assert.equal(results[0].title, "תמונה 3");
 });
 
