@@ -3041,6 +3041,91 @@ html[data-theme="light"] .gate-note { color: #78849a; }
     animation: none !important;
 }
 
+/* Analytics media list: identify the viewed item visually, not only by its id. */
+.analytics-media-section {
+    padding: 18px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 22px;
+    background: rgba(255,255,255,.035);
+}
+.analytics-media-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 15px;
+}
+.analytics-media-heading h4 { color: #fff; font-size: 15px; font-weight: 900; }
+.analytics-media-heading p { margin-top: 4px; color: #94a3b8; font-size: 11px; }
+.analytics-media-count {
+    flex-shrink: 0;
+    padding: 7px 11px;
+    border: 1px solid rgba(255,182,39,.22);
+    border-radius: 999px;
+    color: #ffd36a;
+    background: rgba(255,182,39,.08);
+    font-size: 10px;
+    font-weight: 800;
+}
+.analytics-media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.analytics-media-card {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 9px;
+    color: #e2e8f0;
+    text-align: right;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 17px;
+    background: rgba(2,6,12,.48);
+    transition: border-color .16s ease, background-color .16s ease;
+}
+button.analytics-media-card { cursor: pointer; }
+button.analytics-media-card:hover,
+button.analytics-media-card:focus-visible { border-color: rgba(255,182,39,.45); background: rgba(255,182,39,.075); outline: none; }
+.analytics-media-card.is-missing { opacity: .62; }
+.analytics-media-preview {
+    position: relative;
+    width: 92px;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #182033, #0b101b);
+}
+.analytics-media-preview img { width: 100%; height: 100%; object-fit: cover; }
+.analytics-media-preview.has-fallback::before { content: 'אין תצוגה'; position: absolute; inset: 0; display: grid; place-items: center; color: #64748b; font-size: 9px; }
+.analytics-media-rank,
+.analytics-media-type { position: absolute; top: 6px; display: grid; place-items: center; color: #fff; background: rgba(2,6,12,.78); backdrop-filter: blur(6px); }
+.analytics-media-rank { right: 6px; width: 22px; height: 22px; border-radius: 7px; font-size: 10px; font-weight: 900; }
+.analytics-media-type { left: 6px; width: 25px; height: 25px; border-radius: 8px; }
+.analytics-media-details { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.analytics-media-details strong { overflow: hidden; color: #f8fafc; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.analytics-media-details small { overflow: hidden; color: #94a3b8; font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.analytics-media-details .analytics-media-last-viewed { color: #64748b; }
+.analytics-media-views { min-width: 54px; display: flex; flex-direction: column; align-items: center; padding: 9px 7px; border-radius: 12px; color: #ffd36a; background: rgba(255,182,39,.08); }
+.analytics-media-views strong { font-size: 19px; line-height: 1; }
+.analytics-media-views small { margin-top: 4px; font-size: 8px; font-weight: 800; }
+.analytics-media-empty { grid-column: 1 / -1; padding: 32px 12px; color: #94a3b8; text-align: center; font-size: 12px; }
+html[data-theme="light"] .analytics-media-section { border-color: rgba(15,23,42,.1); background: rgba(255,255,255,.72); }
+html[data-theme="light"] .analytics-media-heading h4,
+html[data-theme="light"] .analytics-media-details strong { color: #172033; }
+html[data-theme="light"] .analytics-media-card { border-color: rgba(15,23,42,.1); color: #334155; background: rgba(248,250,252,.86); }
+html[data-theme="light"] button.analytics-media-card:hover { background: rgba(255,182,39,.12); }
+@media (max-width: 800px) {
+    .analytics-media-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+    .analytics-media-section { padding: 12px; }
+    .analytics-media-heading { align-items: flex-start; }
+    .analytics-media-heading p { display: none; }
+    .analytics-media-card { grid-template-columns: 78px minmax(0, 1fr) auto; gap: 9px; }
+    .analytics-media-preview { width: 78px; }
+    .analytics-media-views { min-width: 47px; }
+}
+
 
 /* =========================================================
    CHAT FILES, EMOJI SHEET AND COMPOSER — August 2026
