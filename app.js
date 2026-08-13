@@ -1033,6 +1033,103 @@ window.recordMediaView = async function(mediaId) {
     }
 };
 
+window.openAnalyticsMedia = function(mediaId) {
+    const id = safeRecordId(mediaId);
+    if (!id || !(window.state.images || []).some(item => safeRecordId(item.id) === id)) {
+        window.showNotification('הפריט הזה כבר אינו קיים בגלריה.', false);
+        return;
+    }
+    closeModal('advancedAnalyticsModal');
+    window.openLightbox?.(id);
+};
+
+function renderAnalyticsMedia(stats) {
+    const container = document.getElementById('advancedAnalyticsTop');
+    const count = document.getElementById('advancedAnalyticsMediaCount');
+    if (!container) return;
+
+    const ordered = [...stats]
+        .sort((first, second) => (Number(second.views) || 0) - (Number(first.views) || 0))
+        .slice(0, 30);
+    if (count) count.textContent = `${ordered.length} פריטים`;
+    container.replaceChildren();
+
+    if (!ordered.length) {
+        const empty = document.createElement('p');
+        empty.className = 'analytics-media-empty';
+        empty.textContent = 'נתוני הצפייה יופיעו כאן לאחר פתיחת תמונות וסרטונים.';
+        container.appendChild(empty);
+        return;
+    }
+
+    const mediaById = new Map((window.state.images || []).map(item => [safeRecordId(item.id), item]));
+    const foldersById = new Map((window.state.folders || []).map(folder => [safeRecordId(folder.id), folder]));
+    ordered.forEach((entry, index) => {
+        const id = safeRecordId(entry.id);
+        const media = mediaById.get(id);
+        const folder = media ? foldersById.get(safeRecordId(media.folderId)) : null;
+        const isVideo = media ? isVideoRecord(media) : false;
+        const previewUrl = media ? safeImageUrl(isVideo ? (media.thumbnailUrl || '') : media.url) : '';
+        const card = document.createElement(media ? 'button' : 'article');
+        if (media) card.type = 'button';
+        card.className = `analytics-media-card${media ? '' : ' is-missing'}`;
+        if (media) {
+            card.onclick = () => window.openAnalyticsMedia(id);
+            card.setAttribute('aria-label', `פתיחת ${media.title || 'פריט מדיה'}, ${Number(entry.views) || 0} צפיות`);
+        }
+
+        const preview = document.createElement('span');
+        preview.className = 'analytics-media-preview';
+        if (previewUrl) {
+            const image = document.createElement('img');
+            image.src = previewUrl;
+            image.alt = '';
+            image.loading = 'lazy';
+            image.decoding = 'async';
+            image.onerror = () => {
+                image.remove();
+                preview.classList.add('has-fallback');
+            };
+            preview.appendChild(image);
+        } else {
+            preview.classList.add('has-fallback');
+        }
+        const rank = document.createElement('span');
+        rank.className = 'analytics-media-rank';
+        rank.textContent = String(index + 1);
+        const typeIcon = document.createElement('span');
+        typeIcon.className = 'analytics-media-type';
+        typeIcon.innerHTML = `<i data-lucide="${media ? (isVideo ? 'video' : 'image') : 'image-off'}" class="w-4 h-4"></i>`;
+        preview.append(rank, typeIcon);
+
+        const details = document.createElement('span');
+        details.className = 'analytics-media-details';
+        const title = document.createElement('strong');
+        title.textContent = media?.title || 'פריט שנמחק מהגלריה';
+        const folderName = document.createElement('small');
+        folderName.textContent = media
+            ? `${isVideo ? 'סרטון' : 'תמונה'} · ${folder?.name || 'ללא תיקייה'}`
+            : `מזהה ישן: ${id || 'לא ידוע'}`;
+        const lastViewed = document.createElement('small');
+        lastViewed.className = 'analytics-media-last-viewed';
+        lastViewed.textContent = entry.lastViewedAt
+            ? `צפייה אחרונה: ${window.formatDate(entry.lastViewedAt)}`
+            : 'אין תאריך צפייה';
+        details.append(title, folderName, lastViewed);
+
+        const views = document.createElement('span');
+        views.className = 'analytics-media-views';
+        const viewsNumber = document.createElement('strong');
+        viewsNumber.textContent = String(Number(entry.views) || 0);
+        const viewsLabel = document.createElement('small');
+        viewsLabel.textContent = 'צפיות';
+        views.append(viewsNumber, viewsLabel);
+        card.append(preview, details, views);
+        container.appendChild(card);
+    });
+    scheduleIconRefresh(container);
+}
+
 window.loadAdvancedAnalytics = async function() {
     if (!checkSuperAdminPermission()) return;
     const cards = document.getElementById('advancedAnalyticsCards');
@@ -1056,11 +1153,7 @@ window.loadAdvancedAnalytics = async function() {
             ['ממתינים לאישור', window.state.pendingImages.length, 'clock']
         ];
         if (cards) cards.innerHTML = values.map(([label, value, icon]) => `<div class="rounded-2xl border border-white/10 bg-white/5 p-4"><i data-lucide="${icon}" class="w-4 h-4 text-amber-300"></i><strong class="block text-2xl text-white mt-3">${escapeHtml(value)}</strong><span class="text-[10px] text-slate-400">${label}</span></div>`).join('');
-        const ordered = stats.sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0)).slice(0, 10);
-        if (top) top.innerHTML = ordered.length ? ordered.map((entry, index) => {
-            const media = window.state.images.find(item => safeRecordId(item.id) === safeRecordId(entry.id));
-            return `<div class="flex items-center justify-between rounded-xl bg-black/20 px-3 py-2"><span>${index + 1}. ${escapeHtml(media?.title || entry.id)}</span><strong class="text-amber-300">${Number(entry.views) || 0} צפיות</strong></div>`;
-        }).join('') : '<p>נתוני הצפייה יופיעו כאן לאחר פתיחת תמונות וסרטונים.</p>';
+        renderAnalyticsMedia(stats);
         scheduleIconRefresh();
     } catch (error) {
         if (top) top.textContent = error.message || 'טעינת הנתונים נכשלה.';
