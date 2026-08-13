@@ -22,7 +22,64 @@ const CONVERSATION_EMOJI_GROUPS = [
     { id: 'objects', label: 'סמלים', icon: 'sparkles', emojis: ['🎉','🎊','🎈','🎁','🏆','🥇','⭐','🌟','✨','⚡','🔥','💥','✅','❌','❗','❓','💯','📸','📎','📁','🖼️','🔔','💬','📅','🕐'] }
 ];
 let activeEmojiGroup = 'recent';
+let activeStickerPack = 'greetings';
+let activeConversationSticker = null;
 let adminConversationFilter = 'all';
+const CONVERSATION_STICKER_PACKS = [
+    {
+        id: 'greetings', label: 'ברכות', icon: 'party-popper',
+        stickers: [
+            { id: 'great', emoji: '👍', label: 'מעולה!', tone: 'gold' },
+            { id: 'thanks', emoji: '🙏', label: 'תודה רבה', tone: 'blue' },
+            { id: 'mazal', emoji: '🎉', label: 'מזל טוב!', tone: 'purple' },
+            { id: 'respect', emoji: '👏', label: 'כל הכבוד', tone: 'green' },
+            { id: 'love', emoji: '❤️', label: 'באהבה', tone: 'red' },
+            { id: 'closed', emoji: '🤝', label: 'סגרנו', tone: 'blue' },
+            { id: 'done', emoji: '✅', label: 'טופל!', tone: 'green' },
+            { id: 'strong', emoji: '🔥', label: 'חזק ביותר', tone: 'orange' }
+        ]
+    },
+    {
+        id: 'moods', label: 'תגובות', icon: 'laugh',
+        stickers: [
+            { id: 'funny', emoji: '😂', label: 'קורע!', tone: 'gold' },
+            { id: 'happy', emoji: '😊', label: 'בשמחה', tone: 'green' },
+            { id: 'wow', emoji: '😮', label: 'וואו!', tone: 'purple' },
+            { id: 'champ', emoji: '😎', label: 'אלוף', tone: 'blue' },
+            { id: 'checking', emoji: '🤔', label: 'בודק…', tone: 'gold' },
+            { id: 'later', emoji: '👋', label: 'נדבר', tone: 'blue' },
+            { id: 'party', emoji: '🥳', label: 'חגיגה!', tone: 'purple' },
+            { id: 'hundred', emoji: '💯', label: 'מאה אחוז', tone: 'red' }
+        ]
+    },
+    {
+        id: 'gallery', label: 'הגלריה', icon: 'images',
+        stickers: [
+            { id: 'nice-photo', emoji: '📸', label: 'תמונה יפה!', tone: 'blue' },
+            { id: 'learning', emoji: '📚', label: 'לומדים', tone: 'green' },
+            { id: 'music', emoji: '🎵', label: 'שמח כאן', tone: 'purple' },
+            { id: 'moving', emoji: '🕯️', label: 'מרגש', tone: 'gold' },
+            { id: 'winners', emoji: '🏆', label: 'אלופים!', tone: 'gold' },
+            { id: 'special', emoji: '✨', label: 'מיוחד', tone: 'purple' },
+            { id: 'see-you', emoji: '📅', label: 'נתראה', tone: 'blue' },
+            { id: 'ashreichem', emoji: '🙌', label: 'אשריכם!', tone: 'green' }
+        ]
+    }
+];
+
+function conversationStickerById(id) {
+    for (const pack of CONVERSATION_STICKER_PACKS) {
+        const sticker = pack.stickers.find(item => item.id === id);
+        if (sticker) return sticker;
+    }
+    return null;
+}
+
+function normalizeConversationSticker(value) {
+    const id = window.safeRecordId(typeof value === 'string' ? value : value?.id);
+    const sticker = conversationStickerById(id);
+    return sticker ? { id: sticker.id } : null;
+}
 
 function messageDirection(message) {
     return message?.direction === 'user_to_admin' ? 'user_to_admin' : 'admin_to_user';
@@ -168,25 +225,31 @@ function conversationEntries(profile) {
     const entries = [];
     const messages = Array.isArray(profile?.messages) ? profile.messages : [];
     messages.forEach((message, index) => {
-        if (!message || (!String(message.text || '').trim() && !normalizeConversationAttachment(message.attachment))) return;
+        const messageAttachment = normalizeConversationAttachment(message?.attachment);
+        const messageSticker = normalizeConversationSticker(message?.sticker);
+        if (!message || (!String(message.text || '').trim() && !messageAttachment && !messageSticker)) return;
         entries.push({
             id: window.safeRecordId(message.id) || `legacy_${index}`,
             text: String(message.text || ''),
             direction: messageDirection(message),
             sentAt: message.sentAt || 0,
             sender: message.sender || (messageDirection(message) === 'user_to_admin' ? profile.displayName : 'מנהל הגלריה'),
-            attachment: normalizeConversationAttachment(message.attachment),
+            attachment: messageAttachment,
+            sticker: messageSticker,
             read: messageDirection(message) === 'user_to_admin' ? message.readByAdmin === true : message.read === true,
             readAt: messageDirection(message) === 'user_to_admin' ? message.readByAdminAt : message.readAt
         });
-        if (message.reply && (String(message.reply.text || '').trim() || normalizeConversationAttachment(message.reply.attachment))) {
+        const replyAttachment = normalizeConversationAttachment(message?.reply?.attachment);
+        const replySticker = normalizeConversationSticker(message?.reply?.sticker);
+        if (message.reply && (String(message.reply.text || '').trim() || replyAttachment || replySticker)) {
             entries.push({
                 id: `${window.safeRecordId(message.id) || `legacy_${index}`}_reply`,
                 text: String(message.reply.text || ''),
                 direction: 'user_to_admin',
                 sentAt: message.reply.sentAt || message.sentAt || 0,
                 sender: message.reply.senderName || profile.displayName || 'משתמש',
-                attachment: normalizeConversationAttachment(message.reply.attachment),
+                attachment: replyAttachment,
+                sticker: replySticker,
                 read: message.reply.readByAdmin === true,
                 readAt: message.reply.readByAdminAt
             });
@@ -231,7 +294,7 @@ window.renderActiveConversation = function() {
     } else {
         entries.forEach(entry => {
             const bubble = document.createElement('article');
-            bubble.className = `conversation-bubble ${entry.direction === 'user_to_admin' ? 'is-user' : 'is-admin'}`;
+            bubble.className = `conversation-bubble ${entry.direction === 'user_to_admin' ? 'is-user' : 'is-admin'} ${entry.sticker && !entry.text && !entry.attachment ? 'is-sticker' : ''}`;
             const sender = document.createElement('strong');
             sender.className = 'block text-[9px] mb-1 opacity-70';
             sender.textContent = entry.direction === 'user_to_admin'
@@ -243,6 +306,21 @@ window.renderActiveConversation = function() {
                 text.className = 'text-xs sm:text-sm leading-relaxed';
                 text.textContent = entry.text;
                 bubble.appendChild(text);
+            }
+            if (entry.sticker) {
+                const sticker = conversationStickerById(entry.sticker.id);
+                if (sticker) {
+                    const stickerCard = document.createElement('div');
+                    stickerCard.className = `conversation-sticker conversation-sticker-${sticker.tone}`;
+                    stickerCard.setAttribute('aria-label', sticker.label);
+                    const emoji = document.createElement('span');
+                    emoji.className = 'conversation-sticker-emoji';
+                    emoji.textContent = sticker.emoji;
+                    const label = document.createElement('strong');
+                    label.textContent = sticker.label;
+                    stickerCard.append(emoji, label);
+                    bubble.appendChild(stickerCard);
+                }
             }
             if (entry.attachment) {
                 const attachmentBox = document.createElement('div');
@@ -906,7 +984,8 @@ function collectAdminMessageReplies() {
         const messages = Array.isArray(user.messages) ? user.messages : [];
         messages.forEach((message, messageIndex) => {
             const directAttachment = normalizeConversationAttachment(message?.attachment);
-            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment)) {
+            const directSticker = normalizeConversationSticker(message?.sticker);
+            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment || directSticker)) {
                 replies.push({
                     user,
                     uid,
@@ -915,6 +994,7 @@ function collectAdminMessageReplies() {
                     reply: {
                         text: String(message.text || ''),
                         attachment: directAttachment,
+                        sticker: directSticker,
                         sentAt: message.sentAt,
                         readByAdmin: message.readByAdmin === true
                     }
@@ -922,8 +1002,9 @@ function collectAdminMessageReplies() {
             }
             const reply = message?.reply;
             const replyAttachment = normalizeConversationAttachment(reply?.attachment);
-            if (!reply || (!String(reply.text || '').trim() && !replyAttachment)) return;
-            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment } });
+            const replySticker = normalizeConversationSticker(reply?.sticker);
+            if (!reply || (!String(reply.text || '').trim() && !replyAttachment && !replySticker)) return;
+            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment, sticker: replySticker } });
         });
     });
     return replies.sort((a, b) => Number(b.reply.sentAt || 0) - Number(a.reply.sentAt || 0));
@@ -1035,7 +1116,11 @@ window.renderAdminMessageReplies = function() {
 
         const preview = document.createElement('span');
         preview.className = 'admin-conversation-preview';
-        preview.textContent = String(reply.text || '').trim() || (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` : 'הודעה חדשה');
+        const replySticker = normalizeConversationSticker(reply.sticker);
+        const stickerDetails = replySticker ? conversationStickerById(replySticker.id) : null;
+        preview.textContent = String(reply.text || '').trim() ||
+            (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` :
+                (stickerDetails ? `${stickerDetails.emoji} מדבקה: ${stickerDetails.label}` : 'הודעה חדשה'));
 
         const meta = document.createElement('span');
         meta.className = 'admin-conversation-meta';
