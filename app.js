@@ -132,16 +132,33 @@ window.descriptorCache = {};
 // --- 1.5. UI & Drawer Modal Basic Functions ---
 
 // --- Floating Profile Widget & Notification Hub Toggles & Actions ---
-window.toggleFloatingProfile = function() {
+function setFloatingProfileOpen(shouldOpen, event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const panel = document.getElementById('floatingProfilePanel');
     if (!panel) return;
-    const isOpen = panel.classList.contains('active');
-    if (isOpen) {
-        panel.classList.remove('active');
-    } else {
-        panel.classList.add('active');
+    const button = document.getElementById('floatingProfileButton');
+    panel.classList.toggle('active', Boolean(shouldOpen));
+    button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) {
         scheduleIconRefresh();
     }
+}
+
+// לחיצה על תמונת המשתמש תמיד פותחת. כך אירוע כפול בטלפון או לחיצה מהירה
+// אינם מפעילים toggle פעמיים וגורמים לפאנל להיפתח ולהיסגר מיד.
+window.openFloatingProfile = function(event) {
+    setFloatingProfileOpen(true, event);
+};
+
+window.closeFloatingProfile = function(event) {
+    setFloatingProfileOpen(false, event);
+};
+
+// נשמר לתאימות עם קריאות ישנות, אך כפתור הפרופיל עצמו משתמש בפתיחה מפורשת.
+window.toggleFloatingProfile = function(event) {
+    const panel = document.getElementById('floatingProfilePanel');
+    setFloatingProfileOpen(!panel?.classList.contains('active'), event);
 };
 
 window.openManagementFromProfile = function() {
@@ -149,7 +166,7 @@ window.openManagementFromProfile = function() {
         window.showNotification('הכניסה ללוח הניהול זמינה למנהלים בלבד.', false);
         return;
     }
-    document.getElementById('floatingProfilePanel')?.classList.remove('active');
+    window.closeFloatingProfile();
     const drawer = document.getElementById('adminDrawer');
     if (drawer && !drawer.classList.contains('translate-x-0')) toggleAdminDrawer();
 };
