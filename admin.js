@@ -776,9 +776,10 @@ window.sendConversationMessage = async function() {
     const input = document.getElementById('conversationInput');
     const button = document.getElementById('conversationSendButton');
     const status = document.getElementById('conversationUploadStatus');
-    const text = String(input?.value || '').trim().slice(0, 1500);
-    const file = activeConversationAttachment;
     const sticker = normalizeConversationSticker(activeConversationSticker);
+    // כמו ב־WhatsApp: מדבקה נשלחת לבדה ואינה מוחקת טיוטת טקסט או קובץ שהוכן.
+    const text = sticker ? '' : String(input?.value || '').trim().slice(0, 1500);
+    const file = sticker ? null : activeConversationAttachment;
     if (!text && !file && !sticker) return;
     const profile = activeConversationProfile();
     const uid = activeConversationMode === 'admin' ? activeConversationUid : window.state.currentUser?.uid;
@@ -827,17 +828,20 @@ window.sendConversationMessage = async function() {
         }, { merge: true });
         profile.messages = updatedMessages;
         if (!fromAdmin) profile.supportStatus = 'open';
-        if (input) input.value = '';
-        window.updateConversationCharacterCount();
+        if (!sticker) {
+            if (input) input.value = '';
+            window.updateConversationCharacterCount();
+            window.clearConversationAttachment();
+            if (status) status.textContent = 'תמונות וקבצים עד 25MB';
+        }
         window.toggleConversationEmojiPicker(false);
         window.toggleConversationStickerPicker(false);
         activeConversationSticker = null;
-        window.clearConversationAttachment();
-        if (status) status.textContent = 'תמונות וקבצים עד 25MB';
         window.renderActiveConversation();
         window.renderFloatingInbox?.();
         window.renderAdminMessageReplies?.();
     } catch (error) {
+        activeConversationSticker = null;
         console.error('Conversation message failed:', error);
         if (status) status.textContent = 'ההעלאה או השליחה נכשלה';
         window.showNotification(error.message || 'שליחת ההודעה נכשלה. נסה שוב.', false);
