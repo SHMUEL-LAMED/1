@@ -2494,6 +2494,8 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
    --------------------------------------------------------- */
 .home-intro {
     width: 100%;
+    /* הרוחב כולל את הריפוד, כך שהרצועה לעולם אינה חורגת מרוחב העמוד. */
+    box-sizing: border-box;
     min-height: clamp(196px, 21vw, 260px);
     padding: clamp(24px, 3.2vw, 38px) clamp(22px, 3.6vw, 48px);
     display: flex;
@@ -2521,13 +2523,14 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
     height: 1px;
     background: linear-gradient(90deg, transparent, rgba(255,182,39,.5), transparent);
 }
+/* קשת עדינה בצד הפנוי — נותנת עומק אדריכלי בלי להסיח מהתוכן. */
 .home-intro::after {
-    width: clamp(180px, 22vw, 300px);
-    height: clamp(180px, 22vw, 300px);
-    left: auto;
-    right: -9%;
-    top: -46%;
-    border-color: rgba(255,182,39,.10);
+    width: clamp(230px, 30vw, 420px);
+    height: clamp(230px, 30vw, 420px);
+    left: -8%;
+    right: auto;
+    top: -62%;
+    border-color: rgba(255,182,39,.09);
     box-shadow: none;
     animation: none !important;
 }
@@ -2607,16 +2610,13 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
     font-size: 12.5px;
     font-weight: 800;
     cursor: pointer;
-    transition: background .3s ease, color .3s ease, border-color .3s ease, transform .3s ease;
 }
+/* האתר עובד ללא אנימציות, ולכן המעבר הוא החלפת צבע מיידית ולא תנועה. */
 .entry-door:hover {
     color: #1a1206;
     background: linear-gradient(120deg, #ffdd8e, #ffb627);
     border-color: transparent;
-    transform: translateY(-1px);
 }
-.entry-door svg { transition: transform .3s ease; }
-.entry-door:hover svg { transform: translateX(-3px); }
 /* כשעדיין לא נכנסו לחשבון, הדלת היחידה היא כפתור ההתחברות שלצד הרצועה. */
 body.gallery-locked .entry-door { display: none; }
 
@@ -2628,6 +2628,8 @@ body.gallery-locked .entry-door { display: none; }
     border-top: 1px solid rgba(255,255,255,.07);
     display: flex;
     flex-wrap: wrap;
+    /* הנתונים נפרשים לרוחב הרצועה, כמו שורת פרטים על שלט כניסה. */
+    justify-content: space-between;
     gap: clamp(18px, 3.4vw, 44px);
 }
 .entry-facts > div {
@@ -2949,6 +2951,9 @@ html[data-theme="light"] .entry-facts dt { color: #64748b; }
         align-items: stretch;
     }
     .entry-top { flex-direction: column; align-items: stretch; gap: 18px; }
+    /* במסך צר הסמל עומד מעל השם, כמו שלט כניסה, ולא לצד שורה שנשברה. */
+    .entry-identity { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .entry-emblem { width: 48px; height: 48px; }
     .entry-title { font-size: clamp(25px, 7.5vw, 34px); }
     .entry-door { width: 100%; justify-content: center; }
     .entry-facts { gap: 12px 26px; }

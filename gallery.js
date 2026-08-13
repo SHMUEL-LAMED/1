@@ -414,7 +414,7 @@ function renderArchiveEntryFacts(eventCount, mediaCount) {
 // „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.
 window.enterArchive = function() {
     const target = document.querySelector('.collections-deck') || document.getElementById('photosGrid');
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target?.scrollIntoView({ behavior: 'auto', block: 'start' });
 };
 
 window._doRenderFolders = function() {
