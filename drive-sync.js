@@ -1,12 +1,12 @@
 // drive-sync.js — חיבור וסנכרון Google Drive, סריקה רקורסיבית, מחיקות ותיקיות ריקות
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
-import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit } from "./cloudflare-client.js";
+import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject } from "./cloudflare-client.js";
 
 // שכבת תאימות: הממשק הקיים נשאר זהה, והנתונים נשמרים ב־Cloudflare D1.
 window.db = null;
 window.appId = typeof __app_id !== 'undefined' ? __app_id : 'org-gallery';
-window.firestoreModules = { collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit };
+window.firestoreModules = { collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject };
 
 
 // D1 משתמש בבקשות HTTPS רגילות. במקום לסרוק את כל מסד הנתונים
