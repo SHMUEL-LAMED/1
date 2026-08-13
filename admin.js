@@ -120,7 +120,7 @@ window.openConversationAttachment = async function(attachment) {
         return;
     }
     if (!conversationAttachmentCanPreview(normalized)) {
-        window.downloadConversationAttachment(normalized.url, normalized.name);
+        window.showNotification('אין תצוגה מקדימה לסוג הקובץ הזה. השתמש בכפתור ההורדה שלידו.', true, 'info');
         return;
     }
     const modal = document.getElementById('conversationAttachmentViewer');
