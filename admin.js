@@ -90,6 +90,79 @@ window.downloadConversationAttachment = async function(url, fileName) {
     }
 };
 
+function conversationAttachmentCanPreview(attachment) {
+    const type = String(attachment?.type || '').toLowerCase();
+    const extension = String(attachment?.name || '').split('.').pop().toLowerCase();
+    return attachment?.kind === 'image' ||
+        type.startsWith('video/') ||
+        type.startsWith('audio/') ||
+        type === 'application/pdf' ||
+        extension === 'pdf';
+}
+
+window.closeConversationAttachmentPreview = function() {
+    const modal = document.getElementById('conversationAttachmentViewer');
+    const content = document.getElementById('conversationAttachmentViewerContent');
+    const objectUrl = modal?.dataset.objectUrl;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (modal) {
+        modal.dataset.objectUrl = '';
+        modal.classList.add('hidden');
+    }
+    content?.replaceChildren();
+};
+
+window.openConversationAttachment = async function(attachment) {
+    const normalized = normalizeConversationAttachment(attachment);
+    if (!normalized) {
+        window.showNotification('הקובץ אינו זמין.', false);
+        return;
+    }
+    if (!conversationAttachmentCanPreview(normalized)) {
+        window.downloadConversationAttachment(normalized.url, normalized.name);
+        return;
+    }
+    const modal = document.getElementById('conversationAttachmentViewer');
+    const content = document.getElementById('conversationAttachmentViewerContent');
+    const title = document.getElementById('conversationAttachmentViewerTitle');
+    const download = document.getElementById('conversationAttachmentViewerDownload');
+    if (!modal || !content) return;
+    modal.classList.remove('hidden');
+    content.innerHTML = '<div class="conversation-viewer-loading"><i data-lucide="loader-circle" class="w-7 h-7"></i><span>טוען תצוגה מקדימה…</span></div>';
+    if (title) title.textContent = normalized.name || 'קובץ מצורף';
+    if (download) download.onclick = () => window.downloadConversationAttachment(normalized.url, normalized.name);
+    window.scheduleIconRefresh?.();
+    try {
+        const blob = await fetchConversationAttachment(normalized.url);
+        if (modal.classList.contains('hidden')) return;
+        const objectUrl = URL.createObjectURL(blob);
+        modal.dataset.objectUrl = objectUrl;
+        content.replaceChildren();
+        const type = String(normalized.type || blob.type || '').toLowerCase();
+        let viewer;
+        if (normalized.kind === 'image' || type.startsWith('image/')) {
+            viewer = document.createElement('img');
+            viewer.alt = normalized.name || 'תמונה מצורפת';
+        } else if (type.startsWith('video/')) {
+            viewer = document.createElement('video');
+            viewer.controls = true;
+            viewer.playsInline = true;
+        } else if (type.startsWith('audio/')) {
+            viewer = document.createElement('audio');
+            viewer.controls = true;
+        } else {
+            viewer = document.createElement('iframe');
+            viewer.title = normalized.name || 'תצוגת PDF';
+        }
+        viewer.className = 'conversation-viewer-media';
+        viewer.src = objectUrl;
+        content.appendChild(viewer);
+    } catch (error) {
+        content.innerHTML = '<div class="conversation-viewer-error"><i data-lucide="file-warning" class="w-8 h-8"></i><strong>לא ניתן להציג את הקובץ</strong><span>אפשר לנסות להוריד אותו למחשב.</span></div>';
+        window.scheduleIconRefresh?.();
+    }
+};
+
 function conversationEntries(profile) {
     const entries = [];
     const messages = Array.isArray(profile?.messages) ? profile.messages : [];
@@ -173,25 +246,35 @@ window.renderActiveConversation = function() {
             if (entry.attachment) {
                 const attachmentBox = document.createElement('div');
                 attachmentBox.className = 'conversation-attachment';
+                const canPreview = conversationAttachmentCanPreview(entry.attachment);
+
                 if (entry.attachment.kind === 'image') {
                     const imageButton = document.createElement('button');
                     imageButton.type = 'button';
-                    imageButton.className = 'block w-full';
-                    imageButton.title = 'הורדת התמונה';
+                    imageButton.className = 'conversation-image-preview';
+                    imageButton.title = 'פתיחת התמונה';
                     const image = document.createElement('img');
                     image.className = 'conversation-attachment-image';
                     image.alt = entry.attachment.name || 'תמונה מצורפת';
-                    imageButton.appendChild(image);
-                    imageButton.onclick = () => window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
+                    const overlay = document.createElement('span');
+                    overlay.innerHTML = '<i data-lucide="maximize-2" class="w-4 h-4"></i><span>פתח תצוגה</span>';
+                    imageButton.append(image, overlay);
+                    imageButton.onclick = () => window.openConversationAttachment(entry.attachment);
                     attachmentBox.appendChild(imageButton);
                     window.loadConversationImage(image, entry.attachment.url);
                 } else {
+                    const fileRow = document.createElement('div');
+                    fileRow.className = 'conversation-file-row';
+
                     const fileButton = document.createElement('button');
                     fileButton.type = 'button';
                     fileButton.className = 'conversation-file-card';
+                    fileButton.title = canPreview ? 'פתיחת תצוגה מקדימה' : 'הורדת הקובץ';
                     const icon = document.createElement('span');
                     icon.className = 'conversation-file-icon';
-                    icon.innerHTML = '<i data-lucide="file-down" class="w-5 h-5"></i>';
+                    icon.innerHTML = canPreview
+                        ? '<i data-lucide="file-search" class="w-5 h-5"></i>'
+                        : '<i data-lucide="file" class="w-5 h-5"></i>';
                     const details = document.createElement('span');
                     details.className = 'min-w-0 flex-1';
                     const name = document.createElement('strong');
@@ -199,11 +282,25 @@ window.renderActiveConversation = function() {
                     name.textContent = entry.attachment.name;
                     const size = document.createElement('small');
                     size.className = 'block mt-0.5 text-[9px] opacity-65';
-                    size.textContent = entry.attachment.size ? window.formatBytes(entry.attachment.size) : 'לחץ להורדה';
+                    const sizeLabel = entry.attachment.size ? window.formatBytes(entry.attachment.size) : 'קובץ מצורף';
+                    size.textContent = `${sizeLabel} · ${canPreview ? 'לחץ לפתיחה' : 'זמין להורדה'}`;
                     details.append(name, size);
                     fileButton.append(icon, details);
-                    fileButton.onclick = () => window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
-                    attachmentBox.appendChild(fileButton);
+                    fileButton.onclick = () => window.openConversationAttachment(entry.attachment);
+
+                    const downloadButton = document.createElement('button');
+                    downloadButton.type = 'button';
+                    downloadButton.className = 'conversation-file-download';
+                    downloadButton.title = 'הורדת הקובץ';
+                    downloadButton.setAttribute('aria-label', `הורדת ${entry.attachment.name}`);
+                    downloadButton.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i>';
+                    downloadButton.onclick = event => {
+                        event.stopPropagation();
+                        window.downloadConversationAttachment(entry.attachment.url, entry.attachment.name);
+                    };
+
+                    fileRow.append(fileButton, downloadButton);
+                    attachmentBox.appendChild(fileRow);
                 }
                 bubble.appendChild(attachmentBox);
             }
