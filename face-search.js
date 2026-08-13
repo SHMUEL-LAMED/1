@@ -12,8 +12,10 @@
 let faceEnginePromise = null;
 let faceSearchQueryImageSrc = null;
 // ערכי הסף מוגדרים ב-Worker ומוצגים כאן לתיעוד בלבד. מרחק קטן יותר פירושו
-// דמיון גבוה יותר; הסף הגמיש מזהה את אותו אדם גם בשינויי זווית ותאורה.
-const FACE_MATCH_THRESHOLD = 0.62;
+// דמיון גבוה יותר. חיפוש פנים חייב להעדיף החמצה על פני הצגת אדם אחר,
+// ולכן מוצגות רק התאמות מחמירות. הלקוח מסנן שוב גם אם Worker ישן החזיר
+// בטעות התאמות חלשות.
+const FACE_MATCH_THRESHOLD = 0.48;
 const FACE_STRONG_MATCH_THRESHOLD = 0.48;
 // חייב להיות זהה ל-FACE_MODEL_VERSION שב-cloudflare-worker.js.
 const FACE_MODEL_VERSION = 'faceapi-1.7.15-ssd-l68-r1';
@@ -138,15 +140,19 @@ function galleryImageById(imageId) {
 // התוצאה מה-Worker מכילה מזהה, מרחק ואחוז התאמה בלבד — לא descriptors.
 function attachFaceMatchesToGallery(matches) {
     return (Array.isArray(matches) ? matches : [])
+        .filter(match => {
+            const distance = Number(match?.distance);
+            return Number.isFinite(distance) && distance >= 0 && distance < FACE_MATCH_THRESHOLD;
+        })
         .map(match => {
             const image = galleryImageById(window.safeRecordId(match?.imageId));
             if (!image) return null;
             const distance = Number(match?.distance);
             return {
                 ...image,
-                faceMatchDistance: Number.isFinite(distance) ? distance : FACE_MATCH_THRESHOLD,
+                faceMatchDistance: distance,
                 faceMatchConfidence: Math.max(0, Math.min(100, Math.round(Number(match?.confidence) || 0))),
-                faceMatchStrength: match?.strength === 'strong' ? 'strong' : 'possible'
+                faceMatchStrength: 'strong'
             };
         })
         .filter(Boolean);

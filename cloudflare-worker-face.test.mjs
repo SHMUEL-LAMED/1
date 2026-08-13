@@ -295,9 +295,10 @@ test("נשמרות כמה פנים לאותה תמונה וכל אחת מהן מ
   assert.equal(countDescriptors("image-group"), 1);
 });
 
-test("החיפוש מחזיר את ההתאמות הקרובות לפי הספים ובסדר הנכון", async () => {
+test("החיפוש מחזיר רק התאמות מחמירות לפי הסף ובסדר הנכון", async () => {
   await seedIndexedImage("image-strong", [descriptorAtDistance(0.2)]);
-  await seedIndexedImage("image-possible", [descriptorAtDistance(0.55)]);
+  await seedIndexedImage("image-possible", [descriptorAtDistance(0.47)]);
+  await seedIndexedImage("image-wrong-person", [descriptorAtDistance(0.55)]);
   await seedIndexedImage("image-far", [descriptorAtDistance(0.9)]);
   await seedIndexedImage("image-empty", []);
 
@@ -310,16 +311,17 @@ test("החיפוש מחזיר את ההתאמות הקרובות לפי הספי
   const matches = search.payload.matches;
   assert.deepEqual(matches.map(match => match.imageId), ["image-strong", "image-possible"]);
   assert.equal(matches[0].strength, "strong");
-  assert.equal(matches[1].strength, "possible");
+  assert.equal(matches[1].strength, "strong");
   assert.ok(Math.abs(matches[0].distance - 0.2) < 0.0002);
-  assert.ok(Math.abs(matches[1].distance - 0.55) < 0.0002);
+  assert.ok(Math.abs(matches[1].distance - 0.47) < 0.0002);
   assert.ok(matches[0].confidence > matches[1].confidence);
-  assert.equal(search.payload.thresholds.match, 0.62);
+  assert.equal(search.payload.thresholds.match, 0.48);
   assert.equal(search.payload.thresholds.strong, 0.48);
+  assert.equal(matches.some(match => match.imageId === "image-wrong-person"), false);
 
-  // הסף עצמו חוסם: מעט מעבר ל-0.62 אינו נכלל, ומעט מתחתיו כן.
-  await seedIndexedImage("image-over-threshold", [descriptorAtDistance(0.6205)]);
-  await seedIndexedImage("image-under-threshold", [descriptorAtDistance(0.6195)]);
+  // הסף עצמו חוסם: מעט מעבר ל-0.48 אינו נכלל, ומעט מתחתיו כן.
+  await seedIndexedImage("image-over-threshold", [descriptorAtDistance(0.4805)]);
+  await seedIndexedImage("image-under-threshold", [descriptorAtDistance(0.4795)]);
   const borderline = await call("/face/search", "POST", {
     descriptor: descriptorAtDistance(0)
   }, "viewer-token");
