@@ -8,8 +8,9 @@
 // הקובץ מטפל גם בתמונות חדשות: אחרי העלאה או אישור, התמונה נכנסת לתור
 // אינדוקס קטן ברקע. כישלון בזיהוי הפנים אינו מעכב ואינו מפיל את ההעלאה.
 
-// קבוצות קטנות: הדפדפן נשאר מגיב, וכישלון ברשת מבזבז מעט עבודה.
-const FACE_INDEX_IMAGE_BATCH = 4;
+// כמה תמונות נסרקות במקביל. במחשב חזק משתמשים בעד שישה מסלולים;
+// במכשיר חלש נשארים עם שניים כדי לא להפיל את הזיכרון או להקפיא את המסך.
+const FACE_INDEX_MAX_CONCURRENCY = 6;
 const FACE_INDEX_SAVE_CHUNK = 8;
 const FACE_INDEX_PENDING_CHUNK = 200;
 // חייב להיות זהה ל-FACE_INDEX_MAX_FACES_PER_IMAGE שב-Worker.
@@ -43,6 +44,17 @@ function faceIndexModelVersion() {
 
 function faceIndexDelay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function faceIndexConcurrency() {
+    const hardwareThreads = Math.max(2, Number(globalThis.navigator?.hardwareConcurrency) || 4);
+    const memoryGb = Number(globalThis.navigator?.deviceMemory) || 4;
+    const isNarrowScreen = typeof globalThis.matchMedia === 'function'
+        && globalThis.matchMedia('(max-width: 760px)').matches;
+    const hardwareLimit = Math.max(2, Math.floor(hardwareThreads - 1));
+    const memoryLimit = memoryGb <= 2 ? 2 : (memoryGb <= 4 ? 4 : FACE_INDEX_MAX_CONCURRENCY);
+    const screenLimit = isNarrowScreen ? 3 : FACE_INDEX_MAX_CONCURRENCY;
+    return Math.max(2, Math.min(FACE_INDEX_MAX_CONCURRENCY, hardwareLimit, memoryLimit, screenLimit));
 }
 
 // המשתמש רשאי לכתוב טביעות רק אם הוא מנהל. משתמש רגיל שמעלה תמונה אינו
@@ -155,9 +167,11 @@ function collectFaceIndexCandidates() {
 // השרת הוא מקור האמת לגבי מה כבר עובד. לכן אחרי רענון או סגירת דפדפן
 // ההמשך מתחיל בדיוק מהמקום שנעצר, ותמונות שכבר אונדקסו נידלגות.
 async function fetchPendingImageIds(candidates) {
-    const pending = [];
+    const chunks = [];
     for (let offset = 0; offset < candidates.length; offset += FACE_INDEX_PENDING_CHUNK) {
-        const chunk = candidates.slice(offset, offset + FACE_INDEX_PENDING_CHUNK);
+        chunks.push(candidates.slice(offset, offset + FACE_INDEX_PENDING_CHUNK));
+    }
+    const pendingChunks = await Promise.all(chunks.map(async chunk => {
         const response = await window.r2Request('/face/index/pending', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -167,11 +181,9 @@ async function fetchPendingImageIds(candidates) {
             })
         });
         const pendingIds = new Set((response?.pending || []).map(id => window.safeRecordId(id)));
-        chunk.forEach(candidate => {
-            if (pendingIds.has(candidate.imageId)) pending.push(candidate);
-        });
-    }
-    return pending;
+        return chunk.filter(candidate => pendingIds.has(candidate.imageId));
+    }));
+    return pendingChunks.flat();
 }
 
 // הפקת הטביעות של תמונה אחת. זו הפעם היחידה שבה התמונה יורדת לדפדפן.
@@ -243,37 +255,43 @@ async function startFaceIndexing() {
             return;
         }
 
-        window.showNotification(`מתחיל אינדוקס של ${pending.length} תמונות. אפשר לעצור ולהמשיך בכל שלב.`, true);
+        const concurrency = faceIndexConcurrency();
+        window.showNotification(`מתחיל אינדוקס מקביל של ${pending.length} תמונות (${concurrency} בו־זמנית). אפשר לעצור ולהמשיך בכל שלב.`, true);
 
         const buffer = [];
-        for (let offset = 0; offset < pending.length; offset += FACE_INDEX_IMAGE_BATCH) {
-            const batch = pending.slice(offset, offset + FACE_INDEX_IMAGE_BATCH);
-
-            for (const candidate of batch) {
+        for (let offset = 0; offset < pending.length; offset += concurrency) {
+            const batch = pending.slice(offset, offset + concurrency);
+            const results = await Promise.all(batch.map(async candidate => {
                 try {
                     const faces = await describeImageFaces(faceapi, candidate);
-                    // גם תמונה בלי פנים נשמרת כמעובדת, כדי שלא תיסרק שוב.
-                    buffer.push({ imageId: candidate.imageId, faces });
-                    faceIndexRun.faces += faces.length;
+                    return { entry: { imageId: candidate.imageId, faces }, faceCount: faces.length };
                 } catch (error) {
-                    // כישלון בתמונה בודדת אינו עוצר את האינדוקס כולו.
-                    faceIndexRun.failed += 1;
-                    buffer.push({ imageId: candidate.imageId, status: 'failed', errorCode: 'image_scan_failed' });
                     console.warn('אינדוקס פנים דילג על תמונה:', candidate.imageId, error);
+                    return {
+                        entry: { imageId: candidate.imageId, status: 'failed', errorCode: 'image_scan_failed' },
+                        faceCount: 0,
+                        failed: true
+                    };
                 }
+            }));
+
+            for (const result of results) {
+                buffer.push(result.entry);
+                faceIndexRun.faces += result.faceCount;
+                if (result.failed) faceIndexRun.failed += 1;
                 faceIndexRun.processed += 1;
                 faceIndexRun.remaining = Math.max(0, pending.length - faceIndexRun.processed);
             }
 
             // שומרים את מה שנאסף לפני עצירה או סיום, כדי שהעבודה לא תאבד.
-            const isLastBatch = offset + FACE_INDEX_IMAGE_BATCH >= pending.length;
+            const isLastBatch = offset + concurrency >= pending.length;
             if (buffer.length >= FACE_INDEX_SAVE_CHUNK || isLastBatch || faceIndexRun.stopRequested) {
                 while (buffer.length) {
                     await saveFaceIndexEntries(buffer.splice(0, FACE_INDEX_SAVE_CHUNK));
                 }
             }
 
-            faceIndexRun.message = `הושלמו ${faceIndexRun.processed} מתוך ${pending.length} · נותרו ${faceIndexRun.remaining} · נכשלו ${faceIndexRun.failed}`;
+            faceIndexRun.message = `הושלמו ${faceIndexRun.processed} מתוך ${pending.length} · ${concurrency} תמונות במקביל · נותרו ${faceIndexRun.remaining} · נכשלו ${faceIndexRun.failed}`;
             writeFaceIndexCheckpoint();
             renderFaceIndexPanel();
 
@@ -419,15 +437,14 @@ async function drainAutoIndexQueue() {
         while (autoIndexQueue.length) {
             const candidates = autoIndexQueue.splice(0, FACE_INDEX_SAVE_CHUNK);
             const pending = await fetchPendingImageIds(candidates);
-            const entries = [];
-            for (const candidate of pending) {
+            const entries = await Promise.all(pending.map(async candidate => {
                 try {
-                    entries.push({ imageId: candidate.imageId, faces: await describeImageFaces(faceapi, candidate) });
+                    return { imageId: candidate.imageId, faces: await describeImageFaces(faceapi, candidate) };
                 } catch (error) {
-                    entries.push({ imageId: candidate.imageId, status: 'failed', errorCode: 'image_scan_failed' });
                     console.warn('אינדוקס אוטומטי דילג על תמונה:', candidate.imageId, error);
+                    return { imageId: candidate.imageId, status: 'failed', errorCode: 'image_scan_failed' };
                 }
-            }
+            }));
             await saveFaceIndexEntries(entries);
         }
         faceIndexSummaryCache = null;
