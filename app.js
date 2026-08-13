@@ -218,6 +218,8 @@ function closeModal(id) {
     }
     if (id === 'conversationModal') {
         window.clearConversationAttachment?.();
+        window.toggleConversationEmojiPicker?.(false);
+        window.toggleConversationStickerPicker?.(false);
         const status = document.getElementById('conversationUploadStatus');
         if (status) status.textContent = 'תמונות וקבצים עד 25MB';
     }

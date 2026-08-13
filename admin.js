@@ -22,7 +22,64 @@ const CONVERSATION_EMOJI_GROUPS = [
     { id: 'objects', label: 'סמלים', icon: 'sparkles', emojis: ['🎉','🎊','🎈','🎁','🏆','🥇','⭐','🌟','✨','⚡','🔥','💥','✅','❌','❗','❓','💯','📸','📎','📁','🖼️','🔔','💬','📅','🕐'] }
 ];
 let activeEmojiGroup = 'recent';
+let activeStickerPack = 'greetings';
+let activeConversationSticker = null;
 let adminConversationFilter = 'all';
+const CONVERSATION_STICKER_PACKS = [
+    {
+        id: 'greetings', label: 'ברכות', icon: 'party-popper',
+        stickers: [
+            { id: 'great', emoji: '👍', label: 'מעולה!', tone: 'gold' },
+            { id: 'thanks', emoji: '🙏', label: 'תודה רבה', tone: 'blue' },
+            { id: 'mazal', emoji: '🎉', label: 'מזל טוב!', tone: 'purple' },
+            { id: 'respect', emoji: '👏', label: 'כל הכבוד', tone: 'green' },
+            { id: 'love', emoji: '❤️', label: 'באהבה', tone: 'red' },
+            { id: 'closed', emoji: '🤝', label: 'סגרנו', tone: 'blue' },
+            { id: 'done', emoji: '✅', label: 'טופל!', tone: 'green' },
+            { id: 'strong', emoji: '🔥', label: 'חזק ביותר', tone: 'orange' }
+        ]
+    },
+    {
+        id: 'moods', label: 'תגובות', icon: 'laugh',
+        stickers: [
+            { id: 'funny', emoji: '😂', label: 'קורע!', tone: 'gold' },
+            { id: 'happy', emoji: '😊', label: 'בשמחה', tone: 'green' },
+            { id: 'wow', emoji: '😮', label: 'וואו!', tone: 'purple' },
+            { id: 'champ', emoji: '😎', label: 'אלוף', tone: 'blue' },
+            { id: 'checking', emoji: '🤔', label: 'בודק…', tone: 'gold' },
+            { id: 'later', emoji: '👋', label: 'נדבר', tone: 'blue' },
+            { id: 'party', emoji: '🥳', label: 'חגיגה!', tone: 'purple' },
+            { id: 'hundred', emoji: '💯', label: 'מאה אחוז', tone: 'red' }
+        ]
+    },
+    {
+        id: 'gallery', label: 'הגלריה', icon: 'images',
+        stickers: [
+            { id: 'nice-photo', emoji: '📸', label: 'תמונה יפה!', tone: 'blue' },
+            { id: 'learning', emoji: '📚', label: 'לומדים', tone: 'green' },
+            { id: 'music', emoji: '🎵', label: 'שמח כאן', tone: 'purple' },
+            { id: 'moving', emoji: '🕯️', label: 'מרגש', tone: 'gold' },
+            { id: 'winners', emoji: '🏆', label: 'אלופים!', tone: 'gold' },
+            { id: 'special', emoji: '✨', label: 'מיוחד', tone: 'purple' },
+            { id: 'see-you', emoji: '📅', label: 'נתראה', tone: 'blue' },
+            { id: 'ashreichem', emoji: '🙌', label: 'אשריכם!', tone: 'green' }
+        ]
+    }
+];
+
+function conversationStickerById(id) {
+    for (const pack of CONVERSATION_STICKER_PACKS) {
+        const sticker = pack.stickers.find(item => item.id === id);
+        if (sticker) return sticker;
+    }
+    return null;
+}
+
+function normalizeConversationSticker(value) {
+    const id = window.safeRecordId(typeof value === 'string' ? value : value?.id);
+    const sticker = conversationStickerById(id);
+    return sticker ? { id: sticker.id } : null;
+}
 
 function messageDirection(message) {
     return message?.direction === 'user_to_admin' ? 'user_to_admin' : 'admin_to_user';
@@ -168,25 +225,31 @@ function conversationEntries(profile) {
     const entries = [];
     const messages = Array.isArray(profile?.messages) ? profile.messages : [];
     messages.forEach((message, index) => {
-        if (!message || (!String(message.text || '').trim() && !normalizeConversationAttachment(message.attachment))) return;
+        const messageAttachment = normalizeConversationAttachment(message?.attachment);
+        const messageSticker = normalizeConversationSticker(message?.sticker);
+        if (!message || (!String(message.text || '').trim() && !messageAttachment && !messageSticker)) return;
         entries.push({
             id: window.safeRecordId(message.id) || `legacy_${index}`,
             text: String(message.text || ''),
             direction: messageDirection(message),
             sentAt: message.sentAt || 0,
             sender: message.sender || (messageDirection(message) === 'user_to_admin' ? profile.displayName : 'מנהל הגלריה'),
-            attachment: normalizeConversationAttachment(message.attachment),
+            attachment: messageAttachment,
+            sticker: messageSticker,
             read: messageDirection(message) === 'user_to_admin' ? message.readByAdmin === true : message.read === true,
             readAt: messageDirection(message) === 'user_to_admin' ? message.readByAdminAt : message.readAt
         });
-        if (message.reply && (String(message.reply.text || '').trim() || normalizeConversationAttachment(message.reply.attachment))) {
+        const replyAttachment = normalizeConversationAttachment(message?.reply?.attachment);
+        const replySticker = normalizeConversationSticker(message?.reply?.sticker);
+        if (message.reply && (String(message.reply.text || '').trim() || replyAttachment || replySticker)) {
             entries.push({
                 id: `${window.safeRecordId(message.id) || `legacy_${index}`}_reply`,
                 text: String(message.reply.text || ''),
                 direction: 'user_to_admin',
                 sentAt: message.reply.sentAt || message.sentAt || 0,
                 sender: message.reply.senderName || profile.displayName || 'משתמש',
-                attachment: normalizeConversationAttachment(message.reply.attachment),
+                attachment: replyAttachment,
+                sticker: replySticker,
                 read: message.reply.readByAdmin === true,
                 readAt: message.reply.readByAdminAt
             });
@@ -231,7 +294,7 @@ window.renderActiveConversation = function() {
     } else {
         entries.forEach(entry => {
             const bubble = document.createElement('article');
-            bubble.className = `conversation-bubble ${entry.direction === 'user_to_admin' ? 'is-user' : 'is-admin'}`;
+            bubble.className = `conversation-bubble ${entry.direction === 'user_to_admin' ? 'is-user' : 'is-admin'} ${entry.sticker && !entry.text && !entry.attachment ? 'is-sticker' : ''}`;
             const sender = document.createElement('strong');
             sender.className = 'block text-[9px] mb-1 opacity-70';
             sender.textContent = entry.direction === 'user_to_admin'
@@ -243,6 +306,21 @@ window.renderActiveConversation = function() {
                 text.className = 'text-xs sm:text-sm leading-relaxed';
                 text.textContent = entry.text;
                 bubble.appendChild(text);
+            }
+            if (entry.sticker) {
+                const sticker = conversationStickerById(entry.sticker.id);
+                if (sticker) {
+                    const stickerCard = document.createElement('div');
+                    stickerCard.className = `conversation-sticker conversation-sticker-${sticker.tone}`;
+                    stickerCard.setAttribute('aria-label', sticker.label);
+                    const emoji = document.createElement('span');
+                    emoji.className = 'conversation-sticker-emoji';
+                    emoji.textContent = sticker.emoji;
+                    const label = document.createElement('strong');
+                    label.textContent = sticker.label;
+                    stickerCard.append(emoji, label);
+                    bubble.appendChild(stickerCard);
+                }
             }
             if (entry.attachment) {
                 const attachmentBox = document.createElement('div');
@@ -617,7 +695,10 @@ window.toggleConversationEmojiPicker = function(force) {
     const shouldOpen = typeof force === 'boolean' ? force : picker.classList.contains('hidden');
     picker.classList.toggle('hidden', !shouldOpen);
     button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
-    if (shouldOpen) window.renderConversationEmojiPicker();
+    if (shouldOpen) {
+        window.toggleConversationStickerPicker(false);
+        window.renderConversationEmojiPicker();
+    }
 };
 
 window.insertConversationEmoji = function(emoji) {
@@ -632,14 +713,74 @@ window.insertConversationEmoji = function(emoji) {
     window.updateConversationCharacterCount();
 };
 
+window.setConversationStickerPack = function(packId) {
+    activeStickerPack = CONVERSATION_STICKER_PACKS.some(pack => pack.id === packId) ? packId : 'greetings';
+    window.renderConversationStickerPicker();
+};
+
+window.renderConversationStickerPicker = function() {
+    const tabs = document.getElementById('conversationStickerTabs');
+    const grid = document.getElementById('conversationStickerGrid');
+    if (!tabs || !grid) return;
+    tabs.replaceChildren();
+    CONVERSATION_STICKER_PACKS.forEach(pack => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = `conversation-sticker-tab ${pack.id === activeStickerPack ? 'is-active' : ''}`;
+        tab.title = pack.label;
+        tab.innerHTML = `<i data-lucide="${pack.icon}" class="w-4 h-4"></i><span>${pack.label}</span>`;
+        tab.onclick = () => window.setConversationStickerPack(pack.id);
+        tabs.appendChild(tab);
+    });
+    grid.replaceChildren();
+    const pack = CONVERSATION_STICKER_PACKS.find(item => item.id === activeStickerPack) || CONVERSATION_STICKER_PACKS[0];
+    pack.stickers.forEach(sticker => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `conversation-sticker-choice conversation-sticker-${sticker.tone}`;
+        button.setAttribute('aria-label', `שליחת מדבקה: ${sticker.label}`);
+        const emoji = document.createElement('span');
+        emoji.textContent = sticker.emoji;
+        const label = document.createElement('strong');
+        label.textContent = sticker.label;
+        button.append(emoji, label);
+        button.onclick = () => window.sendConversationSticker(sticker.id);
+        grid.appendChild(button);
+    });
+    window.scheduleIconRefresh?.();
+};
+
+window.toggleConversationStickerPicker = function(force) {
+    const picker = document.getElementById('conversationStickerPicker');
+    const button = document.getElementById('conversationStickerButton');
+    if (!picker) return;
+    const shouldOpen = typeof force === 'boolean' ? force : picker.classList.contains('hidden');
+    picker.classList.toggle('hidden', !shouldOpen);
+    button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) {
+        window.toggleConversationEmojiPicker(false);
+        window.renderConversationStickerPicker();
+    }
+};
+
+window.sendConversationSticker = function(stickerId) {
+    const sticker = conversationStickerById(stickerId);
+    if (!sticker || conversationSending) return;
+    activeConversationSticker = { id: sticker.id };
+    window.toggleConversationStickerPicker(false);
+    window.sendConversationMessage();
+};
+
 window.sendConversationMessage = async function() {
     if (conversationSending) return;
     const input = document.getElementById('conversationInput');
     const button = document.getElementById('conversationSendButton');
     const status = document.getElementById('conversationUploadStatus');
-    const text = String(input?.value || '').trim().slice(0, 1500);
-    const file = activeConversationAttachment;
-    if (!text && !file) return;
+    const sticker = normalizeConversationSticker(activeConversationSticker);
+    // כמו ב־WhatsApp: מדבקה נשלחת לבדה ואינה מוחקת טיוטת טקסט או קובץ שהוכן.
+    const text = sticker ? '' : String(input?.value || '').trim().slice(0, 1500);
+    const file = sticker ? null : activeConversationAttachment;
+    if (!text && !file && !sticker) return;
     const profile = activeConversationProfile();
     const uid = activeConversationMode === 'admin' ? activeConversationUid : window.state.currentUser?.uid;
     if (!profile || !uid) return;
@@ -648,6 +789,7 @@ window.sendConversationMessage = async function() {
     if (button) button.disabled = true;
     document.getElementById('conversationAttachmentButton')?.setAttribute('disabled', '');
     document.getElementById('conversationEmojiButton')?.setAttribute('disabled', '');
+    document.getElementById('conversationStickerButton')?.setAttribute('disabled', '');
     try {
         const { doc, getDoc, setDoc } = window.firestoreModules;
         const profileRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userProfiles', uid);
@@ -676,7 +818,8 @@ window.sendConversationMessage = async function() {
             readAt: fromAdmin ? null : Date.now(),
             readByAdmin: fromAdmin,
             readByAdminAt: fromAdmin ? Date.now() : null,
-            attachment
+            attachment,
+            sticker
         };
         const updatedMessages = [message, ...currentMessages].slice(0, 250);
         await setDoc(profileRef, {
@@ -685,15 +828,20 @@ window.sendConversationMessage = async function() {
         }, { merge: true });
         profile.messages = updatedMessages;
         if (!fromAdmin) profile.supportStatus = 'open';
-        if (input) input.value = '';
-        window.updateConversationCharacterCount();
+        if (!sticker) {
+            if (input) input.value = '';
+            window.updateConversationCharacterCount();
+            window.clearConversationAttachment();
+            if (status) status.textContent = 'תמונות וקבצים עד 25MB';
+        }
         window.toggleConversationEmojiPicker(false);
-        window.clearConversationAttachment();
-        if (status) status.textContent = 'תמונות וקבצים עד 25MB';
+        window.toggleConversationStickerPicker(false);
+        activeConversationSticker = null;
         window.renderActiveConversation();
         window.renderFloatingInbox?.();
         window.renderAdminMessageReplies?.();
     } catch (error) {
+        activeConversationSticker = null;
         console.error('Conversation message failed:', error);
         if (status) status.textContent = 'ההעלאה או השליחה נכשלה';
         window.showNotification(error.message || 'שליחת ההודעה נכשלה. נסה שוב.', false);
@@ -702,6 +850,7 @@ window.sendConversationMessage = async function() {
         if (button) button.disabled = false;
         document.getElementById('conversationAttachmentButton')?.removeAttribute('disabled');
         document.getElementById('conversationEmojiButton')?.removeAttribute('disabled');
+        document.getElementById('conversationStickerButton')?.removeAttribute('disabled');
         input?.focus();
     }
 };
@@ -906,7 +1055,8 @@ function collectAdminMessageReplies() {
         const messages = Array.isArray(user.messages) ? user.messages : [];
         messages.forEach((message, messageIndex) => {
             const directAttachment = normalizeConversationAttachment(message?.attachment);
-            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment)) {
+            const directSticker = normalizeConversationSticker(message?.sticker);
+            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment || directSticker)) {
                 replies.push({
                     user,
                     uid,
@@ -915,6 +1065,7 @@ function collectAdminMessageReplies() {
                     reply: {
                         text: String(message.text || ''),
                         attachment: directAttachment,
+                        sticker: directSticker,
                         sentAt: message.sentAt,
                         readByAdmin: message.readByAdmin === true
                     }
@@ -922,8 +1073,9 @@ function collectAdminMessageReplies() {
             }
             const reply = message?.reply;
             const replyAttachment = normalizeConversationAttachment(reply?.attachment);
-            if (!reply || (!String(reply.text || '').trim() && !replyAttachment)) return;
-            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment } });
+            const replySticker = normalizeConversationSticker(reply?.sticker);
+            if (!reply || (!String(reply.text || '').trim() && !replyAttachment && !replySticker)) return;
+            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment, sticker: replySticker } });
         });
     });
     return replies.sort((a, b) => Number(b.reply.sentAt || 0) - Number(a.reply.sentAt || 0));
@@ -1035,7 +1187,11 @@ window.renderAdminMessageReplies = function() {
 
         const preview = document.createElement('span');
         preview.className = 'admin-conversation-preview';
-        preview.textContent = String(reply.text || '').trim() || (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` : 'הודעה חדשה');
+        const replySticker = normalizeConversationSticker(reply.sticker);
+        const stickerDetails = replySticker ? conversationStickerById(replySticker.id) : null;
+        preview.textContent = String(reply.text || '').trim() ||
+            (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` :
+                (stickerDetails ? `${stickerDetails.emoji} מדבקה: ${stickerDetails.label}` : 'הודעה חדשה'));
 
         const meta = document.createElement('span');
         meta.className = 'admin-conversation-meta';
@@ -1276,7 +1432,9 @@ window.renderFloatingInbox = function() {
         
         const text = document.createElement('p');
         text.className = 'text-[11px] text-slate-200 leading-relaxed';
-        text.textContent = msg.text;
+        const personalSticker = normalizeConversationSticker(msg.sticker);
+        const personalStickerDetails = personalSticker ? conversationStickerById(personalSticker.id) : null;
+        text.textContent = msg.text || (personalStickerDetails ? `${personalStickerDetails.emoji} מדבקה: ${personalStickerDetails.label}` : 'הודעה חדשה');
         
         card.append(meta, text);
 
