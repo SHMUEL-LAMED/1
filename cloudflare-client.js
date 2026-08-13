@@ -349,6 +349,31 @@ export async function getDocs(reference) {
   };
 }
 
+export async function mutateConversationMessages(conversationUid, action, payload = {}) {
+  const safeUid = String(conversationUid || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 160);
+  if (!safeUid) throw new Error("מזהה השיחה אינו תקין.");
+  const requestBody = JSON.stringify({ conversationUid: safeUid, action, ...payload });
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await apiRequest("/chat/messages", { method: "POST", body: requestBody });
+    } catch (error) {
+      lastError = error;
+      const retryable = !error?.status || error.status >= 500 || error.status === 409;
+      if (!retryable || attempt === 2) throw error;
+      await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
+export async function deleteConversationAttachmentObject(key) {
+  const safeKey = String(key || "");
+  if (!safeKey.startsWith("chat/")) return { success: false, skipped: true };
+  const encodedKey = safeKey.split("/").map(encodeURIComponent).join("/");
+  return apiRequest(`/media/${encodedKey}`, { method: "DELETE" });
+}
+
 export async function setDoc(reference, data, options = {}) {
   const name = collectionName(reference);
   const result = await apiRequest(

@@ -3,6 +3,7 @@
 
 import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
+import './chat.js';
 import { initAdmin } from './admin.js';
 import './face-search.js';
 import './face-index.js';

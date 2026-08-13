@@ -16,6 +16,7 @@ const FACE_INDEX_PENDING_CHUNK = 200;
 const FACE_INDEX_MAX_FACES = 20;
 const FACE_INDEX_PROGRESS_KEY = 'simchas_face_index_progress';
 const FACE_INDEX_AUTO_DELAY_MS = 2500;
+const FACE_INDEX_INITIAL_AUTO_KEY = 'simchas_face_index_initial_auto_v1';
 // עומס זמני על ה-Worker מקבל שני ניסיונות חוזרים בהמתנה עולה.
 const FACE_INDEX_SAVE_RETRY_DELAYS_MS = [5000, 20000];
 
@@ -34,6 +35,7 @@ let faceIndexSummaryCache = null;
 const autoIndexQueue = [];
 let autoIndexTimer = null;
 let autoIndexDraining = false;
+let initialFaceIndexCheckRunning = false;
 
 function faceIndexModelVersion() {
     return String(window.FACE_MODEL_VERSION || 'faceapi-1.7.15-ssd-l68-r1');
@@ -348,6 +350,35 @@ function resetFaceIndex(confirmed = false) {
     });
 }
 window.resetFaceIndex = resetFaceIndex;
+
+
+// הפעלה ראשונית אוטומטית: מנהל שנכנס לאתר מפעיל או ממשיך את האינדוקס
+// בלי לחפש את הכפתור. מצב האינדוקס עצמו נשמר בענן, ולכן אין עבודה כפולה.
+async function maybeStartInitialFaceIndexing() {
+    if (initialFaceIndexCheckRunning || faceIndexRun.running || !canWriteFaceIndex()) return;
+    if (!Array.isArray(window.state?.images) || window.state.images.length === 0) return;
+    try {
+        if (sessionStorage.getItem(FACE_INDEX_INITIAL_AUTO_KEY) === 'done') return;
+    } catch { /* אחסון חסום — מצב השרת עדיין מונע כפילות */ }
+
+    initialFaceIndexCheckRunning = true;
+    try {
+        const summary = await refreshFaceIndexSummary();
+        if (!summary || summary.remainingImages <= 0) {
+            try { sessionStorage.setItem(FACE_INDEX_INITIAL_AUTO_KEY, 'done'); } catch {}
+            return;
+        }
+        faceIndexRun.message = `נמצאו ${summary.remainingImages} תמונות שעדיין אינן מוכנות. האינדוקס הראשוני מתחיל אוטומטית…`;
+        renderFaceIndexPanel();
+        try { sessionStorage.setItem(FACE_INDEX_INITIAL_AUTO_KEY, 'done'); } catch {}
+        await startFaceIndexing();
+    } catch (error) {
+        console.warn('הפעלת אינדוקס הפנים הראשוני נכשלה:', error);
+    } finally {
+        initialFaceIndexCheckRunning = false;
+    }
+}
+window.maybeStartInitialFaceIndexing = maybeStartInitialFaceIndexing;
 
 // --- תמונות חדשות ---
 // נקראת אחרי שמירה מוצלחת של תמונה. הפונקציה לעולם אינה זורקת ואינה
