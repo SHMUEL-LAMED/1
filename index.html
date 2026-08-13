@@ -50,7 +50,7 @@
             <div class="header-actions flex items-center gap-2 sm:gap-3">
                 <div class="floating-profile-container">
                     <span id="floatingWidgetBadge" class="absolute -top-1.5 -left-1.5 w-5 h-5 bg-red-500 border-2 border-slate-950 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white hidden animate-bounce animate-pulse">0</span>
-                    <button type="button" onclick="toggleFloatingProfile()" class="floating-profile-btn group" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות">
+                    <button id="floatingProfileButton" type="button" onclick="openFloatingProfile(event)" class="floating-profile-btn group" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
                         <img id="floatingUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="פרופיל" class="w-full h-full rounded-full object-cover hidden border-2 border-amber-400/50">
                         <span id="floatingUserFallback" class="w-full h-full rounded-full bg-gradient-to-br from-amber-400/10 to-amber-500/20 text-amber-300 flex items-center justify-center group-hover:scale-105 transition-all">
                             <i data-lucide="user-check" class="w-6 h-6"></i>
@@ -780,9 +780,9 @@
                 <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעלת מצגת אוטומטית" aria-label="הפעלת מצגת אוטומטית" class="p-2 btn-secondary-dark rounded-full transition-all">
                     <i data-lucide="play" class="w-6 h-6"></i>
                 </button>
-                <a id="lightboxDownload" href="#" download target="_blank" rel="noopener" title="הורדת קובץ" aria-label="הורדת קובץ המדיה" class="p-2 btn-secondary-dark rounded-full transition-all">
+                <button type="button" id="lightboxDownload" title="הורדת קובץ" aria-label="הורדת קובץ המדיה" class="p-2 btn-secondary-dark rounded-full transition-all">
                     <i data-lucide="download" class="w-6 h-6"></i>
-                </a>
+                </button>
                 <button type="button" onclick="closeLightbox()" class="p-2 btn-secondary-dark rounded-full transition-all" aria-label="סגירת התצוגה המלאה">
                     <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
@@ -1059,7 +1059,7 @@
                     <h3 id="floatingProfileTitle" class="profile-panel-title">פרופיל, תמונות והודעות</h3>
                 </div>
             </div>
-            <button type="button" onclick="toggleFloatingProfile()" class="profile-panel-close" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <button type="button" onclick="closeFloatingProfile(event)" class="profile-panel-close" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
         </div>
         <div class="profile-panel-body">
             <!-- Signed out view -->
