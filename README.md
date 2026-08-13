@@ -92,7 +92,20 @@
 
 ## פריסה
 
-האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. את ה־Worker יש לפרוס בנפרד מתוך Cloudflare.
+האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. גם ה־Worker נפרס
+אוטומטית באמצעות `.github/workflows/deploy-worker.yml` בכל שינוי של
+`cloudflare-worker.js` בענף `main`. לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
+תחת **Settings → Secrets and variables → Actions**, סוד אחד בלבד:
+
+| סוד | ערך |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | אסימון Cloudflare בעל הרשאת Workers Scripts:Edit |
+
+הפריסה קוראת את שמות כל ה־Bindings מהגרסה הפעילה ומורישה אותם לגרסה החדשה.
+לפני העלאה היא מוודאת ש־`GALLERY_DB` ו־`GALLERY_BUCKET` קיימים, ולכן אינה
+יוצרת מסד או דלי חדשים ואינה זקוקה למזהים שלהם ב־GitHub. לאחר הפריסה מתבצעת
+בדיקת `/health` שמוודאת כי D1 ו־R2 מחוברים. אפשר גם להפעיל פריסה ידנית מתוך
+**Actions → Deploy Cloudflare Worker → Run workflow**.
 
 לפני מעבר סופי מומלץ להוריד גיבוי JSON מממשק הניהול הישן, ולאחר חיבור D1 לשחזר אותו דרך מסך הגיבוי באתר. קובצי המדיה עצמם נשארים ב־R2.
 
