@@ -1,0 +1,122 @@
+name: Deploy Cloudflare Worker
+# This workflow is also manually dispatchable for production verification.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cloudflare-worker.js
+      - .github/workflows/deploy-worker.yml
+  pull_request:
+    branches: [main]
+    types: [closed]
+    paths:
+      - cloudflare-worker.js
+      - .github/workflows/deploy-worker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-worker-production
+  cancel-in-progress: false
+
+jobs:
+  verify-and-deploy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 3298021f3289a8f22f48693678cc6e73
+      CLOUDFLARE_WORKER_NAME: simchas-gallery-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Verify repository
+        run: |
+          npm run check:syntax
+          npm test
+
+      - name: Validate Cloudflare token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Missing GitHub Actions secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+      - name: Inherit all production bindings
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+
+          const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${process.env.CLOUDFLARE_WORKER_NAME}`;
+          const response = await fetch(`${apiBase}/bindings`, {
+            headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` }
+          });
+          const payload = await response.json();
+          if (!response.ok || payload?.success !== true || !Array.isArray(payload.result)) {
+            throw new Error(`Unable to read existing Worker bindings (${response.status}).`);
+          }
+
+          const bindingNames = [...new Set(payload.result.map(item => String(item?.name || "").trim()).filter(Boolean))];
+          for (const required of ["GALLERY_DB", "GALLERY_BUCKET"]) {
+            if (!bindingNames.includes(required)) throw new Error(`Required production binding is missing: ${required}`);
+          }
+
+          writeFileSync("worker-metadata.json", JSON.stringify({
+            main_module: "cloudflare-worker.js",
+            compatibility_date: "2026-08-13",
+            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: "latest" })),
+            annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA}` }
+          }));
+          console.log(`Preserving ${bindingNames.length} existing Worker bindings.`);
+          NODE
+
+      - name: Deploy production Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          api_url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${CLOUDFLARE_WORKER_NAME}?bindings_inherit=strict"
+          curl --fail-with-body --silent --show-error \
+            --request PUT "$api_url" \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --form 'metadata=<worker-metadata.json;type=application/json' \
+            --form 'cloudflare-worker.js=@cloudflare-worker.js;type=application/javascript+module' \
+            --output deploy-response.json
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const payload = JSON.parse(readFileSync("deploy-response.json", "utf8"));
+            if (payload?.success !== true) throw new Error("Cloudflare rejected the Worker deployment.");
+            console.log("Cloudflare Worker deployed successfully.");
+          '
+
+      - name: Verify production health
+        run: |
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            "https://simchas-gallery-api.0534169095.workers.dev/health" \
+            --output health-response.json
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const health = JSON.parse(readFileSync("health-response.json", "utf8"));
+            if (health?.success !== true || health?.services?.database !== "connected" || health?.services?.storage !== "connected") {
+              throw new Error("Production health check did not confirm D1 and R2.");
+            }
+            console.log("Production health check passed: D1 and R2 are connected.");
+          '
+
