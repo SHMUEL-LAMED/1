@@ -2969,3 +2969,14 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
     .profile-actions-grid { grid-template-columns: 1fr; }
     .profile-action-admin:first-child { grid-column: auto; }
 }
+
+
+/* Critical visibility fix: folder motion is disabled, so cards must not keep the
+   pre-animation hidden state from the original entrance effect. */
+.collections-deck #folderList .folder-row,
+.collections-deck .collections-grid .collection-card.folder-row {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    animation: none !important;
+}
