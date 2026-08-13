@@ -959,18 +959,25 @@
     </div>
 
     <!-- FLOATING PROFILE PANEL -->
-    <div id="floatingProfilePanel" class="floating-profile-panel text-right">
-        <div class="p-4 border-b border-white/10 bg-slate-900/50 flex justify-between items-center flex-shrink-0">
-            <h3 class="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <i data-lucide="google" class="w-4 h-4 text-amber-400"></i>
-                פרופיל Google והתראות
-            </h3>
-            <button type="button" onclick="toggleFloatingProfile()" class="text-slate-400 hover:text-white transition-all" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
+    <div id="floatingProfilePanel" class="floating-profile-panel profile-panel text-right" role="dialog" aria-modal="false" aria-labelledby="floatingProfileTitle">
+        <div class="profile-panel-header">
+            <div class="profile-panel-heading">
+                <span class="profile-panel-logo" aria-hidden="true"><i data-lucide="user-round" class="w-5 h-5"></i></span>
+                <div>
+                    <p class="profile-panel-kicker">האזור האישי</p>
+                    <h3 id="floatingProfileTitle" class="profile-panel-title">הפרופיל שלי</h3>
+                </div>
+            </div>
+            <button type="button" onclick="toggleFloatingProfile()" class="profile-panel-close" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
         </div>
-        <div class="p-5 flex-1 overflow-y-auto space-y-4">
+        <div class="profile-panel-body">
             <!-- Signed out view -->
-            <div id="floatingSignedOutView" class="space-y-3">
-                <p class="text-xs text-slate-400 text-center leading-relaxed">התחבר באמצעות Google כדי להגיש בקשת גישה לגלריית שמחת התורה ולקבל התראות אישיות.</p>
+            <div id="floatingSignedOutView" class="profile-signed-out">
+                <span class="profile-signed-out-icon" aria-hidden="true"><i data-lucide="images" class="w-7 h-7"></i></span>
+                <div>
+                    <h4 class="profile-signed-out-title">הגלריה האישית שלך מחכה</h4>
+                    <p class="profile-signed-out-copy">התחבר באמצעות Google כדי לבקש גישה, לשמור תמונות מועדפות ולקבל עדכונים אישיים.</p>
+                </div>
                 <button type="button" onclick="signInWithGoogleAccount()" class="w-full py-3 btn-google-login rounded-xl text-xs font-bold flex items-center justify-center gap-2">
                     <svg aria-hidden="true" class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
                     התחבר באמצעות Google
@@ -978,49 +985,55 @@
             </div>
 
             <!-- Signed in view -->
-            <div id="floatingSignedInView" class="hidden space-y-4">
-                <div class="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-                    <img id="floatingUserPanelPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="משתמש" class="w-12 h-12 rounded-full border border-amber-400/30 object-cover hidden">
+            <div id="floatingSignedInView" class="hidden profile-signed-in">
+                <section class="profile-identity-card" aria-label="פרטי המשתמש">
+                    <div class="profile-avatar-ring"><img id="floatingUserPanelPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="משתמש" class="profile-avatar hidden"></div>
                     <div class="min-w-0 flex-1">
-                        <p id="floatingUserPanelName" class="text-xs font-bold text-slate-100 truncate"></p>
-                        <p id="floatingUserPanelEmail" class="text-[10px] text-slate-400 truncate"></p>
-                        <span id="floatingUserPanelBadge" class="inline-flex mt-1 text-[9px] px-2 py-0.5 rounded-full font-bold"></span>
+                        <p class="profile-welcome">שלום וברוך הבא</p>
+                        <p id="floatingUserPanelName" class="profile-user-name truncate"></p>
+                        <p id="floatingUserPanelEmail" class="profile-user-email truncate"></p>
+                        <span id="floatingUserPanelBadge" class="profile-status-badge"></span>
                     </div>
-                </div>
+                </section>
 
-                <button type="button" data-admin-profile-launcher onclick="openManagementFromProfile()" class="hidden w-full py-3 btn-primary-gold rounded-xl text-xs font-extrabold items-center justify-center gap-2">
+                <div class="profile-actions-grid">
+                <button type="button" data-admin-profile-launcher onclick="openManagementFromProfile()" class="hidden profile-action-card profile-action-admin items-center justify-center gap-2">
                     <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
                     פתח לוח ניהול
                 </button>
 
-                <button type="button" onclick="openFavoritesFromProfile()" class="w-full py-3 btn-secondary-dark rounded-xl text-xs font-extrabold flex items-center justify-center gap-2">
+                <button type="button" onclick="openFavoritesFromProfile()" class="profile-action-card profile-action-favorites flex items-center gap-3">
                     <i data-lucide="heart" class="w-4 h-4 text-red-400"></i>
                     המועדפים שלי
-                    <span id="profileFavoritesCount" class="mr-auto min-w-6 px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 text-[10px]">0</span>
+                    <span id="profileFavoritesCount" class="profile-action-count">0</span>
                 </button>
 
-                <button id="contactManagerButton" type="button" onclick="openUserConversation()" class="w-full py-3 btn-primary-gold rounded-xl text-xs font-extrabold flex items-center justify-center gap-2">
+                <button id="contactManagerButton" type="button" onclick="openUserConversation()" class="profile-action-card profile-action-message flex items-center gap-3">
                     <i data-lucide="message-circle-more" class="w-4 h-4"></i>
                     פנייה למנהל
                 </button>
 
-                <button type="button" data-super-admin-messages-launcher onclick="openAdminMessagesCenter()" class="hidden w-full py-3 btn-primary-gold rounded-xl text-xs font-extrabold items-center justify-center gap-2">
+                <button type="button" data-super-admin-messages-launcher onclick="openAdminMessagesCenter()" class="hidden profile-action-card profile-action-admin items-center justify-center gap-2">
                     <i data-lucide="messages-square" class="w-4 h-4"></i>
-                    מרכז שליחת הודעות למשתמשים
+                    מרכז הודעות
                 </button>
-
-                <!-- Live Inbox / Message Center -->
-                <div class="space-y-2">
-                    <h4 class="text-xs font-bold text-amber-400 flex items-center gap-1.5 border-b border-white/5 pb-1">
-                        <i data-lucide="mail-open" class="w-4 h-4 text-amber-400"></i>
-                        הודעות אישיות והתראות
-                    </h4>
-                    <div id="floatingInboxList" class="space-y-2 max-h-48 overflow-y-auto pr-1">
-                        <p class="text-[10px] text-slate-500 text-center py-4">אין הודעות חדשות.</p>
-                    </div>
                 </div>
 
-                <button type="button" onclick="signOutGoogleAccount()" class="w-full py-2 btn-secondary-dark rounded-xl text-[10px] font-semibold">התנתק מחשבון Google</button>
+                <!-- Live Inbox / Message Center -->
+                <section class="profile-inbox">
+                    <div class="profile-section-heading">
+                    <h4 class="profile-section-title">
+                        <i data-lucide="mail-open" class="w-4 h-4 text-amber-400"></i>
+                        הודעות ועדכונים
+                    </h4>
+                    <span class="profile-section-caption">מה חדש?</span>
+                    </div>
+                    <div id="floatingInboxList" class="profile-inbox-list">
+                        <p class="text-[10px] text-slate-500 text-center py-4">אין הודעות חדשות.</p>
+                    </div>
+                </section>
+
+                <button type="button" onclick="signOutGoogleAccount()" class="profile-signout"><i data-lucide="log-out" class="w-4 h-4"></i><span>התנתקות מהחשבון</span></button>
             </div>
         </div>
     </div>
