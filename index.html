@@ -474,6 +474,27 @@
                     </div>
                 </div>
 
+                <!-- הכנת חיפוש הפנים בענן -->
+                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 16">
+                    <button type="button" onclick="openAdminTaskWindow('accFaceIndex')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="scan-face" class="w-4 h-4"></i> הכן חיפוש פנים בענן</span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
+                    </button>
+                    <div id="accFaceIndex" class="accordion-content px-4 space-y-3">
+                        <p class="text-[10px] text-slate-400 leading-relaxed">סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
+                        <p id="faceIndexSummary" class="text-[10px] font-bold text-cyan-200 bg-cyan-500/10 border border-cyan-400/20 rounded-xl px-3 py-2">טוען את מצב האינדוקס…</p>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="faceIndexProgressBar" class="bg-gradient-to-r from-cyan-300 to-cyan-500 h-full w-0 transition-all duration-300"></div>
+                        </div>
+                        <p id="faceIndexStatusText" class="text-[10px] text-slate-400" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="flex-1 py-2.5 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50">התחל או המשך אינדוקס</button>
+                            <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="py-2.5 px-4 btn-secondary-dark rounded-xl text-xs font-bold disabled:opacity-50">עצור</button>
+                        </div>
+                        <button type="button" id="faceIndexResetBtn" onclick="resetFaceIndex()" class="w-full py-2 rounded-xl text-[10px] font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">איפוס ואינדוקס מחדש (מנהל־על)</button>
+                    </div>
+                </div>
+
                 <!-- סנכרון Google Drive -->
                 <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 13">
                     <button type="button" onclick="openAdminTaskWindow('accDriveSync')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
@@ -788,7 +809,8 @@
                 <button type="button" onclick="closeModal('faceSearchModal')" class="text-white/80 hover:text-white transition-all" aria-label="סגירת חלון חיפוש הפנים"><i data-lucide="x" class="w-6 h-6"></i></button>
             </div>
             <div class="p-6 space-y-4">
-                <p class="text-sm text-slate-300">בחר תמונת פנים, ומנוע הזיהוי המקומי יסרוק את תמונות הגלריה ויציג תוצאות דומות. העיבוד מתבצע בדפדפן.</p>
+                <p class="text-sm text-slate-300">בחר תמונת פנים. הדפדפן מפיק ממנה טביעה בלבד, וההשוואה מול הגלריה מתבצעת בענן — כך החיפוש נמשך שניות ואינו מוריד שוב את התמונות.</p>
+                <p id="faceSearchIndexNotice" class="hidden text-[11px] font-semibold leading-relaxed text-amber-300 bg-amber-500/10 border border-amber-400/20 rounded-xl px-3 py-2" role="status"></p>
                 <div class="border-2 border-dashed border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-6 text-center bg-amber-950/20 hover:bg-amber-950/40 transition-all relative cursor-pointer group">
 
                     <input type="file" id="faceSearchFileInput" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" onchange="handleFaceSearchFileSelect(event)">
