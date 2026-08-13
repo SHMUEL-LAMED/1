@@ -310,6 +310,30 @@ test("האינדוקס מדלג על תמונות שכבר עובדו", async ()
     assert.equal(api.indexedImages.size, 6);
 });
 
+test("הסריקה הראשונית מעבדת כמה תמונות במקביל", async () => {
+    resetBrowserState(galleryImages(12));
+    createFakeWorker();
+    let activeScans = 0;
+    let peakScans = 0;
+    window.loadFaceApi = async () => ({
+        detectAllFaces: () => ({
+            withFaceLandmarks: () => ({
+                withFaceDescriptors: async () => {
+                    activeScans += 1;
+                    peakScans = Math.max(peakScans, activeScans);
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    activeScans -= 1;
+                    return [{ descriptor: Float32Array.from({ length: 128 }, () => 0.08) }];
+                }
+            })
+        })
+    });
+
+    await window.startFaceIndexing();
+
+    assert.ok(peakScans >= 2, `ציפינו לסריקה מקבילה, אבל השיא היה ${peakScans}`);
+});
+
 test("אפשר לעצור את האינדוקס ולהמשיך בדיוק מהמקום שנעצר", async () => {
     resetBrowserState(galleryImages(20));
     const api = createFakeWorker();
