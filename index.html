@@ -271,12 +271,21 @@
     <div id="advancedAnalyticsModal" class="fixed inset-0 z-[120] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="advancedAnalyticsTitle">
         <div class="w-full h-full max-w-5xl mx-auto rounded-3xl border border-white/10 bg-slate-950 overflow-hidden flex flex-col modal-animate-popup">
             <div class="p-5 border-b border-white/10 flex items-center justify-between">
-                <div><h3 id="advancedAnalyticsTitle" class="text-xl font-black text-white">ניתוח נתונים מתקדם</h3><p class="text-xs text-slate-400 mt-1">תמונת מצב של תוכן, נפח, משתמשים וצפיות.</p></div>
+                <div><h3 id="advancedAnalyticsTitle" class="text-xl font-black text-white">נתוני הגלריה והצפיות</h3><p class="text-xs text-slate-400 mt-1">כאן אפשר לזהות בדיוק איזו תמונה או איזה סרטון קיבלו כל צפייה.</p></div>
                 <button type="button" onclick="closeModal('advancedAnalyticsModal')" class="w-10 h-10 btn-secondary-dark rounded-full flex items-center justify-center" aria-label="סגירה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="flex-1 overflow-y-auto p-5">
                 <div id="advancedAnalyticsCards" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
-                <div class="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4"><h4 class="text-sm font-extrabold text-white mb-3">המדיה הנצפית ביותר</h4><div id="advancedAnalyticsTop" class="space-y-2 text-xs text-slate-400">טוען נתונים...</div></div>
+                <section class="analytics-media-section mt-6" aria-labelledby="analyticsMediaTitle">
+                    <div class="analytics-media-heading">
+                        <div>
+                            <h4 id="analyticsMediaTitle">תמונות וסרטונים לפי מספר צפיות</h4>
+                            <p>לחץ על כרטיס כדי לפתוח את הפריט בגודל מלא.</p>
+                        </div>
+                        <span id="advancedAnalyticsMediaCount" class="analytics-media-count">0 פריטים</span>
+                    </div>
+                    <div id="advancedAnalyticsTop" class="analytics-media-grid">טוען נתונים...</div>
+                </section>
             </div>
         </div>
     </div>
