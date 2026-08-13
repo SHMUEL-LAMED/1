@@ -2303,22 +2303,13 @@ html[data-theme="light"] .profile-signout { color: #64748b; border-color: rgba(1
         linear-gradient(145deg, rgba(255,255,255,.072), rgba(255,255,255,.025)) !important;
     border: 1px solid rgba(255,255,255,.085);
     box-shadow: 0 14px 34px rgba(0,0,0,.18);
-    animation: collectionCardIn .5s cubic-bezier(.16,1,.3,1) both;
-    transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+    animation: none !important;
+    transition: none !important;
 }
 .collections-grid .collection-card:hover {
-    transform: translateY(-4px);
+    transform: none !important;
     border-color: rgba(255, 182, 39, .26);
-    box-shadow: 0 20px 42px rgba(0,0,0,.28);
-}
-.collections-grid .collection-card:nth-child(2) { animation-delay: 45ms; }
-.collections-grid .collection-card:nth-child(3) { animation-delay: 90ms; }
-.collections-grid .collection-card:nth-child(4) { animation-delay: 135ms; }
-.collections-grid .collection-card:nth-child(5) { animation-delay: 180ms; }
-.collections-grid .collection-card:nth-child(n+6) { animation-delay: 225ms; }
-@keyframes collectionCardIn {
-    from { opacity: 0; transform: translateY(14px) scale(.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    box-shadow: 0 14px 34px rgba(0,0,0,.18);
 }
 .collections-grid .collection-card-main.folder-button {
     width: 100%;
@@ -2402,7 +2393,8 @@ html[data-theme="light"] .profile-signout { color: #64748b; border-color: rgba(1
     gap: 4px;
     opacity: 0;
     transform: translateY(4px);
-    transition: opacity .2s ease, transform .2s ease;
+    transition: none;
+
 }
 .collection-card:hover .collection-card-actions,
 .collection-card:focus-within .collection-card-actions {
@@ -2540,4 +2532,20 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
 }
 @media (prefers-reduced-motion: reduce) {
     .collections-grid .collection-card.folder-row { animation: none; }
+}
+
+
+/* Folder area is intentionally motion-free */
+.collections-deck *,
+.collections-deck *::before,
+.collections-deck *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+}
+.collections-deck button:hover,
+.collections-deck button:active,
+.collections-deck .collection-card:hover,
+.collections-deck .collection-card:active {
+    transform: none !important;
 }
