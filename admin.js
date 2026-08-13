@@ -1337,6 +1337,7 @@ window.renderFloatingInbox = function() {
     const visibleMessages = messages
         .map((message, originalIndex) => ({ message, originalIndex }))
         .filter(({ message }) => messageDirection(message) === 'admin_to_user')
+        .filter(({ message }) => message.read !== true)
         .filter(({ message, originalIndex }) => !dismissedMessages.has(personalMessageKey(message, originalIndex)));
     
     const adminConversationMap = new Map();
@@ -1356,10 +1357,13 @@ window.renderFloatingInbox = function() {
             }
         });
     }
-    const adminConversations = [...adminConversationMap.values()].sort((a, b) => b.sentAt - a.sentAt);
+    // הפרופיל הוא תיבת התראות בלבד; שיחות שנקראו נשארות במרכז ההודעות.
+    const adminConversations = [...adminConversationMap.values()]
+        .filter(item => item.unread > 0)
+        .sort((a, b) => b.sentAt - a.sentAt);
 
     if (visibleMessages.length === 0 && adminConversations.length === 0) {
-        list.innerHTML = '<p class="text-[10px] text-slate-500 text-center py-4">אין הודעות חדשות.</p>';
+        list.innerHTML = '<p class="text-[10px] text-slate-500 text-center py-4">אין התראות חדשות.</p>';
         if (badge) badge.classList.add('hidden');
         return;
     }
