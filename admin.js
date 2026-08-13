@@ -870,14 +870,65 @@ window.renderFloatingInbox = function() {
         .filter(({ message }) => messageDirection(message) === 'admin_to_user')
         .filter(({ message, originalIndex }) => !dismissedMessages.has(personalMessageKey(message, originalIndex)));
     
-    if (visibleMessages.length === 0) {
+    const adminConversationMap = new Map();
+    if (window.state.isSuperAdmin) {
+        collectAdminMessageReplies().forEach(item => {
+            const sentAt = Number(item.reply.sentAt || item.message.sentAt || 0);
+            const unread = item.reply.readByAdmin === true ? 0 : 1;
+            const existing = adminConversationMap.get(item.uid);
+            if (!existing || sentAt > existing.sentAt) {
+                adminConversationMap.set(item.uid, {
+                    ...item,
+                    sentAt,
+                    unread: (existing?.unread || 0) + unread
+                });
+            } else if (unread) {
+                existing.unread += 1;
+            }
+        });
+    }
+    const adminConversations = [...adminConversationMap.values()].sort((a, b) => b.sentAt - a.sentAt);
+
+    if (visibleMessages.length === 0 && adminConversations.length === 0) {
         list.innerHTML = '<p class="text-[10px] text-slate-500 text-center py-4">אין הודעות חדשות.</p>';
         if (badge) badge.classList.add('hidden');
         return;
     }
     
     list.innerHTML = '';
-    let unreadCount = 0;
+    let unreadCount = adminConversations.reduce((total, item) => total + item.unread, 0);
+
+    adminConversations.forEach(item => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `w-full p-2.5 rounded-lg border text-right transition-all ${item.unread ? 'bg-cyan-500/10 border-cyan-400/25' : 'bg-white/5 border-white/5 opacity-80'}`;
+        card.setAttribute('aria-label', `פתיחת השיחה עם ${item.user.displayName || item.user.email || 'משתמש'}`);
+
+        const meta = document.createElement('div');
+        meta.className = 'flex justify-between items-center gap-2 mb-1';
+
+        const sender = document.createElement('span');
+        sender.className = 'text-[9px] font-bold text-cyan-300 truncate';
+        sender.textContent = item.user.displayName || item.user.email || 'משתמש';
+
+        const status = document.createElement('span');
+        status.className = 'text-[8px] text-slate-400 shrink-0';
+        status.textContent = item.unread ? `${item.unread} חדשות` : window.formatDate(item.sentAt);
+
+        const message = document.createElement('p');
+        message.className = 'text-[11px] text-slate-200 leading-relaxed line-clamp-2';
+        message.textContent = item.reply.text || 'הודעה חדשה';
+
+        const action = document.createElement('span');
+        action.className = 'mt-2 text-[9px] font-bold text-cyan-300 flex items-center gap-1';
+        action.innerHTML = '<i data-lucide="messages-square" class="w-3.5 h-3.5"></i> פתח שיחה';
+
+        meta.append(sender, status);
+        card.append(meta, message, action);
+        card.onclick = () => window.openAdminConversation(item.uid);
+        list.appendChild(card);
+    });
+
     visibleMessages.forEach(({ message: msg, originalIndex }) => {
         if (!msg.read) unreadCount++;
         const card = document.createElement('div');
@@ -969,6 +1020,7 @@ window.renderFloatingInbox = function() {
             badge.classList.add('hidden');
         }
     }
+    window.scheduleIconRefresh?.(list);
 };
     
 

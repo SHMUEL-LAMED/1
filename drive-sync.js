@@ -1230,6 +1230,7 @@ function startAdminListeners() {
         window.renderManagedUsers();
         window.renderAdminMessageUsers?.();
         window.renderAdminMessageReplies?.();
+        window.renderFloatingInbox?.();
         window.renderActiveConversation?.();
         window.updatePendingUsersBadge();
 
