@@ -382,6 +382,41 @@ function getFilteredSortedImages() {
     return filtered;
 }
 
+// „עודכן” ברצועת הכניסה נועד לומר שהארכיון חי, ולכן ימים אחרונים מוצגים
+// במילים ורק אחר כך בתאריך.
+function formatArchiveUpdate(timestamp) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '—';
+    const startOfDay = value => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+    const updated = new Date(timestamp);
+    const dayDifference = Math.round((startOfDay(new Date()) - startOfDay(updated)) / 86400000);
+    if (dayDifference <= 0) return 'היום';
+    if (dayDifference === 1) return 'אתמול';
+    if (dayDifference < 7) return `לפני ${dayDifference} ימים`;
+    return updated.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+}
+
+// נתוני רצועת הכניסה: מה יש בארכיון ומתי התעדכן לאחרונה.
+function renderArchiveEntryFacts(eventCount, mediaCount) {
+    const eventCountEl = document.getElementById('heroEventCount');
+    const mediaCountEl = document.getElementById('heroMediaCount');
+    const updatedEl = document.getElementById('heroUpdatedAt');
+    if (eventCountEl) eventCountEl.textContent = eventCount.toLocaleString('he-IL');
+    if (mediaCountEl) mediaCountEl.textContent = mediaCount.toLocaleString('he-IL');
+    if (updatedEl) {
+        const latest = (window.state.images || []).reduce(
+            (newest, item) => Math.max(newest, Number(item?.createdAt) || 0),
+            0
+        );
+        updatedEl.textContent = formatArchiveUpdate(latest);
+    }
+}
+
+// „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.
+window.enterArchive = function() {
+    const target = document.querySelector('.collections-deck') || document.getElementById('photosGrid');
+    target?.scrollIntoView({ behavior: 'auto', block: 'start' });
+};
+
 window._doRenderFolders = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const folderList = document.getElementById('folderList'); if (!folderList) return;
@@ -402,10 +437,13 @@ window._doRenderFolders = function() {
         return String(a.name || '').localeCompare(String(b.name || ''), 'he');
     });
 
+    const eventCount = Math.max(0, folders.filter(folder => folder.id !== 'all').length);
+    const mediaCount = window.state.images.length;
     const folderTotalCount = document.getElementById('folderTotalCount');
     const folderMediaCount = document.getElementById('folderMediaCount');
-    if (folderTotalCount) folderTotalCount.textContent = String(Math.max(0, folders.filter(folder => folder.id !== 'all').length));
-    if (folderMediaCount) folderMediaCount.textContent = String(window.state.images.length);
+    if (folderTotalCount) folderTotalCount.textContent = String(eventCount);
+    if (folderMediaCount) folderMediaCount.textContent = String(mediaCount);
+    renderArchiveEntryFacts(eventCount, mediaCount);
 
     folders.forEach(folder => {
         const folderId = window.safeRecordId(folder.id);

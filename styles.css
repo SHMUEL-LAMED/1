@@ -533,22 +533,6 @@
             box-shadow: 0 30px 100px rgba(255,182,39,.05), inset 0 1px 0 rgba(255,255,255,0.08);
         }
 
-        .gallery-hero::before {
-            content: "ARCHIVE";
-            position: absolute;
-            direction: ltr;
-            left: 3%;
-            top: 50%;
-            transform: translateY(-55%);
-            z-index: -1;
-            color: rgba(255,255,255,.025);
-            font-size: clamp(72px, 15vw, 190px);
-            line-height: .8;
-            font-weight: 900;
-            letter-spacing: -.08em;
-            white-space: nowrap;
-        }
-
         .gallery-hero::after {
             content: "";
             position: absolute;
@@ -561,50 +545,6 @@
             box-shadow: 0 0 0 24px rgba(255,182,39,.015), 0 0 0 48px rgba(255,182,39,.01);
             animation: orbitGlow 9s ease-in-out infinite;
         }
-
-        .hero-content {
-            max-width: 760px;
-            position: relative;
-            z-index: 2;
-            animation: heroContentIn .8s cubic-bezier(.16, 1, .3, 1) both;
-        }
-        .hero-kicker { display: inline-flex; align-items: center; gap: 10px; color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
-        .hero-kicker::before { content: ""; width: 34px; height: 1px; background: currentColor; }
-        .hero-title {
-            margin-top: 14px;
-            font-size: clamp(38px, 6.5vw, 78px);
-            line-height: 1.05;
-            font-weight: 850;
-            letter-spacing: -.035em;
-            color: var(--paper);
-        }
-        .hero-title span {
-            display: block;
-            margin-top: 12px;
-            color: #c8ced8;
-            -webkit-text-stroke: 0;
-            font-size: .58em;
-            font-weight: 650;
-            line-height: 1.22;
-            letter-spacing: -.015em;
-        }
-        .hero-copy { margin-top: 18px; color: #aeb6c5; font-size: clamp(13px, 1.5vw, 16px); line-height: 1.7; max-width: 540px; }
-        .hero-seal {
-            position: absolute;
-            left: clamp(28px, 5vw, 58px);
-            bottom: clamp(28px, 5vw, 52px);
-            width: 90px;
-            height: 90px;
-            border: 1px solid var(--line-strong);
-            border-radius: 50%;
-            display: grid;
-            place-items: center;
-            color: var(--cyan);
-            background: rgba(9,11,16,.36);
-            backdrop-filter: blur(8px);
-            animation: sealFloat 4.5s ease-in-out infinite;
-        }
-        .hero-seal svg { width: 28px; height: 28px; }
 
         #holidayBanner { display: none !important; }
 
@@ -874,8 +814,7 @@
         @media (prefers-reduced-motion: reduce) {
             .gallery-hero,
             .gallery-hero::after,
-            .hero-content,
-            .hero-seal,
+            .entry-top,
             .gallery-toolbar::before,
             #folderList .folder-row,
             .gallery-card {
@@ -1311,14 +1250,6 @@
                 linear-gradient(135deg, #e7f5f7, #fff7e7 58%, #f3e8c8);
             box-shadow: 0 28px 70px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.8);
         }
-        html[data-theme="light"] .gallery-hero::before { color: rgba(15,23,42,.035); }
-        html[data-theme="light"] .hero-title { color: #172033; }
-        html[data-theme="light"] .hero-title span { color: #4b5565; }
-        html[data-theme="light"] .hero-copy { color: #64748b; }
-        html[data-theme="light"] .hero-seal {
-            color: #087f8c;
-            background: rgba(255,255,255,.58);
-        }
         html[data-theme="light"] .gallery-toolbar {
             background: rgba(255,255,255,.88) !important;
             border-color: rgba(15,23,42,.1) !important;
@@ -1486,8 +1417,6 @@
             .settings-wrap { position: fixed !important; top: auto !important; left: 16px !important; bottom: 18px; z-index: 35; }
             .gallery-hero { min-height: 285px; border-radius: 25px; align-items: center; }
             .gallery-hero::after { width: 150px; height: 150px; left: -25px; }
-            .hero-title { font-size: clamp(38px, 13vw, 58px); }
-            .hero-seal { display: none; }
             .gallery-toolbar { align-items: stretch !important; }
             .gallery-toolbar > div:first-child { max-width: none !important; }
             #photosGrid { grid-template-columns: 1fr !important; gap: 15px !important; }
@@ -2557,134 +2486,202 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
 .gallery-layout {
     grid-template-columns: minmax(0, 1fr) !important;
 }
+/* ---------------------------------------------------------
+   כניסה לארכיון — לא באנר פרסומי.
+   הרצועה העליונה אומרת היכן אנחנו, מה שמור כאן וכיצד נכנסים:
+   סמל, שם המקום, שורת הסבר אחת, דלת אחת ונתונים חיים.
+   היא נמוכה בכוונה, כדי שהאירועים והתמונות יישארו בשדה הראייה.
+   --------------------------------------------------------- */
 .home-intro {
     width: 100%;
-    min-height: clamp(330px, 38vw, 500px);
-    padding: clamp(34px, 6vw, 78px);
-    align-items: center;
-    justify-content: space-between;
-    gap: 40px;
-    background:
-        linear-gradient(92deg, rgba(4, 6, 10, .99) 0%, rgba(7, 10, 16, .93) 48%, rgba(9, 21, 25, .76) 100%),
-        radial-gradient(circle at 87% 22%, rgba(34, 211, 238, .30), transparent 29%),
-        radial-gradient(circle at 72% 115%, rgba(255, 182, 39, .16), transparent 35%),
-        #070a10;
-    animation: none !important;
-}
-.home-intro::before {
-    content: "SIMCHAS";
-    left: auto;
-    right: clamp(20px, 5vw, 70px);
-    top: auto;
-    bottom: -7px;
-    transform: none;
-    color: rgba(255,255,255,.026);
-    font-size: clamp(72px, 15vw, 210px);
-    letter-spacing: -.07em;
-}
-.home-intro::after {
-    width: clamp(240px, 30vw, 430px);
-    height: clamp(240px, 30vw, 430px);
-    left: -8%;
-    right: auto;
-    top: -38%;
-    border-color: rgba(255, 182, 39, .18);
-    box-shadow: 0 0 0 36px rgba(255,182,39,.012), 0 0 0 72px rgba(255,182,39,.008);
-    animation: none !important;
-}
-.home-intro .hero-content {
-    max-width: 780px;
-    animation: none !important;
-}
-.home-intro .hero-kicker {
-    width: fit-content;
-    margin-bottom: 18px;
-    padding: 8px 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    border-radius: 999px;
-    color: #ffd978;
-    background: rgba(255, 182, 39, .09);
-    border: 1px solid rgba(255, 182, 39, .2);
-    font-size: 10px;
-    letter-spacing: .09em;
-}
-.home-intro .hero-kicker::after { display: none; }
-.home-intro .hero-title {
-    max-width: 850px;
-    margin: 0;
-    color: #f8fafc;
-    font-size: clamp(44px, 7vw, 92px);
-    line-height: .94;
-    letter-spacing: -.055em;
-}
-.home-intro .hero-title strong {
-    color: transparent;
-    background: linear-gradient(100deg, #fff2c6, #ffbd36 62%, #f59e0b);
-    -webkit-background-clip: text;
-    background-clip: text;
-    font-weight: 950;
-}
-.home-intro .hero-copy {
-    max-width: 620px;
-    margin-top: 24px;
-    color: #aeb8c8;
-    font-size: clamp(14px, 1.5vw, 18px);
-    line-height: 1.8;
-}
-.hero-highlights {
-    margin-top: 28px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-.hero-highlights span {
-    padding: 9px 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    border-radius: 12px;
-    color: #d9e0ea;
-    background: rgba(255,255,255,.045);
-    border: 1px solid rgba(255,255,255,.075);
-    font-size: 10px;
-    font-weight: 800;
-}
-.hero-highlights svg { color: #67e8f9; }
-.hero-mark {
-    width: 150px;
-    min-width: 150px;
-    padding: 24px 18px;
+    /* הרוחב כולל את הריפוד, כך שהרצועה לעולם אינה חורגת מרוחב העמוד. */
+    box-sizing: border-box;
+    min-height: clamp(196px, 21vw, 260px);
+    padding: clamp(24px, 3.2vw, 38px) clamp(22px, 3.6vw, 48px);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 13px;
-    border-radius: 75px 75px 24px 24px;
-    color: #f8fafc;
-    background: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,.025));
-    border: 1px solid rgba(255,255,255,.12);
-    box-shadow: 0 24px 70px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.08);
+    align-items: stretch;
+    justify-content: center;
+    gap: clamp(18px, 2.4vw, 28px);
+    border-radius: 28px;
+    border-color: rgba(255,255,255,.07);
+    background:
+        radial-gradient(125% 160% at 88% -25%, rgba(255,182,39,.10), transparent 58%),
+        radial-gradient(90% 130% at 8% 120%, rgba(34,211,238,.07), transparent 60%),
+        linear-gradient(180deg, rgba(13,17,24,.97), rgba(7,9,14,.99));
+    box-shadow: 0 22px 55px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.05);
+    animation: none !important;
 }
-.hero-mark-ring {
-    width: 82px;
-    height: 82px;
+/* קו הסף: חוט זהב דק לרוחב, במקום כיתוב ענק ברקע. */
+.home-intro::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: clamp(22px, 3.6vw, 48px);
+    right: clamp(22px, 3.6vw, 48px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,182,39,.5), transparent);
+}
+/* קשת עדינה בצד הפנוי — נותנת עומק אדריכלי בלי להסיח מהתוכן. */
+.home-intro::after {
+    width: clamp(230px, 30vw, 420px);
+    height: clamp(230px, 30vw, 420px);
+    left: -8%;
+    right: auto;
+    top: -62%;
+    border-color: rgba(255,182,39,.09);
+    box-shadow: none;
+    animation: none !important;
+}
+
+.entry-top {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: clamp(16px, 2.6vw, 32px);
+}
+.entry-identity {
+    display: flex;
+    align-items: center;
+    gap: clamp(13px, 1.6vw, 20px);
+    min-width: 0;
+}
+.entry-emblem {
+    width: clamp(50px, 4.6vw, 62px);
+    height: clamp(50px, 4.6vw, 62px);
+    flex: none;
     display: grid;
     place-items: center;
     border-radius: 50%;
-    color: #0b1119;
-    background: linear-gradient(145deg, #fff0bb, #ffb627);
-    box-shadow: 0 13px 35px rgba(255,182,39,.18);
+    color: #ffd27a;
+    background: radial-gradient(circle at 50% 32%, rgba(255,210,122,.15), rgba(255,255,255,.028));
+    border: 1px solid rgba(255,210,122,.26);
+    box-shadow: inset 0 0 0 5px rgba(255,255,255,.02);
 }
-.hero-mark small {
-    direction: ltr;
-    color: #cbd5e1;
-    font-size: 9px;
-    font-weight: 900;
-    line-height: 1.35;
-    letter-spacing: .18em;
-    text-align: center;
+.entry-naming { min-width: 0; }
+.entry-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #8a93a4;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .19em;
 }
+.entry-eyebrow::before {
+    content: "";
+    width: 16px;
+    height: 1px;
+    background: rgba(255,210,122,.75);
+}
+.entry-title {
+    margin-top: 7px;
+    color: var(--paper);
+    font-size: clamp(27px, 3.4vw, 43px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -.032em;
+}
+.entry-title strong {
+    color: #ffd27a;
+    font-weight: 800;
+}
+.entry-lede {
+    margin-top: 9px;
+    max-width: 54ch;
+    color: #98a1b0;
+    font-size: clamp(12.5px, 1.1vw, 15px);
+    line-height: 1.65;
+}
+.entry-door {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 22px;
+    border-radius: 999px;
+    color: #ffe0a3;
+    background: rgba(255,182,39,.07);
+    border: 1px solid rgba(255,182,39,.3);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+}
+/* האתר עובד ללא אנימציות, ולכן המעבר הוא החלפת צבע מיידית ולא תנועה. */
+.entry-door:hover {
+    color: #1a1206;
+    background: linear-gradient(120deg, #ffdd8e, #ffb627);
+    border-color: transparent;
+}
+/* כשעדיין לא נכנסו לחשבון, הדלת היחידה היא כפתור ההתחברות שלצד הרצועה. */
+body.gallery-locked .entry-door { display: none; }
+
+.entry-facts {
+    position: relative;
+    z-index: 2;
+    margin: 0;
+    padding-top: clamp(15px, 1.9vw, 21px);
+    border-top: 1px solid rgba(255,255,255,.07);
+    display: flex;
+    flex-wrap: wrap;
+    /* הנתונים נפרשים לרוחב הרצועה, כמו שורת פרטים על שלט כניסה. */
+    justify-content: space-between;
+    gap: clamp(18px, 3.4vw, 44px);
+}
+.entry-facts > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.entry-facts dd {
+    order: 1;
+    margin: 0;
+    color: #e9eef6;
+    font-size: clamp(15px, 1.5vw, 19px);
+    font-weight: 800;
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+}
+.entry-facts dt {
+    order: 2;
+    color: #7b8394;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .16em;
+}
+
+/* מצב בהיר: אותה רצועת כניסה, בגוונים של נייר. */
+html[data-theme="light"] .home-intro {
+    border-color: rgba(15,23,42,.09);
+    background:
+        radial-gradient(125% 160% at 88% -25%, rgba(255,182,39,.16), transparent 58%),
+        linear-gradient(180deg, #ffffff, #f7f9fc);
+    box-shadow: 0 20px 45px rgba(15,23,42,.09), inset 0 1px 0 rgba(255,255,255,.9);
+}
+html[data-theme="light"] .home-intro::before { background: linear-gradient(90deg, transparent, rgba(169,118,26,.42), transparent); }
+html[data-theme="light"] .home-intro::after { border-color: rgba(169,118,26,.12); }
+html[data-theme="light"] .entry-emblem {
+    color: #a9761a;
+    background: radial-gradient(circle at 50% 32%, rgba(255,182,39,.16), rgba(255,255,255,.7));
+    border-color: rgba(169,118,26,.26);
+}
+html[data-theme="light"] .entry-eyebrow { color: #64748b; }
+html[data-theme="light"] .entry-title { color: #101828; }
+html[data-theme="light"] .entry-title strong { color: #a9761a; }
+html[data-theme="light"] .entry-lede { color: #5b6675; }
+html[data-theme="light"] .entry-door {
+    color: #8a5d0a;
+    background: rgba(255,182,39,.12);
+    border-color: rgba(169,118,26,.3);
+}
+html[data-theme="light"] .entry-door:hover { color: #1a1206; }
+html[data-theme="light"] .entry-facts { border-top-color: rgba(15,23,42,.09); }
+html[data-theme="light"] .entry-facts dd { color: #0f172a; }
+html[data-theme="light"] .entry-facts dt { color: #64748b; }
 
 /* The collection selector now deliberately follows the introduction. */
 .collections-deck { order: initial !important; }
@@ -2947,13 +2944,19 @@ html[data-theme="light"] .collections-grid .collection-card.is-active {
 
 @media (max-width: 760px) {
     .home-intro {
-        min-height: 430px;
-        padding: 32px 24px;
-        align-items: flex-end;
+        min-height: auto;
+        padding: 26px 22px;
+        gap: 20px;
+        border-radius: 24px;
+        align-items: stretch;
     }
-    .home-intro .hero-title { font-size: clamp(42px, 13vw, 64px); }
-    .hero-mark { display: none; }
-    .hero-highlights span { flex: 1 1 140px; justify-content: center; }
+    .entry-top { flex-direction: column; align-items: stretch; gap: 18px; }
+    /* במסך צר הסמל עומד מעל השם, כמו שלט כניסה, ולא לצד שורה שנשברה. */
+    .entry-identity { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .entry-emblem { width: 48px; height: 48px; }
+    .entry-title { font-size: clamp(25px, 7.5vw, 34px); }
+    .entry-door { width: 100%; justify-content: center; }
+    .entry-facts { gap: 12px 26px; }
     #galleryAccessGate.access-gate { grid-template-columns: 1fr; }
     .access-gate-visual { min-height: 190px; padding: 25px; }
     .access-gate-monogram { width: 62px; height: 62px; border-radius: 20px; }
