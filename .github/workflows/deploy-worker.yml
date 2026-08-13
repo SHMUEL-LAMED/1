@@ -1,4 +1,5 @@
 name: Deploy Cloudflare Worker
+# This workflow is also manually dispatchable for production verification.
 
 on:
   push:
