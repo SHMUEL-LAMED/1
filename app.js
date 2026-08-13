@@ -5,6 +5,7 @@ import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
 import { initAdmin } from './admin.js';
 import './face-search.js';
+import './face-index.js';
 
 // lucide.createIcons() סורק את כל ה-DOM בכל קריאה — יקר מאד לגלריה גדולה.
 // קריאות מרובות באותו frame מתמזגות לאחת, וכשיש container ידוע הסריקה
@@ -316,6 +317,7 @@ const adminCategoryDefinitions = {
             { label: 'מרכז פעילות', description: 'יומן הפעולות האחרונות ותמונת מצב ניהולית', icon: 'chart-no-axes-combined', type: 'task', target: 'accActivityCenter', superAdminOnly: true },
             { label: 'ניתוח נתונים מתקדם', description: 'צפיות, נפח אחסון, סוגי מדיה והפריטים המובילים', icon: 'chart-column-big', type: 'analytics', superAdminOnly: true },
             { label: 'גיבוי ושחזור', description: 'ייצוא נתוני הגלריה לקובץ ושחזור מגיבוי', icon: 'database-backup', type: 'modal', target: 'backupRestoreModal', superAdminOnly: true },
+            { label: 'הכן חיפוש פנים בענן', description: 'סריקה חד־פעמית ששומרת טביעות פנים ומייתרת סריקה בכל חיפוש', icon: 'scan-face', type: 'task', target: 'accFaceIndex' },
             { label: 'בדיקת תקינות המערכת', description: 'בדיקת Cloudflare, האחסון, זיהוי פנים ו־Drive', icon: 'shield-check', type: 'task', target: 'accSystemHealth' }
         ]
     }
@@ -427,6 +429,11 @@ const adminTaskDefinitions = {
         description: 'בדיקת החיבורים והשירותים של הגלריה',
         icon: 'shield-check'
     },
+    accFaceIndex: {
+        title: 'הכן חיפוש פנים בענן',
+        description: 'סריקה חד־פעמית של הגלריה ושמירת טביעות הפנים ב־D1',
+        icon: 'scan-face'
+    },
     accDriveSync: {
         title: 'סנכרון Google Drive',
         description: 'ייבוא תמונות, סרטונים ותיקיות מחשבון Drive',
@@ -501,6 +508,10 @@ window.openAdminTaskWindow = function(contentId) {
     if (contentId === 'accActivityCenter') window.renderActivityLogs?.();
     if (contentId === 'accTrash') window.renderTrashItems?.();
     if (contentId === 'accSystemHealth') window.runSystemHealthCheck?.();
+    if (contentId === 'accFaceIndex') {
+        window.renderFaceIndexPanel?.();
+        window.refreshFaceIndexSummary?.();
+    }
     if (contentId === 'accDriveSync') {
         window.restoreDriveConnection?.().then(() => window.loadDriveFolders?.()).catch(() => window.loadDriveFolders?.());
     }
@@ -758,6 +769,16 @@ window.runSystemHealthCheck = async function() {
                 : 'הספרייה נטענה'
         },
         {
+            label: 'אינדוקס פנים בענן',
+            run: async () => {
+                const summary = await window.refreshFaceIndexSummary?.();
+                if (!summary) throw new Error('מצב האינדוקס אינו זמין');
+                return summary.ready
+                    ? `מוכן — ${summary.indexedImages} תמונות, ${summary.faceCount} פרצופים`
+                    : `נותרו ${summary.remainingImages} תמונות להכנה`;
+            }
+        },
+        {
             label: 'Google Drive',
             run: async () => window.driveConnectionActive ? 'מחובר כעת' : 'לא מחובר — חבר בעת הצורך'
         }
@@ -810,7 +831,12 @@ async function r2Request(path, options = {}) {
     let payload = null;
     try { payload = await response.json(); } catch (error) {}
     if (!response.ok) {
-        throw new Error(payload?.message || payload?.error || `שגיאת שרת האחסון (${response.status}).`);
+        // הקוד והסטטוס נשמרים על אובייקט השגיאה כדי שקוראים יוכלו להבחין בין
+        // עומס זמני, חוסר הרשאה ונתיב שאינו קיים ב-Worker הפרוס.
+        const error = new Error(payload?.message || payload?.error || `שגיאת שרת האחסון (${response.status}).`);
+        error.status = response.status;
+        error.code = payload?.code || 'request_failed';
+        throw error;
     }
     return payload;
 }
@@ -1094,6 +1120,13 @@ window.saveImageToCloud = async function(imgData) {
     }
     window.renderImages();
     window.renderFolders();
+    // הפקת טביעות הפנים לתמונה חדשה רצה ברקע. היא לעולם אינה מעכבת את
+    // ההעלאה ואינה מכשילה אותה — כישלון רק משאיר את התמונה לאינדוקס הבא.
+    try {
+        window.queueFaceIndexForImage?.(imageRecord);
+    } catch (error) {
+        console.warn('הוספת התמונה לתור אינדוקס הפנים נכשלה:', error);
+    }
 };
 
 // מחיקת רשומת הגלריה; הקובץ נמחק גם מ-R2.

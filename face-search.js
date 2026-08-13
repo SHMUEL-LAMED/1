@@ -1,15 +1,23 @@
 // face-search.js — מנגנון חיפוש הפנים והטעינה המאוחרת של מנוע הזיהוי
-// נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
+// נוצר מפיצול index.html למודולים נפרדים.
+//
+// החיפוש הרגיל אינו מוריד ואינו סורק מחדש את תמונות הגלריה: הדפדפן מעבד רק
+// את תמונת החיפוש, שולח את ה-descriptor שלה ל-Worker, וה-Worker משווה אותו
+// מול הטביעות השמורות ב-D1 ומחזיר רק מזהי תמונות עם מרחק ואחוז התאמה.
+// האינדוקס החד־פעמי של הגלריה נמצא ב-face-index.js.
 
 // --- 10. חיפוש פרצוף אמיתי (face-api.js, מקומי בדפדפן, בלי מפתח API) ---
 // המנוע אינו נטען עם האתר. הספרייה והמודלים יורדים רק כשהמשתמש פותח
 // בפועל את כלי חיפוש הפנים, דרך Promise יחיד שנשמר לכל אורך הכניסה.
 let faceEnginePromise = null;
 let faceSearchQueryImageSrc = null;
-// מרחק קטן יותר פירושו דמיון גבוה יותר. הסף הגמיש מזהה את אותו אדם
-// גם בשינויי זווית ותאורה, ועדיין מצמצם התאמות שגויות.
+// ערכי הסף מוגדרים ב-Worker ומוצגים כאן לתיעוד בלבד. מרחק קטן יותר פירושו
+// דמיון גבוה יותר; הסף הגמיש מזהה את אותו אדם גם בשינויי זווית ותאורה.
 const FACE_MATCH_THRESHOLD = 0.62;
 const FACE_STRONG_MATCH_THRESHOLD = 0.48;
+// חייב להיות זהה ל-FACE_MODEL_VERSION שב-cloudflare-worker.js.
+const FACE_MODEL_VERSION = 'faceapi-1.7.15-ssd-l68-r1';
+const FACE_SEARCH_RESULT_LIMIT = 200;
 const FACE_API_CDN_BASE_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15';
 // הכתובות זהות לאלו ששימשו קודם בטעינה הראשונית של index.html.
 const FACE_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
@@ -97,6 +105,9 @@ function loadFaceApi() {
     return faceEnginePromise;
 }
 window.loadFaceApi = loadFaceApi;
+window.FACE_MODEL_VERSION = FACE_MODEL_VERSION;
+window.FACE_MATCH_THRESHOLD = FACE_MATCH_THRESHOLD;
+window.FACE_STRONG_MATCH_THRESHOLD = FACE_STRONG_MATCH_THRESHOLD;
 
 function loadImageElement(src) {
     return new Promise((resolve, reject) => {
@@ -106,6 +117,68 @@ function loadImageElement(src) {
         img.onerror = reject;
         img.src = src;
     });
+}
+// כלי האינדוקס משתמש באותה טעינת תמונה, ולכן היא נחשפת פעם אחת בלבד.
+window.loadFaceImageElement = loadImageElement;
+
+// מפת מזהה → רשומת גלריה. כאן אין סריקה של תמונות ואין הורדה שלהן: המפה
+// נבנית בזיכרון מהרשימה שכבר טעונה, ומשמשת רק לתרגום התוצאות שה-Worker החזיר.
+let faceGalleryIndexSource = null;
+let faceGalleryIndex = new Map();
+
+function galleryImageById(imageId) {
+    const images = window.state?.images || [];
+    if (faceGalleryIndexSource !== images) {
+        faceGalleryIndex = new Map(images.map(image => [window.safeRecordId(image.id), image]));
+        faceGalleryIndexSource = images;
+    }
+    return faceGalleryIndex.get(imageId) || null;
+}
+
+// התוצאה מה-Worker מכילה מזהה, מרחק ואחוז התאמה בלבד — לא descriptors.
+function attachFaceMatchesToGallery(matches) {
+    return (Array.isArray(matches) ? matches : [])
+        .map(match => {
+            const image = galleryImageById(window.safeRecordId(match?.imageId));
+            if (!image) return null;
+            const distance = Number(match?.distance);
+            return {
+                ...image,
+                faceMatchDistance: Number.isFinite(distance) ? distance : FACE_MATCH_THRESHOLD,
+                faceMatchConfidence: Math.max(0, Math.min(100, Math.round(Number(match?.confidence) || 0))),
+                faceMatchStrength: match?.strength === 'strong' ? 'strong' : 'possible'
+            };
+        })
+        .filter(Boolean);
+}
+
+function faceIndexNotReadyMessage(coverage) {
+    if (!coverage || coverage.ready) return '';
+    const total = Math.max(0, Number(coverage.totalImages) || 0);
+    const indexed = Math.max(0, Number(coverage.indexedImages) || 0);
+    const remaining = Math.max(0, Number(coverage.remainingImages) || 0);
+    return `הכנת חיפוש הפנים בענן עדיין לא הושלמה — ${indexed} מתוך ${total} תמונות מוכנות, ${remaining} ממתינות. `
+        + 'תמונות שטרם הוכנו לא ייכללו בתוצאות. מנהל יכול להשלים זאת דרך „הכן חיפוש פנים בענן”.';
+}
+
+// הודעה מקדימה בחלון החיפוש, כדי שהמשתמש ידע מראש אם האינדוקס טרם הסתיים.
+async function refreshFaceSearchIndexNotice() {
+    const notice = document.getElementById('faceSearchIndexNotice');
+    if (!notice) return;
+    notice.classList.add('hidden');
+    notice.textContent = '';
+    try {
+        const summary = await window.r2Request(
+            `/face/index/summary?modelVersion=${encodeURIComponent(FACE_MODEL_VERSION)}`
+        );
+        const message = faceIndexNotReadyMessage(summary);
+        if (!message) return;
+        notice.textContent = message;
+        notice.classList.remove('hidden');
+    } catch (error) {
+        // כשל בבדיקת המצב אינו מונע חיפוש; ההודעה תוצג שוב אחרי החיפוש עצמו.
+        console.warn('בדיקת מצב אינדוקס הפנים נכשלה:', error);
+    }
 }
 
 // --- צילום פרצוף מהמצלמה ---
@@ -193,6 +266,10 @@ window.captureFacePhoto = captureFacePhoto;
 
 function openFaceSearchModal() {
     if (window.state.images.length === 0) { window.showNotification('הגלרייה ריקה!', false); return; }
+    if (!window.state.isGoogleUser || window.state.userApprovalStatus !== 'approved') {
+        window.showNotification('חיפוש פנים זמין למשתמשים מאושרים בלבד.', false);
+        return;
+    }
     const fileInput = document.getElementById('faceSearchFileInput'); if (fileInput) fileInput.value = '';
 
     const previewContainer = document.getElementById('faceSearchPreviewContainer');
@@ -210,6 +287,7 @@ function openFaceSearchModal() {
     // רק כאן מתחילה הורדת המנוע בפועל. כישלון כאן נבלע בכוונה — הודעת
     // השגיאה למשתמש מוצגת בעת החיפוש עצמו, ושאר האתר ממשיך לעבוד.
     loadFaceApi().catch(error => console.warn('טעינת מנוע זיהוי הפנים נכשלה:', error));
+    refreshFaceSearchIndexNotice();
 }
 window.openFaceSearchModal = openFaceSearchModal;
 
@@ -250,84 +328,67 @@ async function executeFaceSearch() {
 
     try {
         if(statusText) statusText.innerText = 'טוען מנוע זיהוי פנים (בפעם הראשונה לוקח רגע)...';
-        const faceapi = await loadFaceApi();
-        if(bar) bar.style.width = '20%';
+        // window.loadFaceApi מצביע על אותה פונקציה; הקריאה דרך window מאפשרת
+        // גם לכלי האינדוקס ולבדיקות להשתמש באותו מנוע בדיוק.
+        const faceapi = await window.loadFaceApi();
+        if(bar) bar.style.width = '25%';
 
-        if(statusText) statusText.innerText = 'ה־AI לומד את מאפייני הפנים בתמונה...';
+        if(statusText) statusText.innerText = 'ה־AI לומד את מאפייני הפנים בתמונה שהעלית...';
         const queryImg = await loadImageElement(faceSearchQueryImageSrc);
-        const queryDet = await faceapi.detectSingleFace(queryImg).withFaceLandmarks().withFaceDescriptor();
-        if (!queryDet) {
+        const queryDetection = await faceapi.detectSingleFace(queryImg).withFaceLandmarks().withFaceDescriptor();
+        if (!queryDetection) {
             window.showNotification('לא זוהה פרצוף בתמונה שהעלית. נסה תמונה ברורה וחזיתית יותר.', false);
             if(statusEl) statusEl.classList.add('hidden');
             if(btn) btn.disabled = false;
             return;
         }
-        const queryDescriptor = queryDet.descriptor;
+        if(bar) bar.style.width = '55%';
 
-        const matches = [];
-        const searchableImages = window.state.images.filter(item => !window.isVideoRecord(item));
-        const total = searchableImages.length;
-        let failedImages = 0;
-        for (let i = 0; i < total; i++) {
-            const imgData = searchableImages[i];
-            try {
-                let descriptors = window.descriptorCache[imgData.id];
-                if (!descriptors) {
-                    const galleryUrl = window.safeImageUrl(imgData.url);
-                    if (!galleryUrl) throw new Error('כתובת התמונה אינה תקינה או אינה מורשית.');
-                    const galleryImg = await loadImageElement(galleryUrl);
-                    const detections = await faceapi.detectAllFaces(galleryImg).withFaceLandmarks().withFaceDescriptors();
-                    descriptors = detections.map(d => Array.from(d.descriptor));
-                    window.descriptorCache[imgData.id] = descriptors;
-                    // נותן לדפדפן לצייר ולטפל באירועים בין זיהויים כבדים
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-
-                const distances = descriptors.map(desc => {
-                    const floatArray = new Float32Array(desc);
-                    return faceapi.euclideanDistance(floatArray, queryDescriptor);
-                });
-                const bestDistance = distances.length ? Math.min(...distances) : Infinity;
-
-                if (bestDistance < FACE_MATCH_THRESHOLD) {
-                    const confidence = Math.max(0, Math.min(100,
-                        Math.round((1 - bestDistance / FACE_MATCH_THRESHOLD) * 55 + 45)
-                    ));
-                    matches.push({
-                        ...imgData,
-                        faceMatchDistance: bestDistance,
-                        faceMatchConfidence: confidence,
-                        faceMatchStrength: bestDistance < FACE_STRONG_MATCH_THRESHOLD ? 'strong' : 'possible'
-                    });
-                }
-            } catch (error) {
-                failedImages++;
-                console.warn(`Face search skipped image ${window.safeRecordId(imgData?.id) || i}:`, error);
-            }
-            if(statusText) statusText.innerText = `סורק תמונות... ${i + 1}/${total}`;
-            if(bar) bar.style.width = `${20 + Math.round(((i + 1) / total) * 78)}%`;
-        }
-
+        // רק הטביעה של תמונת החיפוש נשלחת. תמונת החיפוש עצמה נשארת בדפדפן.
+        if(statusText) statusText.innerText = 'משווה את טביעת הפנים מול הגלריה בענן...';
+        const response = await window.r2Request('/face/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descriptor: Array.from(queryDetection.descriptor, value => Math.round(value * 1e6) / 1e6),
+                modelVersion: FACE_MODEL_VERSION,
+                limit: FACE_SEARCH_RESULT_LIMIT
+            })
+        });
         if(bar) bar.style.width = '100%';
-        matches.sort((a, b) => a.faceMatchDistance - b.faceMatchDistance);
+
+        const returnedMatches = Array.isArray(response?.matches) ? response.matches : [];
+        const matches = attachFaceMatchesToGallery(returnedMatches);
+        const missingFromGallery = returnedMatches.length - matches.length;
+        const indexNotice = faceIndexNotReadyMessage(response?.coverage);
+
         window.state.tempSearchResults = matches;
         showFaceResultBanner(matches.length);
         window.renderImages();
         window.closeModal('faceSearchModal');
+
         if (matches.length) {
-            const skippedText = failedImages ? ` ${failedImages} תמונות לא הצליחו להיסרק.` : '';
-            window.showNotification(`נמצאו ${matches.length} תמונות עם הפרצוף הזה.${skippedText}`, true);
-        } else if (failedImages) {
-            window.showNotification(`לא נמצאה התאמה, אך ${failedImages} מתוך ${total} תמונות לא הצליחו להיסרק.`, false);
+            const missingText = missingFromGallery > 0
+                ? ` ${missingFromGallery} תוצאות אינן מוצגות כרגע בגלריה הטעונה.`
+                : '';
+            window.showNotification(`נמצאו ${matches.length} תמונות עם הפרצוף הזה.${missingText}`, true);
+        } else if (indexNotice) {
+            window.showNotification(indexNotice, false);
         } else {
             window.showNotification('לא נמצאו תמונות תואמות.', false);
+        }
+        // גם כשיש תוצאות חשוב לומר שהאינדוקס עדיין רץ, כדי שלא ייראה כאילו אלו כל התמונות.
+        if (matches.length && indexNotice) {
+            setTimeout(() => window.showNotification(indexNotice, false), 3500);
         }
     } catch (err) {
         console.error('Face recognition engine failed:', err);
         const technicalMessage = String(err?.message || '').trim();
-        const userMessage = technicalMessage
-            ? `זיהוי הפנים נכשל: ${technicalMessage}`
-            : 'זיהוי הפנים נכשל מסיבה לא ידועה.';
+        const userMessage = err?.status === 404
+            ? 'חיפוש הפנים בענן עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'
+            : (technicalMessage
+                ? `זיהוי הפנים נכשל: ${technicalMessage}`
+                : 'זיהוי הפנים נכשל מסיבה לא ידועה.');
         if(statusText) statusText.innerText = userMessage;
         window.showNotification(`${userMessage} נסה שוב בעוד רגע.`, false);
     } finally {

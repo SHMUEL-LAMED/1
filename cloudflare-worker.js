@@ -16,7 +16,7 @@ const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DEFAULT_DRIVE_SITE_URL = "https://shmuel-lamed.github.io/1/";
 const DRIVE_STATE_TTL_MS = 10 * 60 * 1000;
 const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
-const DATABASE_SCHEMA_VERSION = 3;
+const DATABASE_SCHEMA_VERSION = 4;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -30,6 +30,37 @@ const UPLOAD_RATE_LIMIT = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
 const EMAIL_RATE_LIMIT = 30;
 const EMAIL_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+// --- טביעות פנים בענן ---
+// כל תמונה מעובדת פעם אחת בלבד בדפדפן של המנהל, והטביעות המספריות נשמרות
+// ב-D1. חיפוש רגיל שולח רק את הטביעה של תמונת החיפוש, וההשוואה מתבצעת כאן —
+// כך שהדפדפן אינו מוריד שוב את תמונות הגלריה.
+// שינוי הערך מסמן את כל הטביעות הקיימות כשייכות לגרסה ישנה, והאינדוקס
+// יריץ מחדש רק את מה שנדרש לגרסה החדשה.
+const FACE_MODEL_VERSION = "faceapi-1.7.15-ssd-l68-r1";
+const FACE_DESCRIPTOR_LENGTH = 128;
+// ערכי הסף זהים לאלה ששימשו בהשוואה בדפדפן. מרחק קטן יותר = דמיון גבוה יותר.
+const FACE_MATCH_THRESHOLD = 0.62;
+const FACE_STRONG_MATCH_THRESHOLD = 0.48;
+// טביעה אמיתית של face-api מורכבת מערכים קטנים שאורך הווקטור שלהם קרוב ל-1.
+// הטווחים כאן רחבים בהרבה מהמצוי בפועל, ועדיין פוסלים אשפה או וקטור אפסים.
+const FACE_DESCRIPTOR_MAX_COMPONENT = 5;
+const FACE_DESCRIPTOR_MIN_NORM = 0.1;
+const FACE_DESCRIPTOR_MAX_NORM = 12;
+const FACE_SEARCH_DEFAULT_LIMIT = 60;
+const FACE_SEARCH_MAX_LIMIT = 200;
+const FACE_SEARCH_RATE_LIMIT = 40;
+const FACE_SEARCH_RATE_WINDOW_MS = 5 * 60 * 1000;
+const FACE_INDEX_RATE_LIMIT = 1200;
+const FACE_INDEX_RATE_WINDOW_MS = 5 * 60 * 1000;
+const FACE_INDEX_MAX_IMAGES_PER_REQUEST = 25;
+const FACE_INDEX_MAX_FACES_PER_IMAGE = 20;
+const FACE_INDEX_MAX_ATTEMPTS = 3;
+const FACE_INDEX_PENDING_MAX_IDS = 500;
+// קריאת הטביעות לחיפוש מתבצעת בעמודים כדי שתשובת D1 תישאר קטנה.
+const FACE_DESCRIPTOR_PAGE_SIZE = 250;
+const FACE_DESCRIPTOR_SCAN_LIMIT = 200000;
+const FACE_ID_QUERY_CHUNK = 100;
 
 const FACE_ASSETS = new Map([
   ["face-api.js", { upstreamPath: "dist/face-api.js", contentType: "application/javascript; charset=utf-8" }],
@@ -104,7 +135,7 @@ function corsHeaders(request) {
       ? { "Access-Control-Allow-Origin": origin }
       : {}),
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Face-Index-Token",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
@@ -136,8 +167,10 @@ function getBearerToken(request) {
   return match[1];
 }
 
-async function sha256(value) {
-  const bytes = new TextEncoder().encode(String(value || "").trim().toLowerCase());
+// כתובות דוא״ל מנורמלות לפני הגיבוב; סודות מגובבים כמות שהם כדי לא לאבד אנטרופיה.
+async function sha256(value, { normalize = true } = {}) {
+  const text = normalize ? String(value || "").trim().toLowerCase() : String(value || "");
+  const bytes = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map(byte => byte.toString(16).padStart(2, "0"))
@@ -241,6 +274,39 @@ async function ensureDatabaseSchema(env) {
         document_id TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       )`
+    ).run();
+    // טביעות הפנים נשמרות בטבלה נפרדת, שורה לכל פרצוף בתמונה, כדי שתמונה
+    // עם כמה אנשים תישמר במלואה ותוכל להימצא לפי כל אחד מהם.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS image_face_descriptors (
+        image_id TEXT NOT NULL,
+        face_index INTEGER NOT NULL,
+        descriptor_json TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (image_id, face_index)
+      )`
+    ).run();
+    // מצב האינדוקס לכל תמונה. תמונה ללא פנים נשמרת כאן עם face_count = 0,
+    // כך שהיא לא תיסרק שוב, והאינדוקס יכול להימשך בדיוק מהמקום שנעצר.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS image_face_index_state (
+        image_id TEXT PRIMARY KEY,
+        model_version TEXT NOT NULL,
+        status TEXT NOT NULL,
+        face_count INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error_code TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_image_face_descriptors_model ON image_face_descriptors (model_version, image_id, face_index)"
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_image_face_index_state_model ON image_face_index_state (model_version, status)"
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_gallery_documents_collection_updated ON gallery_documents (collection_name, updated_at DESC)"
@@ -625,6 +691,14 @@ async function handleDataRequest(request, env, url) {
     ).bind(collectionName, documentId).run();
     if (collectionName === "userProfiles") {
       await env.GALLERY_DB.prepare("DELETE FROM user_email_index WHERE document_id = ?").bind(documentId).run();
+    }
+    // מחיקת תמונה מוחקת גם את כל טביעות הפנים שלה, כדי שחיפוש לא יחזיר מזהה שנמחק.
+    if (collectionName === "images") {
+      await deleteFaceIndexForImage(env, documentId);
+    } else if (collectionName === "pendingImages" && !(await hasActiveImageDocument(env, documentId))) {
+      // תמונה שאושרה שומרת את אותו מזהה גם באוסף images. ניקוי הרשומה
+      // הממתינה שלה אינו אמור למחוק את הטביעות של התמונה הפעילה.
+      await deleteFaceIndexForImage(env, documentId);
     }
     return json(request, { success: true, id: documentId });
   }
@@ -1072,6 +1146,8 @@ async function deleteImage(request, env, pathname) {
   await requireUser(request, env, ["super_admin"]);
   const key = decodeObjectKey(pathname, "/media/");
   await env.GALLERY_BUCKET.delete(key);
+  // מחיקת הקובץ עצמו גוררת מחיקה של טביעות הפנים ששויכו לאותו מזהה תמונה.
+  await deleteFaceIndexForDeletedMedia(env, key);
   return json(request, { success: true, key });
 }
 
@@ -1153,7 +1229,14 @@ function safeAiSearchImage(value, request, env) {
   return { id, title, folder, date, key, url: mediaUrl(request, key, env) };
 }
 
-async function consumeRateLimit(env, bucketKey, maximum, windowMs) {
+async function consumeRateLimit(
+  env,
+  bucketKey,
+  maximum,
+  windowMs,
+  limitMessage = "בוצעו יותר מדי חיפושי AI. המתן כמה דקות ונסה שוב.",
+  limitCode = "ai_rate_limit_exceeded"
+) {
   await ensureDatabaseSchema(env);
   const now = Date.now();
   const cutoff = now - windowMs;
@@ -1172,7 +1255,7 @@ async function consumeRateLimit(env, bucketKey, maximum, windowMs) {
      RETURNING request_count, window_started_at`
   ).bind(bucketKey, now, cutoff, cutoff).first();
   if (!row || Number(row.request_count) > maximum) {
-    throw apiError("בוצעו יותר מדי חיפושי AI. המתן כמה דקות ונסה שוב.", 429, "ai_rate_limit_exceeded");
+    throw apiError(limitMessage, 429, limitCode);
   }
 }
 
@@ -1302,6 +1385,432 @@ async function aiImageSearch(request, env) {
   return json(request, { success: true, matches });
 }
 
+// --- אינדוקס וחיפוש של טביעות פנים ---
+// אף נקודת קצה כאן אינה מחזירה descriptor ללקוח ואינה כותבת אותו ליומן.
+
+function faceModelVersion(value) {
+  const version = String(value || FACE_MODEL_VERSION).trim();
+  if (!/^[A-Za-z0-9._-]{1,60}$/.test(version)) {
+    throw apiError("גרסת מודל הפנים אינה תקינה.", 400, "invalid_model_version");
+  }
+  return version;
+}
+
+// אימות מלא של הטביעה: בדיוק 128 מספרים סופיים, כל אחד בטווח סביר,
+// ואורך הווקטור כולו בטווח של תוצאת זיהוי פנים אמיתית.
+function parseFaceDescriptor(value) {
+  if (!Array.isArray(value) || value.length !== FACE_DESCRIPTOR_LENGTH) {
+    throw apiError(`טביעת פנים חייבת להכיל בדיוק ${FACE_DESCRIPTOR_LENGTH} מספרים.`, 400, "invalid_face_descriptor");
+  }
+  const descriptor = new Float64Array(FACE_DESCRIPTOR_LENGTH);
+  let squaredNorm = 0;
+  for (let index = 0; index < FACE_DESCRIPTOR_LENGTH; index += 1) {
+    const component = value[index];
+    if (typeof component !== "number" || !Number.isFinite(component) || Math.abs(component) > FACE_DESCRIPTOR_MAX_COMPONENT) {
+      throw apiError("טביעת הפנים מכילה ערך שאינו מספר סופי בטווח הצפוי.", 400, "invalid_face_descriptor");
+    }
+    descriptor[index] = component;
+    squaredNorm += component * component;
+  }
+  const norm = Math.sqrt(squaredNorm);
+  if (norm < FACE_DESCRIPTOR_MIN_NORM || norm > FACE_DESCRIPTOR_MAX_NORM) {
+    throw apiError("טביעת הפנים אינה בטווח של תוצאת זיהוי פנים.", 400, "invalid_face_descriptor");
+  }
+  return descriptor;
+}
+
+function serializeFaceDescriptor(descriptor) {
+  // שש ספרות אחרי הנקודה שומרות על דיוק ההשוואה ומקצרות את השורה במסד.
+  return JSON.stringify(Array.from(descriptor, component => Math.round(component * 1e6) / 1e6));
+}
+
+function deserializeFaceDescriptor(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(value || ""));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length !== FACE_DESCRIPTOR_LENGTH) return null;
+  const descriptor = new Float64Array(FACE_DESCRIPTOR_LENGTH);
+  for (let index = 0; index < FACE_DESCRIPTOR_LENGTH; index += 1) {
+    const component = Number(parsed[index]);
+    if (!Number.isFinite(component)) return null;
+    descriptor[index] = component;
+  }
+  return descriptor;
+}
+
+// אותה נוסחה ששימשה בהשוואה בדפדפן, כדי שאחוזי ההתאמה לא ישתנו למשתמש.
+function faceMatchConfidence(distance) {
+  return Math.max(0, Math.min(100, Math.round((1 - distance / FACE_MATCH_THRESHOLD) * 55 + 45)));
+}
+
+function faceImageIdFromObjectKey(key) {
+  const fileName = String(key || "").split("/").pop() || "";
+  const dotIndex = fileName.lastIndexOf(".");
+  const imageId = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  return /^[a-zA-Z0-9_-]{1,120}$/.test(imageId) ? imageId : "";
+}
+
+async function deleteFaceIndexForImage(env, imageId) {
+  const safeId = String(imageId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
+  if (!safeId) return;
+  await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE image_id = ?").bind(safeId).run();
+  await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE image_id = ?").bind(safeId).run();
+}
+
+async function hasActiveImageDocument(env, imageId) {
+  const row = await env.GALLERY_DB.prepare(
+    "SELECT 1 AS found FROM gallery_documents WHERE collection_name = 'images' AND document_id = ?"
+  ).bind(imageId).first();
+  return Boolean(row);
+}
+
+async function deleteFaceIndexForDeletedMedia(env, key) {
+  const imageId = faceImageIdFromObjectKey(key);
+  if (!imageId) return;
+  // קובץ ממתין של תמונה שכבר אושרה אינו מוחק את הטביעות של התמונה הפעילה.
+  if (key.startsWith("pending/") && await hasActiveImageDocument(env, imageId)) return;
+  await deleteFaceIndexForImage(env, imageId);
+}
+
+// כתיבת טביעות מותרת למנהל מחובר או לתהליך אינדוקס עם אסימון ייעודי.
+async function requireFaceIndexWriter(request, env) {
+  const configuredToken = String(env.FACE_INDEX_TOKEN || "").trim();
+  const providedToken = String(request.headers.get("X-Face-Index-Token") || "").trim();
+  if (configuredToken && providedToken) {
+    const [expectedHash, providedHash] = await Promise.all([
+      sha256(configuredToken, { normalize: false }),
+      sha256(providedToken, { normalize: false })
+    ]);
+    if (!constantTimeHexEqual(expectedHash, providedHash)) {
+      throw apiError("אסימון תהליך האינדוקס אינו תקין.", 403, "invalid_index_token");
+    }
+    return { uid: "face-index-process", role: "indexer" };
+  }
+  return await requireUser(request, env, ["admin", "super_admin"]);
+}
+
+async function readFaceIndexStates(env, imageIds) {
+  const states = new Map();
+  for (let offset = 0; offset < imageIds.length; offset += FACE_ID_QUERY_CHUNK) {
+    const chunk = imageIds.slice(offset, offset + FACE_ID_QUERY_CHUNK);
+    const placeholders = chunk.map(() => "?").join(",");
+    const result = await env.GALLERY_DB.prepare(
+      `SELECT image_id, model_version, status, face_count, attempts
+       FROM image_face_index_state WHERE image_id IN (${placeholders})`
+    ).bind(...chunk).all();
+    for (const row of result.results || []) states.set(String(row.image_id), row);
+  }
+  return states;
+}
+
+// תמונה נחשבת מטופלת אם היא אונדקסה בגרסת המודל הנוכחית. החלפת גרסה או
+// כישלון שטרם מיצה את מספר הניסיונות מחזירים אותה לתור.
+function faceIndexNeedsWork(state, modelVersion) {
+  if (!state) return true;
+  if (String(state.model_version) !== modelVersion) return true;
+  if (String(state.status) === "failed" && (Number(state.attempts) || 0) < FACE_INDEX_MAX_ATTEMPTS) return true;
+  return false;
+}
+
+async function faceIndexSummary(env, modelVersion) {
+  const totalRow = await env.GALLERY_DB.prepare(
+    `SELECT COUNT(*) AS total FROM gallery_documents
+     WHERE collection_name = 'images'
+       AND (json_valid(data_json) = 0 OR COALESCE(json_extract(data_json, '$.mediaType'), 'image') <> 'video')`
+  ).first();
+  const stateRow = await env.GALLERY_DB.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'indexed' THEN 1 ELSE 0 END) AS indexed_images,
+       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_images,
+       SUM(CASE WHEN status = 'failed' AND attempts >= ? THEN 1 ELSE 0 END) AS abandoned_images,
+       COALESCE(MAX(updated_at), 0) AS updated_at
+     FROM image_face_index_state WHERE model_version = ?`
+  ).bind(FACE_INDEX_MAX_ATTEMPTS, modelVersion).first();
+  const faceRow = await env.GALLERY_DB.prepare(
+    "SELECT COUNT(*) AS face_count FROM image_face_descriptors WHERE model_version = ?"
+  ).bind(modelVersion).first();
+
+  const totalImages = Number(totalRow?.total) || 0;
+  const indexedImages = Number(stateRow?.indexed_images) || 0;
+  const failedImages = Number(stateRow?.failed_images) || 0;
+  const abandonedImages = Number(stateRow?.abandoned_images) || 0;
+  const processedImages = Math.min(totalImages, indexedImages + abandonedImages);
+  return {
+    modelVersion,
+    totalImages,
+    indexedImages,
+    failedImages,
+    faceCount: Number(faceRow?.face_count) || 0,
+    remainingImages: Math.max(0, totalImages - processedImages),
+    ready: totalImages - processedImages <= 0,
+    updatedAt: Number(stateRow?.updated_at) || 0
+  };
+}
+
+// D1 מריץ batch כטרנזקציה אחת. בסביבה שאין בה batch מריצים ברצף.
+async function runDatabaseStatements(env, statements) {
+  if (!statements.length) return;
+  if (typeof env.GALLERY_DB.batch === "function") {
+    await env.GALLERY_DB.batch(statements);
+    return;
+  }
+  for (const statement of statements) await statement.run();
+}
+
+async function saveFaceIndexBatch(request, env) {
+  const actor = await requireFaceIndexWriter(request, env);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const modelVersion = faceModelVersion(payload.modelVersion);
+  const entries = Array.isArray(payload.images)
+    ? payload.images
+    : (payload.imageId ? [payload] : []);
+  if (!entries.length || entries.length > FACE_INDEX_MAX_IMAGES_PER_REQUEST) {
+    throw apiError(
+      `יש לשלוח בין תמונה אחת ל-${FACE_INDEX_MAX_IMAGES_PER_REQUEST} תמונות בכל בקשת אינדוקס.`,
+      400,
+      "invalid_face_index_batch"
+    );
+  }
+  await consumeRateLimit(
+    env,
+    `face-index:${actor.uid}`,
+    FACE_INDEX_RATE_LIMIT,
+    FACE_INDEX_RATE_WINDOW_MS,
+    "בוצעו יותר מדי בקשות אינדוקס פנים. המתן מעט ונסה שוב.",
+    "face_index_rate_limit_exceeded"
+  );
+
+  const imageIds = entries.map(entry => safeImageId(entry?.imageId));
+  const existingStates = await readFaceIndexStates(env, imageIds);
+  const now = Date.now();
+  const statements = [];
+  const saved = [];
+
+  // כל האימותים מתבצעים לפני הכתיבה, כדי שבקשה עם טביעה פסולה לא תשאיר
+  // חצי אינדוקס במסד.
+  entries.forEach((entry, position) => {
+    const imageId = imageIds[position];
+    const previous = existingStates.get(imageId);
+
+    if (entry?.status === "failed") {
+      const attempts = Math.min(FACE_INDEX_MAX_ATTEMPTS, (Number(previous?.attempts) || 0) + 1);
+      const errorCode = String(entry?.errorCode || "face_index_failed").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40);
+      statements.push(env.GALLERY_DB.prepare(
+        `INSERT INTO image_face_index_state (image_id, model_version, status, face_count, attempts, error_code, created_at, updated_at)
+         VALUES (?, ?, 'failed', 0, ?, ?, ?, ?)
+         ON CONFLICT(image_id) DO UPDATE SET
+           model_version = excluded.model_version,
+           status = excluded.status,
+           face_count = 0,
+           attempts = excluded.attempts,
+           error_code = excluded.error_code,
+           updated_at = excluded.updated_at`
+      ).bind(imageId, modelVersion, attempts, errorCode, now, now));
+      saved.push({ imageId, status: "failed", faceCount: 0, attempts });
+      return;
+    }
+
+    const faces = Array.isArray(entry?.faces) ? entry.faces : [];
+    if (faces.length > FACE_INDEX_MAX_FACES_PER_IMAGE) {
+      throw apiError(`אפשר לשמור עד ${FACE_INDEX_MAX_FACES_PER_IMAGE} פרצופים לתמונה.`, 400, "too_many_faces");
+    }
+    const descriptors = faces.map(parseFaceDescriptor);
+
+    // שורות ישנות שנותרו מריצה קודמת עם יותר פרצופים נמחקות; השאר מתעדכנות
+    // במקום, כך שתאריך היצירה המקורי נשמר.
+    statements.push(env.GALLERY_DB.prepare(
+      "DELETE FROM image_face_descriptors WHERE image_id = ? AND face_index >= ?"
+    ).bind(imageId, descriptors.length));
+    descriptors.forEach((descriptor, faceIndex) => {
+      statements.push(env.GALLERY_DB.prepare(
+        `INSERT INTO image_face_descriptors (image_id, face_index, descriptor_json, model_version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(image_id, face_index) DO UPDATE SET
+           descriptor_json = excluded.descriptor_json,
+           model_version = excluded.model_version,
+           updated_at = excluded.updated_at`
+      ).bind(imageId, faceIndex, serializeFaceDescriptor(descriptor), modelVersion, now, now));
+    });
+    statements.push(env.GALLERY_DB.prepare(
+      `INSERT INTO image_face_index_state (image_id, model_version, status, face_count, attempts, error_code, created_at, updated_at)
+       VALUES (?, ?, 'indexed', ?, 0, '', ?, ?)
+       ON CONFLICT(image_id) DO UPDATE SET
+         model_version = excluded.model_version,
+         status = excluded.status,
+         face_count = excluded.face_count,
+         attempts = 0,
+         error_code = '',
+         updated_at = excluded.updated_at`
+    ).bind(imageId, modelVersion, descriptors.length, now, now));
+    saved.push({ imageId, status: "indexed", faceCount: descriptors.length });
+  });
+
+  await runDatabaseStatements(env, statements);
+  return json(request, { success: true, modelVersion, saved });
+}
+
+async function faceIndexPendingImages(request, env) {
+  const actor = await requireFaceIndexWriter(request, env);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const modelVersion = faceModelVersion(payload.modelVersion);
+  const requestedIds = Array.isArray(payload.imageIds) ? payload.imageIds : [];
+  if (!requestedIds.length || requestedIds.length > FACE_INDEX_PENDING_MAX_IDS) {
+    throw apiError(
+      `יש לשלוח בין מזהה אחד ל-${FACE_INDEX_PENDING_MAX_IDS} מזהי תמונות בכל בדיקה.`,
+      400,
+      "invalid_face_index_batch"
+    );
+  }
+  await consumeRateLimit(
+    env,
+    `face-index:${actor.uid}`,
+    FACE_INDEX_RATE_LIMIT,
+    FACE_INDEX_RATE_WINDOW_MS,
+    "בוצעו יותר מדי בקשות אינדוקס פנים. המתן מעט ונסה שוב.",
+    "face_index_rate_limit_exceeded"
+  );
+
+  const uniqueIds = [...new Set(requestedIds.map(safeImageId))];
+  const states = await readFaceIndexStates(env, uniqueIds);
+  const pending = uniqueIds.filter(imageId => faceIndexNeedsWork(states.get(imageId), modelVersion));
+  return json(request, {
+    success: true,
+    modelVersion,
+    pending,
+    requested: uniqueIds.length,
+    skipped: uniqueIds.length - pending.length
+  });
+}
+
+async function faceIndexSummaryRequest(request, env, url) {
+  await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const modelVersion = faceModelVersion(url.searchParams.get("modelVersion"));
+  return json(request, { success: true, ...(await faceIndexSummary(env, modelVersion)) });
+}
+
+// איפוס יזום לפני אינדוקס מחדש, למשל אחרי החלפת גרסת מודל.
+async function resetFaceIndex(request, env) {
+  await requireUser(request, env, ["super_admin"]);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const clearEverything = payload?.scope === "all";
+  if (clearEverything) {
+    await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors").run();
+    await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state").run();
+    return json(request, { success: true, scope: "all" });
+  }
+  const modelVersion = faceModelVersion(payload?.modelVersion);
+  await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE model_version = ?").bind(modelVersion).run();
+  await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE model_version = ?").bind(modelVersion).run();
+  return json(request, { success: true, scope: "model", modelVersion });
+}
+
+async function filterExistingImageIds(env, imageIds) {
+  const existing = new Set();
+  for (let offset = 0; offset < imageIds.length; offset += FACE_ID_QUERY_CHUNK) {
+    const chunk = imageIds.slice(offset, offset + FACE_ID_QUERY_CHUNK);
+    const placeholders = chunk.map(() => "?").join(",");
+    const result = await env.GALLERY_DB.prepare(
+      `SELECT document_id FROM gallery_documents
+       WHERE collection_name = 'images' AND document_id IN (${placeholders})`
+    ).bind(...chunk).all();
+    for (const row of result.results || []) existing.add(String(row.document_id));
+  }
+  return existing;
+}
+
+// ההשוואה כולה מתבצעת כאן. ללקוח חוזרים רק מזהי תמונות, מרחק ואחוז התאמה.
+async function faceSearch(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const modelVersion = faceModelVersion(payload.modelVersion);
+  const queryDescriptor = parseFaceDescriptor(payload.descriptor);
+  const requestedLimit = Math.trunc(Number(payload.limit) || FACE_SEARCH_DEFAULT_LIMIT);
+  const resultLimit = Math.max(1, Math.min(FACE_SEARCH_MAX_LIMIT, requestedLimit));
+  await consumeRateLimit(
+    env,
+    `face-search:${user.uid}`,
+    FACE_SEARCH_RATE_LIMIT,
+    FACE_SEARCH_RATE_WINDOW_MS,
+    "בוצעו יותר מדי חיפושי פנים. המתן כמה דקות ונסה שוב.",
+    "face_search_rate_limit_exceeded"
+  );
+
+  const squaredThreshold = FACE_MATCH_THRESHOLD * FACE_MATCH_THRESHOLD;
+  const bestSquaredDistances = new Map();
+  let scannedFaces = 0;
+
+  for (let offset = 0; offset < FACE_DESCRIPTOR_SCAN_LIMIT; offset += FACE_DESCRIPTOR_PAGE_SIZE) {
+    const page = await env.GALLERY_DB.prepare(
+      `SELECT image_id, descriptor_json FROM image_face_descriptors
+       WHERE model_version = ?
+       ORDER BY image_id, face_index
+       LIMIT ? OFFSET ?`
+    ).bind(modelVersion, FACE_DESCRIPTOR_PAGE_SIZE, offset).all();
+    const rows = page.results || [];
+
+    for (const row of rows) {
+      const storedDescriptor = deserializeFaceDescriptor(row.descriptor_json);
+      if (!storedDescriptor) continue;
+      // עוצרים ברגע שהמרחק כבר גדול מהסף — אין צורך לסיים את כל 128 המימדים.
+      let squaredDistance = 0;
+      for (let index = 0; index < FACE_DESCRIPTOR_LENGTH && squaredDistance < squaredThreshold; index += 1) {
+        const difference = queryDescriptor[index] - storedDescriptor[index];
+        squaredDistance += difference * difference;
+      }
+      if (squaredDistance >= squaredThreshold) continue;
+      const imageId = String(row.image_id);
+      const previousBest = bestSquaredDistances.get(imageId);
+      if (previousBest === undefined || squaredDistance < previousBest) {
+        bestSquaredDistances.set(imageId, squaredDistance);
+      }
+    }
+
+    scannedFaces += rows.length;
+    if (rows.length < FACE_DESCRIPTOR_PAGE_SIZE) break;
+  }
+
+  const ranked = [...bestSquaredDistances.entries()]
+    .sort((left, right) => left[1] - right[1])
+    .slice(0, resultLimit);
+  // רשת ביטחון: תמונה שנמחקה בזמן שהטביעות שלה עדיין קיימות לא תוחזר.
+  const existingImageIds = await filterExistingImageIds(env, ranked.map(([imageId]) => imageId));
+  const matches = ranked
+    .filter(([imageId]) => existingImageIds.has(imageId))
+    .map(([imageId, squaredDistance]) => {
+      const distance = Math.sqrt(squaredDistance);
+      return {
+        imageId,
+        distance: Math.round(distance * 10000) / 10000,
+        confidence: faceMatchConfidence(distance),
+        strength: distance < FACE_STRONG_MATCH_THRESHOLD ? "strong" : "possible"
+      };
+    });
+
+  const coverage = await faceIndexSummary(env, modelVersion);
+  return json(request, {
+    success: true,
+    modelVersion,
+    matches,
+    scannedFaces,
+    thresholds: { match: FACE_MATCH_THRESHOLD, strong: FACE_STRONG_MATCH_THRESHOLD },
+    coverage: {
+      totalImages: coverage.totalImages,
+      indexedImages: coverage.indexedImages,
+      remainingImages: coverage.remainingImages,
+      failedImages: coverage.failedImages,
+      ready: coverage.ready
+    }
+  });
+}
+
 async function serveFaceAsset(request, env, pathname) {
   let assetPath;
   try {
@@ -1380,8 +1889,12 @@ export default {
         return json(request, {
           success: true,
           service: "simchas-gallery-api",
-          version: "2026-08-02-cloudflare-d1-v2",
-          features: ["cloudflare-d1", "google-auth", "r2-media", "chat-attachments", "persistent-drive-oauth"],
+          version: "2026-08-13-cloudflare-d1-face-index",
+          features: [
+            "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
+            "persistent-drive-oauth", "cloud-face-index"
+          ],
+          faceModelVersion: FACE_MODEL_VERSION,
           databaseConnected: true,
           bucketConnected: true,
           objectsFound: result.objects.length
@@ -1410,6 +1923,21 @@ export default {
       }
       if (request.method === "DELETE" && url.pathname === "/drive/connection") {
         return await disconnectDrive(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/face/search") {
+        return await faceSearch(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/face/index") {
+        return await saveFaceIndexBatch(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/face/index/pending") {
+        return await faceIndexPendingImages(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/face/index/reset") {
+        return await resetFaceIndex(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/face/index/summary") {
+        return await faceIndexSummaryRequest(request, env, url);
       }
       if (request.method === "GET" && url.pathname.startsWith("/face-assets/")) {
         return await serveFaceAsset(request, env, url.pathname);
