@@ -73,16 +73,24 @@
             </button>
         </div>
 
-        <aside class="folder-rail w-full lg:w-80 flex-shrink-0 space-y-6" aria-label="תיקיות הגלריה">
-            <div class="folder-panel rounded-3xl p-5 shadow-sm">
-                <div class="folder-panel-heading flex items-center justify-between mb-4 pb-2 border-b">
-                    <h2 class="font-bold flex items-center gap-2">
-                        <i data-lucide="folder-open" class="w-5 h-5"></i>
-                        תיקיות
-                    </h2>
-                    <span class="folder-panel-note">Collections</span>
-                </div>
-                <div id="folderList" class="space-y-1.5 max-h-[350px] overflow-y-auto pr-1"></div>
+        <aside class="folder-rail collections-deck" aria-label="תיקיות הגלריה">
+            <div class="folder-panel collections-panel">
+                <header class="collections-header">
+                    <div class="collections-heading">
+                        <span class="collections-emblem" aria-hidden="true"><i data-lucide="library-big" class="w-6 h-6"></i></span>
+                        <div>
+                            <p class="collections-kicker">הארכיון שלי</p>
+                            <h2 class="collections-title">אירועים ותיקיות</h2>
+                            <p class="collections-copy">בחר אירוע כדי להיכנס ישר לרגעים שבתוכו.</p>
+                        </div>
+                    </div>
+                    <div class="collections-summary" aria-label="סיכום הארכיון">
+                        <div class="collections-stat"><strong id="folderTotalCount">0</strong><span>תיקיות</span></div>
+                        <span class="collections-stat-divider" aria-hidden="true"></span>
+                        <div class="collections-stat"><strong id="folderMediaCount">0</strong><span>פריטים</span></div>
+                    </div>
+                </header>
+                <nav id="folderList" class="collections-grid" aria-label="בחירת תיקייה"></nav>
             </div>
         </aside>
 
