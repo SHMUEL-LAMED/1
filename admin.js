@@ -60,20 +60,40 @@ window.updateAdminUI = function() {
     document.body.classList.toggle('gallery-locked', !hasGalleryAccess);
     if (accessGate) accessGate.classList.toggle('hidden', hasGalleryAccess);
     if (headerConnectionStatus) headerConnectionStatus.textContent = hasGalleryAccess ? 'גישה מאושרת' : 'נדרשת הרשאה';
+    // מסך טרם ההתחברות מציג מצב אחד בכל רגע: כפתור Google למי שטרם נכנס,
+    // מסך המתנה למי שכבר ביקש אישור, והודעה ברורה לחשבון שנדחה או נחסם.
     if (!hasGalleryAccess && accessGateTitle && accessGateText) {
-        if (approvalStatus === 'pending') {
-            accessGateTitle.textContent = 'בקשת ההצטרפות ממתינה לאישור';
-            accessGateText.textContent = 'המנהל קיבל את הבקשה שלך. לאחר שיבחר עבורך דרגה, הגלריה תיפתח כאן אוטומטית.';
-        } else if (approvalStatus === 'rejected') {
-            accessGateTitle.textContent = 'בקשת ההצטרפות לא אושרה';
-            accessGateText.textContent = 'החשבון אינו מורשה לצפות בגלריה. ניתן לפנות למנהל האתר.';
-        } else if (approvalStatus === 'blocked') {
-            accessGateTitle.textContent = 'החשבון חסום';
-            accessGateText.textContent = 'מנהל־העל חסם את החשבון. ניתן לפנות אליו לבירור.';
-        } else {
-            accessGateTitle.textContent = 'התחבר כדי לצפות בגלריה';
-            accessGateText.textContent = 'התחבר באמצעות Google. לאחר מכן תישלח למנהל בקשה לאישור החשבון.';
-        }
+        const accessGateChip = document.getElementById('galleryAccessGateChip');
+        const gateStates = {
+            pending: {
+                state: 'pending',
+                chip: 'ממתין לאישור מנהל',
+                title: 'בקשת ההצטרפות ממתינה לאישור',
+                text: 'המנהל קיבל את הבקשה שלך. לאחר שיבחר עבורך דרגה, הגלריה תיפתח כאן אוטומטית.'
+            },
+            rejected: {
+                state: 'blocked',
+                chip: 'הבקשה נדחתה',
+                title: 'בקשת ההצטרפות לא אושרה',
+                text: 'החשבון אינו מורשה לצפות בגלריה. ניתן לפנות למנהל האתר.'
+            },
+            blocked: {
+                state: 'blocked',
+                chip: 'החשבון חסום',
+                title: 'החשבון חסום',
+                text: 'מנהל־העל חסם את החשבון. ניתן לפנות אליו לבירור.'
+            }
+        };
+        const gate = gateStates[approvalStatus] || {
+            state: 'signed-out',
+            chip: 'כניסה מאובטחת',
+            title: 'התחבר כדי לצפות בגלריה',
+            text: 'התחבר באמצעות Google. לאחר מכן תישלח למנהל בקשה לאישור החשבון.'
+        };
+        if (accessGate) accessGate.dataset.gateState = gate.state;
+        if (accessGateChip) accessGateChip.textContent = gate.chip;
+        accessGateTitle.textContent = gate.title;
+        accessGateText.textContent = gate.text;
     }
 
     if (googleSignedOutView && googleSignedInView) {
