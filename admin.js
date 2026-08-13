@@ -22,6 +22,7 @@ const CONVERSATION_EMOJI_GROUPS = [
     { id: 'objects', label: 'סמלים', icon: 'sparkles', emojis: ['🎉','🎊','🎈','🎁','🏆','🥇','⭐','🌟','✨','⚡','🔥','💥','✅','❌','❗','❓','💯','📸','📎','📁','🖼️','🔔','💬','📅','🕐'] }
 ];
 let activeEmojiGroup = 'recent';
+let adminConversationFilter = 'all';
 
 function messageDirection(message) {
     return message?.direction === 'user_to_admin' ? 'user_to_admin' : 'admin_to_user';
@@ -749,6 +750,10 @@ window.renderAdminMessageUsers = function() {
     const users = adminMessageCenterUsers();
     list.replaceChildren();
     if (summary) summary.textContent = `${users.length} משתמשים · ${adminMessageRecipients.size} נבחרו`;
+    const usersStat = document.getElementById('adminMessagesUsersStat');
+    const selectedStat = document.getElementById('adminMessagesSelectedStat');
+    if (usersStat) usersStat.textContent = String(users.length);
+    if (selectedStat) selectedStat.textContent = String(adminMessageRecipients.size);
 
     if (!users.length) {
         const empty = document.createElement('p');
@@ -768,7 +773,7 @@ window.renderAdminMessageUsers = function() {
     users.forEach(user => {
         const card = document.createElement('label');
         card.dataset.adminMessageUser = user.uid;
-        card.className = 'admin-message-user-card cursor-pointer rounded-2xl p-4 flex gap-3 items-start';
+        card.className = 'admin-message-user-card';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -779,8 +784,21 @@ window.renderAdminMessageUsers = function() {
             else adminMessageRecipients.delete(user.uid);
             window.updateAdminMessageCenterUI();
             if (summary) summary.textContent = `${users.length} משתמשים · ${adminMessageRecipients.size} נבחרו`;
+            const selectedStat = document.getElementById('adminMessagesSelectedStat');
+            if (selectedStat) selectedStat.textContent = String(adminMessageRecipients.size);
         });
 
+        const avatar = document.createElement('span');
+        avatar.className = 'admin-message-user-avatar';
+        if (user.photoURL) {
+            const image = document.createElement('img');
+            image.src = window.safeImageUrl(user.photoURL);
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            avatar.appendChild(image);
+        } else {
+            avatar.textContent = String(user.displayName || user.email || 'מ').trim().charAt(0).toUpperCase();
+        }
         const body = document.createElement('div');
         body.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
@@ -793,7 +811,7 @@ window.renderAdminMessageUsers = function() {
         role.className = 'text-[10px] text-amber-400 mt-2';
         role.textContent = roleLabels[user.role] || 'ללא דרגה';
         body.append(name, email, role);
-        card.append(checkbox, body);
+        card.append(checkbox, avatar, body);
         list.appendChild(card);
     });
     window.updateAdminMessageCenterUI();
@@ -887,26 +905,39 @@ function collectAdminMessageReplies() {
         if (!uid) return;
         const messages = Array.isArray(user.messages) ? user.messages : [];
         messages.forEach((message, messageIndex) => {
-            if (messageDirection(message) === 'user_to_admin' && String(message.text || '').trim()) {
+            const directAttachment = normalizeConversationAttachment(message?.attachment);
+            if (messageDirection(message) === 'user_to_admin' && (String(message.text || '').trim() || directAttachment)) {
                 replies.push({
                     user,
                     uid,
                     message,
                     messageIndex,
                     reply: {
-                        text: message.text,
+                        text: String(message.text || ''),
+                        attachment: directAttachment,
                         sentAt: message.sentAt,
                         readByAdmin: message.readByAdmin === true
                     }
                 });
             }
             const reply = message?.reply;
-            if (!reply || !String(reply.text || '').trim()) return;
-            replies.push({ user, uid, message, messageIndex, reply });
+            const replyAttachment = normalizeConversationAttachment(reply?.attachment);
+            if (!reply || (!String(reply.text || '').trim() && !replyAttachment)) return;
+            replies.push({ user, uid, message, messageIndex, reply: { ...reply, attachment: replyAttachment } });
         });
     });
     return replies.sort((a, b) => Number(b.reply.sentAt || 0) - Number(a.reply.sentAt || 0));
 }
+
+window.setAdminConversationFilter = function(filter) {
+    adminConversationFilter = ['all', 'unread', 'open', 'resolved'].includes(filter) ? filter : 'all';
+    document.querySelectorAll('[data-admin-conversation-filter]').forEach(button => {
+        const active = button.dataset.adminConversationFilter === adminConversationFilter;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    window.renderAdminMessageReplies();
+};
 
 window.renderAdminMessageReplies = function() {
     const list = document.getElementById('adminMessageRepliesList');
@@ -917,21 +948,35 @@ window.renderAdminMessageReplies = function() {
     incomingMessages.forEach(item => {
         const existing = conversations.get(item.uid);
         const sentAt = new Date(item.reply.sentAt || 0).getTime() || Number(item.reply.sentAt || 0) || 0;
+        const unread = item.reply.readByAdmin === true ? 0 : 1;
         if (!existing || sentAt > existing.latestAt) {
             conversations.set(item.uid, {
                 ...item,
                 latestAt: sentAt,
-                unread: (existing?.unread || 0) + (item.reply.readByAdmin === true ? 0 : 1)
+                unread: (existing?.unread || 0) + unread
             });
-        } else if (item.reply.readByAdmin !== true) {
-            existing.unread++;
+        } else if (unread) {
+            existing.unread += 1;
         }
     });
-    const replies = Array.from(conversations.values()).sort((a, b) => b.latestAt - a.latestAt);
+
+    const allConversations = Array.from(conversations.values()).sort((left, right) => {
+        if (Boolean(right.unread) !== Boolean(left.unread)) return Number(Boolean(right.unread)) - Number(Boolean(left.unread));
+        return right.latestAt - left.latestAt;
+    });
     const unreadCount = incomingMessages.filter(item => item.reply.readByAdmin !== true).length;
+    const openCount = allConversations.filter(item => item.user.supportStatus !== 'resolved').length;
+    const resolvedCount = allConversations.length - openCount;
+    const replies = allConversations.filter(item => {
+        if (adminConversationFilter === 'unread') return item.unread > 0;
+        if (adminConversationFilter === 'open') return item.user.supportStatus !== 'resolved';
+        if (adminConversationFilter === 'resolved') return item.user.supportStatus === 'resolved';
+        return true;
+    });
+
     const drawerBadge = document.getElementById('adminChatsUnreadBadge');
     if (count) {
-        count.textContent = unreadCount ? `${unreadCount} חדשות` : String(replies.length);
+        count.textContent = unreadCount ? `${unreadCount} חדשות` : String(allConversations.length);
         count.classList.toggle('animate-pulse', unreadCount > 0);
     }
     if (drawerBadge) {
@@ -939,55 +984,77 @@ window.renderAdminMessageReplies = function() {
         drawerBadge.classList.toggle('hidden', unreadCount === 0);
         drawerBadge.classList.toggle('flex', unreadCount > 0);
     }
+    const stats = {
+        adminMessagesUnreadStat: unreadCount,
+        adminMessagesOpenStat: openCount,
+        adminMessagesResolvedStat: resolvedCount,
+        adminMessagesConversationStat: allConversations.length
+    };
+    Object.entries(stats).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = String(value);
+    });
+
     list.replaceChildren();
     if (!replies.length) {
-        const empty = document.createElement('p');
-        empty.className = 'text-[10px] text-slate-500 text-center py-5';
-        empty.textContent = 'עדיין לא התקבלו פניות.';
+        const empty = document.createElement('div');
+        empty.className = 'admin-conversation-empty';
+        empty.innerHTML = '<i data-lucide="message-circle-dashed" class="w-8 h-8"></i><strong>אין שיחות בתצוגה הזו</strong><span>אפשר לעבור למסנן אחר או לבחור משתמש ולשלוח הודעה.</span>';
         list.appendChild(empty);
+        window.scheduleIconRefresh?.();
         return;
     }
 
-    replies.forEach(({ user, uid, message, reply }) => {
-        const card = document.createElement('article');
-        card.className = `rounded-xl border p-3 space-y-2 ${reply.readByAdmin === true ? 'border-white/10 bg-white/5' : 'border-cyan-400/25 bg-cyan-400/10'}`;
+    replies.forEach(({ user, uid, reply, unread, latestAt }) => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `admin-conversation-card ${unread ? 'is-unread' : ''} ${user.supportStatus === 'resolved' ? 'is-resolved' : ''}`;
+        card.onclick = () => window.openAdminConversation(uid);
 
-        const header = document.createElement('div');
-        header.className = 'flex items-center justify-between gap-2';
+        const avatar = document.createElement('span');
+        avatar.className = 'admin-conversation-avatar';
+        if (user.photoURL) {
+            const image = document.createElement('img');
+            image.src = window.safeImageUrl(user.photoURL);
+            image.alt = '';
+            image.referrerPolicy = 'no-referrer';
+            avatar.appendChild(image);
+        } else {
+            avatar.textContent = String(user.displayName || user.email || 'מ').trim().charAt(0).toUpperCase();
+        }
+
+        const body = document.createElement('span');
+        body.className = 'admin-conversation-body';
+        const headline = document.createElement('span');
+        headline.className = 'admin-conversation-headline';
         const name = document.createElement('strong');
-        name.className = 'text-[11px] text-white truncate';
         name.textContent = user.displayName || user.email || 'משתמש';
-        const headerMeta = document.createElement('div');
-        headerMeta.className = 'flex items-center gap-1.5 shrink-0';
-        const unread = conversations.get(uid)?.unread || 0;
+        const time = document.createElement('time');
+        time.textContent = window.formatDate(latestAt);
+        headline.append(name, time);
+
+        const preview = document.createElement('span');
+        preview.className = 'admin-conversation-preview';
+        preview.textContent = String(reply.text || '').trim() || (reply.attachment ? `📎 ${reply.attachment.name || 'קובץ מצורף'}` : 'הודעה חדשה');
+
+        const meta = document.createElement('span');
+        meta.className = 'admin-conversation-meta';
+        const status = document.createElement('span');
+        status.className = 'admin-conversation-status';
+        status.textContent = user.supportStatus === 'resolved' ? 'טופלה' : 'פתוחה';
+        meta.appendChild(status);
         if (unread) {
             const unreadBadge = document.createElement('span');
-            unreadBadge.className = 'min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center';
+            unreadBadge.className = 'admin-conversation-unread';
             unreadBadge.textContent = String(unread);
-            headerMeta.appendChild(unreadBadge);
+            meta.appendChild(unreadBadge);
         }
-        const time = document.createElement('span');
-        time.className = 'text-[9px] text-slate-500';
-        time.textContent = window.formatDate(reply.sentAt);
-        headerMeta.appendChild(time);
-        header.append(name, headerMeta);
+        body.append(headline, preview, meta);
 
-        const original = document.createElement('p');
-        original.className = 'text-[9px] text-slate-500 line-clamp-2';
-        original.textContent = conversations.get(uid)?.unread
-            ? `${conversations.get(uid).unread} הודעות חדשות בשיחה`
-            : 'השיחה נקראה';
-        const replyText = document.createElement('p');
-        replyText.className = 'text-[11px] text-cyan-100 leading-relaxed whitespace-pre-wrap';
-        replyText.textContent = reply.text;
-        card.append(header, original, replyText);
-
-        const openChatButton = document.createElement('button');
-        openChatButton.type = 'button';
-        openChatButton.className = 'w-full py-2 rounded-lg btn-primary-gold text-[10px] font-bold flex items-center justify-center gap-1.5';
-        openChatButton.innerHTML = '<i data-lucide="messages-square" class="w-3.5 h-3.5"></i> פתח את השיחה';
-        openChatButton.onclick = () => window.openAdminConversation(uid);
-        card.appendChild(openChatButton);
+        const arrow = document.createElement('span');
+        arrow.className = 'admin-conversation-arrow';
+        arrow.innerHTML = '<i data-lucide="chevron-left" class="w-4 h-4"></i>';
+        card.append(avatar, body, arrow);
         list.appendChild(card);
     });
     window.scheduleIconRefresh();
