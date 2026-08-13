@@ -1130,6 +1130,9 @@
                     <button id="conversationEmojiButton" type="button" onclick="toggleConversationEmojiPicker()" class="conversation-tool-button" aria-label="פתיחת דף האימוג׳ים" aria-controls="conversationEmojiPicker" aria-expanded="false" title="אימוג׳ים">
                         <i data-lucide="smile-plus" class="w-4 h-4"></i><span>אימוג׳ים</span>
                     </button>
+                    <button id="conversationStickerButton" type="button" onclick="toggleConversationStickerPicker()" class="conversation-tool-button conversation-sticker-tool" aria-label="פתיחת דף המדבקות" aria-controls="conversationStickerPicker" aria-expanded="false" title="מדבקות">
+                        <i data-lucide="sticker" class="w-4 h-4"></i><span>מדבקות</span>
+                    </button>
                     <span class="conversation-private-note"><i data-lucide="lock-keyhole" class="w-3.5 h-3.5"></i> הקבצים נשמרים בשיחה הפרטית</span>
                 </div>
                 <div id="conversationEmojiPicker" class="conversation-emoji-picker hidden" aria-label="דף אימוג׳ים">
@@ -1139,6 +1142,17 @@
                     </div>
                     <div id="conversationEmojiTabs" class="conversation-emoji-tabs" role="tablist"></div>
                     <div id="conversationEmojiGrid" class="conversation-emoji-grid"></div>
+                </div>
+                <div id="conversationStickerPicker" class="conversation-sticker-picker hidden" aria-label="דף מדבקות">
+                    <div class="conversation-sticker-picker-heading">
+                        <div>
+                            <span class="conversation-sticker-picker-icon"><i data-lucide="sticker" class="w-5 h-5"></i></span>
+                            <div><strong>מדבקות</strong><small>לחיצה שולחת את המדבקה מיד</small></div>
+                        </div>
+                        <button type="button" onclick="toggleConversationStickerPicker(false)" aria-label="סגירת דף המדבקות"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div id="conversationStickerTabs" class="conversation-sticker-tabs" role="tablist"></div>
+                    <div id="conversationStickerGrid" class="conversation-sticker-grid"></div>
                 </div>
                 <div class="conversation-composer p-2.5" ondrop="handleConversationDrop(event)" ondragover="handleConversationDragOver(event)" ondragleave="handleConversationDragLeave(event)">
                     <input id="conversationAttachmentInput" type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z" onchange="handleConversationAttachment(this)">
