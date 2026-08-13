@@ -74,20 +74,25 @@
         </div>
 
         <section class="gallery-hero home-intro" aria-labelledby="homeIntroTitle">
-            <div class="hero-content">
-                <div class="hero-kicker"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>הארכיון הדיגיטלי של הישיבה</span></div>
-                <h1 id="homeIntroTitle" class="hero-title">כל הרגעים של<br><strong>שמחת התורה</strong></h1>
-                <p class="hero-copy">התמונות, האירועים והזיכרונות החשובים — מסודרים במקום אחד ונפתחים בקלות.</p>
-                <div class="hero-highlights" aria-label="יתרונות הגלריה">
-                    <span><i data-lucide="folder-heart" class="w-4 h-4"></i> מסודר לפי אירועים</span>
-                    <span><i data-lucide="search" class="w-4 h-4"></i> חיפוש חכם ומהיר</span>
-                    <span><i data-lucide="shield-check" class="w-4 h-4"></i> גישה מאושרת בלבד</span>
+            <div class="entry-top">
+                <div class="entry-identity">
+                    <span class="entry-emblem" aria-hidden="true"><i data-lucide="aperture" class="w-7 h-7"></i></span>
+                    <div class="entry-naming">
+                        <p class="entry-eyebrow">הארכיון הדיגיטלי של הישיבה</p>
+                        <h1 id="homeIntroTitle" class="entry-title">גלריית <strong>שמחת התורה</strong></h1>
+                        <p class="entry-lede">תמונות וסרטונים מאירועי הישיבה, מסודרים לפי אירוע ותאריך.</p>
+                    </div>
                 </div>
+                <button type="button" class="entry-door" onclick="enterArchive()">
+                    <span>כניסה לארכיון</span>
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </button>
             </div>
-            <div class="hero-mark" aria-hidden="true">
-                <span class="hero-mark-ring"><i data-lucide="aperture" class="w-10 h-10"></i></span>
-                <small>SIMCHAS<br>ARCHIVE</small>
-            </div>
+            <dl class="entry-facts" aria-label="נתוני הארכיון">
+                <div><dt>אירועים</dt><dd id="heroEventCount">—</dd></div>
+                <div><dt>פריטים</dt><dd id="heroMediaCount">—</dd></div>
+                <div><dt>עודכן</dt><dd id="heroUpdatedAt">—</dd></div>
+            </dl>
         </section>
 
         <aside class="folder-rail collections-deck" aria-label="תיקיות הגלריה">
