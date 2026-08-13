@@ -4196,15 +4196,15 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
    מרכז ניהול חדש + מצב אתר ללא תנועה
    ============================================================ */
 #adminDrawer {
-    width: min(430px, 100vw) !important;
+    width: min(1180px, calc(100vw - 32px)) !important;
     background:
         radial-gradient(circle at 92% 4%, rgba(255,182,39,.12), transparent 28%),
         linear-gradient(180deg, #111722 0%, #090d14 100%) !important;
     border-inline-end: 1px solid rgba(255,255,255,.08);
 }
 .admin-drawer-header {
-    min-height: 86px;
-    padding: 18px 20px;
+    min-height: 88px;
+    padding: 18px 28px;
     border-bottom: 1px solid rgba(255,255,255,.08);
     background: rgba(8,12,19,.92);
 }
@@ -4252,11 +4252,35 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     background: rgba(255,255,255,.045);
 }
 .admin-drawer-body {
-    padding: 16px !important;
+    padding: 24px 28px 32px !important;
     scrollbar-color: rgba(255,182,39,.4) transparent;
 }
+#sidebarAdminPanel:not(.hidden) {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 16px;
+}
+#sidebarAdminPanel:not(.hidden) > * { margin-top: 0 !important; }
+#sidebarAdminPanel > .admin-identity-card {
+    grid-column: 1 / span 7;
+}
+#sidebarAdminPanel > .admin-primary-action {
+    grid-column: 8 / -1;
+}
+#sidebarAdminPanel > .admin-command-center {
+    grid-column: 1 / span 4;
+}
+#sidebarAdminPanel > .admin-overview {
+    grid-column: 5 / -1;
+}
+#sidebarAdminPanel > .admin-topic-grid,
+#sidebarAdminPanel > .admin-logout {
+    grid-column: 1 / -1;
+}
 .admin-identity-card {
-    min-height: 68px;
+    min-height: 82px;
+    padding: 16px 18px !important;
     border-radius: 18px !important;
     background: linear-gradient(135deg, rgba(30,38,53,.98), rgba(16,22,32,.98)) !important;
     border-color: rgba(255,255,255,.09) !important;
@@ -4264,8 +4288,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 }
 .admin-primary-action {
     width: 100%;
-    min-height: 66px;
-    padding: 10px 14px;
+    min-height: 82px;
+    padding: 14px 18px;
     display: flex;
     align-items: center;
     gap: 11px;
@@ -4282,8 +4306,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     min-width: 0;
     flex-direction: column;
 }
-.admin-primary-action strong { font-size: 12px; font-weight: 950; }
-.admin-primary-action small { font-size: 9px; font-weight: 750; opacity: .72; }
+.admin-primary-action strong { font-size: 15px; font-weight: 950; }
+.admin-primary-action small { margin-top: 3px; font-size: 11px; font-weight: 750; opacity: .72; }
 .admin-primary-action-icon {
     width: 40px;
     height: 40px;
@@ -4295,7 +4319,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 }
 .admin-primary-action-arrow { opacity: .65; }
 .admin-command-center {
-    padding: 14px;
+    min-height: 190px;
+    padding: 18px;
     border: 1px solid rgba(255,255,255,.075);
     border-radius: 20px;
     background: rgba(255,255,255,.035);
@@ -4311,8 +4336,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     display: flex;
     flex-direction: column;
 }
-.admin-command-title strong { color: #f8fafc; font-size: 12px; font-weight: 900; }
-.admin-command-title small { color: #7f8ca1; font-size: 9px; margin-top: 2px; }
+.admin-command-title strong { color: #f8fafc; font-size: 14px; font-weight: 900; }
+.admin-command-title small { color: #7f8ca1; font-size: 10px; margin-top: 3px; }
 .admin-live-chip {
     display: inline-flex;
     align-items: center;
@@ -4326,8 +4351,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 }
 .admin-live-chip svg { fill: currentColor; }
 .admin-menu-search {
-    height: 44px;
-    padding: 0 11px;
+    height: 48px;
+    padding: 0 13px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -4347,7 +4372,7 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     background: transparent;
     border: 0;
     outline: 0;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
 }
 .admin-menu-search input::placeholder { color: #667085; }
@@ -4363,17 +4388,15 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     color: #7f8ca1;
     background: rgba(255,255,255,.04);
 }
-/* שני טורים, לא ארבעה: ברוחב המגירה ארבעה טורים נשברו לשורות עקומות
-   והכיתוב הצטמצם ל-8px. שניים נותנים יעד לחיצה נוח וטקסט קריא. */
 .admin-quick-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0,1fr));
-    gap: 8px;
-    margin-top: 10px;
+    gap: 10px;
+    margin-top: 12px;
 }
 .admin-quick-grid button {
-    min-height: 46px;
-    padding: 10px 12px;
+    min-height: 52px;
+    padding: 11px 13px;
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -4382,14 +4405,12 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     border-radius: 13px;
     color: #cbd5e1;
     background: rgba(255,255,255,.035);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 800;
     text-align: right;
 }
 .admin-quick-grid button:hover { color: #f8fafc; background: rgba(255,255,255,.07); border-color: rgba(255,182,39,.28); }
 .admin-quick-grid button svg { flex: none; }
-/* קיצורי מנהל־על הם תאים רגילים ברשת הזאת; בלי זה כל אחד מהם נדחף
-   לטור הראשון ותופס שורה שלמה לעצמו. */
 #sidebarAdminPanel .admin-quick-grid .super-admin-only { grid-column: auto; }
 .admin-quick-grid button svg { color: #ffc14b; }
 .admin-menu-results {
@@ -4439,50 +4460,51 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
     font-weight: 700;
 }
 .admin-overview {
-    gap: 8px !important;
-    padding: 2px 0;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px !important;
+    padding: 0;
 }
 .admin-stat {
-    min-height: 68px !important;
-    padding: 10px !important;
+    min-height: 190px !important;
+    padding: 18px !important;
+    flex-direction: column;
+    align-items: flex-start !important;
+    justify-content: space-between;
     border-radius: 16px !important;
     background: rgba(255,255,255,.035) !important;
     border-color: rgba(255,255,255,.07) !important;
 }
 .admin-stat-icon {
-    width: 34px !important;
-    height: 34px !important;
-    border-radius: 11px !important;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 14px !important;
 }
-.admin-stat strong { font-size: 16px !important; }
-.admin-stat span { color: #8e9aad !important; }
-/* בתוך המגירה הכרטיסים הם שורות: סמל, שם ותיאור, וחץ — במקום עמודה
-   גבוהה שהסמל צף בראשה והשאר נשאר ריק. */
-.admin-topic-grid { gap: 9px !important; }
+.admin-stat strong { font-size: 27px !important; }
+.admin-stat span { color: #8e9aad !important; font-size: 11px !important; }
+.admin-topic-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px !important;
+}
 .admin-topic-card {
-    min-height: 66px !important;
-    padding: 12px 14px !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    gap: 12px !important;
-    border-radius: 17px !important;
-    background: linear-gradient(135deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
-    box-shadow: none !important;
+    min-height: 154px !important;
+    padding: 20px !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 20px !important;
+    border-radius: 20px !important;
+    background: radial-gradient(circle at 90% 0, var(--topic-glow), transparent 52%), #131821 !important;
+    box-shadow: 0 14px 32px rgba(0,0,0,.16) !important;
 }
 .admin-topic-card > span:nth-child(2) { flex: 1; min-width: 0; }
-.admin-topic-card strong { color: #f1f5f9 !important; font-size: 13px !important; }
-.admin-topic-card small { color: #8591a3 !important; font-size: 9.5px !important; line-height: 1.45 !important; margin-top: 3px !important; }
+.admin-topic-card strong { color: #f1f5f9 !important; font-size: 16px !important; }
+.admin-topic-card small { color: #8591a3 !important; font-size: 11px !important; line-height: 1.55 !important; margin-top: 6px !important; }
 .admin-topic-card::after {
-    content: "";
-    width: 7px;
-    height: 7px;
-    flex: none;
-    border-left: 1.5px solid rgba(255,255,255,.3);
-    border-bottom: 1.5px solid rgba(255,255,255,.3);
-    transform: rotate(45deg);
+    display: none;
 }
-.admin-topic-icon { flex: none; }
+.admin-topic-icon { width: 48px; height: 48px; flex: none; }
 .admin-control-card {
     border: 1px solid rgba(255,255,255,.07) !important;
     border-radius: 16px !important;
@@ -4497,10 +4519,28 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 }
 .admin-search-hidden { display: none !important; }
 
-@media (max-width: 480px) {
+@media (max-width: 900px) {
     #adminDrawer { width: 100vw !important; }
-    .admin-drawer-header { min-height: 76px; padding: 14px 16px; }
+    .admin-drawer-header { min-height: 76px; padding: 14px 18px; }
+    .admin-drawer-body { padding: 16px !important; }
+    #sidebarAdminPanel:not(.hidden) { grid-template-columns: 1fr; }
+    #sidebarAdminPanel > .admin-identity-card,
+    #sidebarAdminPanel > .admin-primary-action,
+    #sidebarAdminPanel > .admin-command-center,
+    #sidebarAdminPanel > .admin-overview,
+    #sidebarAdminPanel > .admin-topic-grid,
+    #sidebarAdminPanel > .admin-logout { grid-column: 1; }
+    .admin-command-center { min-height: auto; }
+    .admin-stat { min-height: 110px !important; }
+    .admin-topic-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+
+@media (max-width: 560px) {
     .admin-drawer-body { padding: 12px !important; }
+    .admin-overview { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .admin-stat { min-height: 118px !important; padding: 14px !important; }
+    .admin-topic-grid { grid-template-columns: 1fr; }
+    .admin-topic-card { min-height: 124px !important; }
     .admin-quick-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
     .admin-quick-grid button { min-height: 48px; flex-direction: row; }
 }
