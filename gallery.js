@@ -402,6 +402,11 @@ window._doRenderFolders = function() {
         return String(a.name || '').localeCompare(String(b.name || ''), 'he');
     });
 
+    const folderTotalCount = document.getElementById('folderTotalCount');
+    const folderMediaCount = document.getElementById('folderMediaCount');
+    if (folderTotalCount) folderTotalCount.textContent = String(Math.max(0, folders.filter(folder => folder.id !== 'all').length));
+    if (folderMediaCount) folderMediaCount.textContent = String(window.state.images.length);
+
     folders.forEach(folder => {
         const folderId = window.safeRecordId(folder.id);
         if (!folderId) return;
@@ -409,19 +414,31 @@ window._doRenderFolders = function() {
         const canDeleteFolder = folderId !== 'all' && !isEditBlocked && (
             window.state.isSuperAdmin || (!folder.isDefault && !['1', '2', '3', '4'].includes(folderId))
         );
-        const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="p-1 hover:text-red-500 rounded" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
-        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="p-1 hover:text-amber-400 rounded" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="panel-top-open" class="w-4 h-4"></i></button>` : '';
+        const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
+        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
         const count = folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length;
         const depth = folder.syncedFromDrive ? Math.max(0, Math.min(12, Number(folder.driveDepth) || 0)) : 0;
         const nestingStyle = depth ? `style="margin-inline-start:${Math.min(depth * 18, 144)}px"` : '';
         const branchIcon = depth ? '<span class="text-slate-600 shrink-0" aria-hidden="true">↳</span>' : '';
 
+        const folderLabel = folderId === 'all' ? 'כל הארכיון' : window.escapeHtml(folder.name);
+        const folderMeta = folderId === 'all'
+            ? 'כל התמונות והסרטונים במקום אחד'
+            : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folder.eventDate) : 'אוסף מהגלריה'));
+        const folderIcon = folderId === 'all' ? 'layout-grid' : window.safeIconName(folder.icon);
         folderParts.push(`
-            <div class="folder-row flex items-center justify-between group p-1 ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
-                <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button flex-1 flex items-center gap-3 px-3 py-2 text-sm" ${isActive ? 'aria-current="page"' : ''}>
-                    ${branchIcon}<i data-lucide="${window.safeIconName(folder.icon)}" class="w-4 h-4"></i><span class="truncate max-w-[150px]">${window.escapeHtml(folder.name)}</span><span class="folder-count mr-auto text-xs px-2 py-0.5 rounded-full">${count}</span>
-                </button><div class="flex items-center gap-1 pl-2 text-slate-400">${eventBtn}${delBtn}</div>
-            </div>`);
+            <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
+                <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
+                    <span class="collection-card-icon" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i></span>
+                    <span class="collection-card-content">
+                        <strong class="collection-card-title">${folderLabel}</strong>
+                        <span class="collection-card-meta">${folderMeta}</span>
+                    </span>
+                    <span class="folder-count collection-card-count"><strong>${count}</strong><small>פריטים</small></span>
+                </button>
+                <div class="collection-card-actions">${eventBtn}${delBtn}</div>
+                <span class="collection-card-active-label" aria-hidden="true"><i data-lucide="check" class="w-3 h-3"></i> נבחר</span>
+            </article>`);
     });
     folderList.innerHTML = folderParts.join('');
     window.scheduleIconRefresh(folderList);
