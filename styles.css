@@ -2915,11 +2915,13 @@ html[data-theme="light"] .gate-note { color: #78849a; }
     width: min(500px, calc(100vw - 24px));
     max-height: min(820px, calc(100vh - 88px));
     border-radius: 30px;
+    z-index: 80;
     background:
         radial-gradient(circle at 12% -5%, rgba(255,182,39,.17), transparent 27%),
         radial-gradient(circle at 100% 52%, rgba(34,211,238,.09), transparent 30%),
         linear-gradient(155deg, rgba(16,21,31,.995), rgba(6,9,15,.998));
 }
+.floating-profile-container { z-index: 81; }
 .profile-panel-header {
     min-height: 88px;
     padding: 18px 21px;
