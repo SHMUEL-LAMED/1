@@ -92,7 +92,22 @@
 
 ## פריסה
 
-האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. את ה־Worker יש לפרוס בנפרד מתוך Cloudflare.
+האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. גם ה־Worker נפרס
+אוטומטית באמצעות `.github/workflows/deploy-worker.yml` בכל שינוי של
+`cloudflare-worker.js` בענף `main`. לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
+תחת **Settings → Secrets and variables → Actions**, את ארבעת הסודות הבאים:
+
+| סוד | ערך |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | אסימון Cloudflare בעל הרשאת Workers Scripts:Edit |
+| `CLOUDFLARE_ACCOUNT_ID` | מזהה חשבון Cloudflare |
+| `CLOUDFLARE_D1_DATABASE_ID` | המזהה של `simchas-gallery-db` |
+| `CLOUDFLARE_R2_BUCKET_NAME` | השם המדויק של דלי המדיה הקיים |
+
+ההגדרה נוצרת רק בזמן הריצה ואינה נשמרת במאגר. הפריסה משמרת את משתני וסודות
+ה־Worker הקיימים, ומחברת במפורש את `GALLERY_DB` ואת `GALLERY_BUCKET`, כך שלא
+נוצרים מסד או דלי חדשים. אפשר גם להפעיל פריסה ידנית מתוך **Actions → Deploy
+Cloudflare Worker → Run workflow**.
 
 לפני מעבר סופי מומלץ להוריד גיבוי JSON מממשק הניהול הישן, ולאחר חיבור D1 לשחזר אותו דרך מסך הגיבוי באתר. קובצי המדיה עצמם נשארים ב־R2.
 
