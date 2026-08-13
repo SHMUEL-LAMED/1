@@ -695,7 +695,10 @@ window.toggleConversationEmojiPicker = function(force) {
     const shouldOpen = typeof force === 'boolean' ? force : picker.classList.contains('hidden');
     picker.classList.toggle('hidden', !shouldOpen);
     button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
-    if (shouldOpen) window.renderConversationEmojiPicker();
+    if (shouldOpen) {
+        window.toggleConversationStickerPicker(false);
+        window.renderConversationEmojiPicker();
+    }
 };
 
 window.insertConversationEmoji = function(emoji) {
@@ -710,6 +713,64 @@ window.insertConversationEmoji = function(emoji) {
     window.updateConversationCharacterCount();
 };
 
+window.setConversationStickerPack = function(packId) {
+    activeStickerPack = CONVERSATION_STICKER_PACKS.some(pack => pack.id === packId) ? packId : 'greetings';
+    window.renderConversationStickerPicker();
+};
+
+window.renderConversationStickerPicker = function() {
+    const tabs = document.getElementById('conversationStickerTabs');
+    const grid = document.getElementById('conversationStickerGrid');
+    if (!tabs || !grid) return;
+    tabs.replaceChildren();
+    CONVERSATION_STICKER_PACKS.forEach(pack => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = `conversation-sticker-tab ${pack.id === activeStickerPack ? 'is-active' : ''}`;
+        tab.title = pack.label;
+        tab.innerHTML = `<i data-lucide="${pack.icon}" class="w-4 h-4"></i><span>${pack.label}</span>`;
+        tab.onclick = () => window.setConversationStickerPack(pack.id);
+        tabs.appendChild(tab);
+    });
+    grid.replaceChildren();
+    const pack = CONVERSATION_STICKER_PACKS.find(item => item.id === activeStickerPack) || CONVERSATION_STICKER_PACKS[0];
+    pack.stickers.forEach(sticker => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `conversation-sticker-choice conversation-sticker-${sticker.tone}`;
+        button.setAttribute('aria-label', `שליחת מדבקה: ${sticker.label}`);
+        const emoji = document.createElement('span');
+        emoji.textContent = sticker.emoji;
+        const label = document.createElement('strong');
+        label.textContent = sticker.label;
+        button.append(emoji, label);
+        button.onclick = () => window.sendConversationSticker(sticker.id);
+        grid.appendChild(button);
+    });
+    window.scheduleIconRefresh?.();
+};
+
+window.toggleConversationStickerPicker = function(force) {
+    const picker = document.getElementById('conversationStickerPicker');
+    const button = document.getElementById('conversationStickerButton');
+    if (!picker) return;
+    const shouldOpen = typeof force === 'boolean' ? force : picker.classList.contains('hidden');
+    picker.classList.toggle('hidden', !shouldOpen);
+    button?.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    if (shouldOpen) {
+        window.toggleConversationEmojiPicker(false);
+        window.renderConversationStickerPicker();
+    }
+};
+
+window.sendConversationSticker = function(stickerId) {
+    const sticker = conversationStickerById(stickerId);
+    if (!sticker || conversationSending) return;
+    activeConversationSticker = { id: sticker.id };
+    window.toggleConversationStickerPicker(false);
+    window.sendConversationMessage();
+};
+
 window.sendConversationMessage = async function() {
     if (conversationSending) return;
     const input = document.getElementById('conversationInput');
@@ -717,7 +778,8 @@ window.sendConversationMessage = async function() {
     const status = document.getElementById('conversationUploadStatus');
     const text = String(input?.value || '').trim().slice(0, 1500);
     const file = activeConversationAttachment;
-    if (!text && !file) return;
+    const sticker = normalizeConversationSticker(activeConversationSticker);
+    if (!text && !file && !sticker) return;
     const profile = activeConversationProfile();
     const uid = activeConversationMode === 'admin' ? activeConversationUid : window.state.currentUser?.uid;
     if (!profile || !uid) return;
@@ -726,6 +788,7 @@ window.sendConversationMessage = async function() {
     if (button) button.disabled = true;
     document.getElementById('conversationAttachmentButton')?.setAttribute('disabled', '');
     document.getElementById('conversationEmojiButton')?.setAttribute('disabled', '');
+    document.getElementById('conversationStickerButton')?.setAttribute('disabled', '');
     try {
         const { doc, getDoc, setDoc } = window.firestoreModules;
         const profileRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userProfiles', uid);
@@ -754,7 +817,8 @@ window.sendConversationMessage = async function() {
             readAt: fromAdmin ? null : Date.now(),
             readByAdmin: fromAdmin,
             readByAdminAt: fromAdmin ? Date.now() : null,
-            attachment
+            attachment,
+            sticker
         };
         const updatedMessages = [message, ...currentMessages].slice(0, 250);
         await setDoc(profileRef, {
@@ -766,6 +830,8 @@ window.sendConversationMessage = async function() {
         if (input) input.value = '';
         window.updateConversationCharacterCount();
         window.toggleConversationEmojiPicker(false);
+        window.toggleConversationStickerPicker(false);
+        activeConversationSticker = null;
         window.clearConversationAttachment();
         if (status) status.textContent = 'תמונות וקבצים עד 25MB';
         window.renderActiveConversation();
@@ -780,6 +846,7 @@ window.sendConversationMessage = async function() {
         if (button) button.disabled = false;
         document.getElementById('conversationAttachmentButton')?.removeAttribute('disabled');
         document.getElementById('conversationEmojiButton')?.removeAttribute('disabled');
+        document.getElementById('conversationStickerButton')?.removeAttribute('disabled');
         input?.focus();
     }
 };
@@ -1361,7 +1428,9 @@ window.renderFloatingInbox = function() {
         
         const text = document.createElement('p');
         text.className = 'text-[11px] text-slate-200 leading-relaxed';
-        text.textContent = msg.text;
+        const personalSticker = normalizeConversationSticker(msg.sticker);
+        const personalStickerDetails = personalSticker ? conversationStickerById(personalSticker.id) : null;
+        text.textContent = msg.text || (personalStickerDetails ? `${personalStickerDetails.emoji} מדבקה: ${personalStickerDetails.label}` : 'הודעה חדשה');
         
         card.append(meta, text);
 
