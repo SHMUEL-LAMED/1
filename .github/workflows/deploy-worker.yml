@@ -1,5 +1,5 @@
 name: Deploy Cloudflare Worker
-# This workflow is also manually dispatchable for production verification.
+# Supports push, merged PRs, and manual production verification.
 
 on:
   push:
