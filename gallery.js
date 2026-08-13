@@ -254,7 +254,7 @@ window.openEventPage = function(event, folderId) {
     if (openButton) openButton.onclick = () => {
         setActiveFolder(id);
         window.closeModal('eventPageModal');
-        document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
     };
     const slideshowButton = document.getElementById('eventStartSlideshowBtn');
     if (slideshowButton) slideshowButton.onclick = () => {

@@ -3,6 +3,7 @@
 
 import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
+import './chat.js';
 import { initAdmin } from './admin.js';
 import './face-search.js';
 import './face-index.js';
@@ -382,7 +383,7 @@ window.openAdminCategory = function(categoryId) {
                 } else if (action.type === 'gallery') {
                     const drawer = document.getElementById('adminDrawer');
                     if (drawer && drawer.classList.contains('translate-x-0')) toggleAdminDrawer();
-                    document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
                     window.showNotification('בכרטיסי התמונות אפשר להעביר תיקייה או לבחור מחיקה.', true);
                 } else if (action.type === 'analytics') {
                     openModal('advancedAnalyticsModal');
@@ -394,6 +395,36 @@ window.openAdminCategory = function(categoryId) {
 
     openModal('adminCategoryModal');
     scheduleIconRefresh();
+};
+
+window.filterAdminMenu = function(value = '') {
+    const panel = document.getElementById('sidebarAdminPanel');
+    if (!panel) return;
+    const query = String(value).trim().toLocaleLowerCase('he');
+    const items = [...panel.querySelectorAll('.admin-topic-card, .admin-control-card')];
+    let visibleMatches = 0;
+
+    items.forEach(item => {
+        const matches = !query || item.textContent.toLocaleLowerCase('he').includes(query);
+        item.classList.toggle('admin-search-hidden', !matches);
+        if (matches && !item.classList.contains('hidden')) visibleMatches += 1;
+    });
+
+    panel.querySelectorAll('.admin-section-label').forEach(label => {
+        label.classList.toggle('admin-search-hidden', Boolean(query));
+    });
+
+    const empty = document.getElementById('adminMenuNoResults');
+    if (empty) empty.classList.toggle('hidden', !query || visibleMatches > 0);
+};
+
+window.clearAdminMenuSearch = function() {
+    const input = document.getElementById('adminMenuSearch');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    window.filterAdminMenu('');
 };
 
 const adminTaskDefinitions = {
@@ -1534,154 +1565,11 @@ window.toggleSiteTheme = function() {
 // =================== END POPUP ANNOUNCEMENT ===================
 
 function initAmbientArchiveBackground() {
+    // הרקע נשאר סטטי לחלוטין: אין לולאת ציור ואין תגובה לתנועת העכבר.
     const canvas = document.getElementById('ambientCanvas');
-    const context = canvas?.getContext('2d');
-    if (!canvas || !context) return;
-
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const pointer = { x: 0, y: 0, targetX: 0, targetY: 0 };
-    let width = 0;
-    let height = 0;
-    let pixelRatio = 1;
-    let animationFrame = 0;
-
-    const ribbonSeeds = [
-        { y: .16, amplitude: 46, speed: .00012, phase: .2, color: '255,182,39', alpha: .14 },
-        { y: .33, amplitude: 74, speed: .000085, phase: 2.4, color: '100,216,229', alpha: .09 },
-        { y: .61, amplitude: 58, speed: .0001, phase: 4.1, color: '255,182,39', alpha: .075 },
-        { y: .82, amplitude: 84, speed: .00007, phase: 1.1, color: '100,216,229', alpha: .06 }
-    ];
-
-    const frames = Array.from({ length: 11 }, (_, index) => ({
-        x: ((index * 197) % 997) / 997,
-        y: ((index * 313) % 991) / 991,
-        size: 26 + (index % 5) * 10,
-        speed: .000018 + (index % 4) * .000005,
-        phase: index * 1.37,
-        tilt: ((index % 7) - 3) * .055,
-        color: index % 3 === 0 ? '100,216,229' : '255,182,39'
-    }));
-
-    const motes = Array.from({ length: 34 }, (_, index) => ({
-        x: ((index * 83) % 347) / 347,
-        y: ((index * 149) % 353) / 353,
-        radius: .6 + (index % 4) * .35,
-        speed: .000012 + (index % 5) * .000004,
-        phase: index * .73,
-        color: index % 4 === 0 ? '100,216,229' : '255,196,82'
-    }));
-
-    function resizeCanvas() {
-        width = window.innerWidth;
-        height = window.innerHeight;
-        pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
-        canvas.width = Math.round(width * pixelRatio);
-        canvas.height = Math.round(height * pixelRatio);
-        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    }
-
-    function roundedRectangle(x, y, boxWidth, boxHeight, radius) {
-        const r = Math.min(radius, boxWidth / 2, boxHeight / 2);
-        context.beginPath();
-        context.moveTo(x + r, y);
-        context.lineTo(x + boxWidth - r, y);
-        context.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + r);
-        context.lineTo(x + boxWidth, y + boxHeight - r);
-        context.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - r, y + boxHeight);
-        context.lineTo(x + r, y + boxHeight);
-        context.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - r);
-        context.lineTo(x, y + r);
-        context.quadraticCurveTo(x, y, x + r, y);
-        context.closePath();
-    }
-
-    function drawRibbon(seed, time, index) {
-        const verticalShift = pointer.y * (7 + index * 2);
-        context.beginPath();
-        for (let x = -80; x <= width + 80; x += 42) {
-            const wave =
-                Math.sin(x * .0045 + time * seed.speed + seed.phase) * seed.amplitude +
-                Math.sin(x * .009 - time * seed.speed * .7 + seed.phase) * seed.amplitude * .22;
-            const y = height * seed.y + wave + verticalShift;
-            if (x === -80) context.moveTo(x, y);
-            else context.lineTo(x, y);
-        }
-        context.lineWidth = index === 0 ? 1.25 : .85;
-        context.strokeStyle = `rgba(${seed.color},${seed.alpha})`;
-        context.shadowColor = `rgba(${seed.color},.2)`;
-        context.shadowBlur = 18;
-        context.stroke();
-        context.shadowBlur = 0;
-    }
-
-    function drawFrame(frame, time) {
-        const travel = (frame.y + time * frame.speed) % 1.25 - .12;
-        const x = frame.x * width + pointer.x * 14 * Math.sin(frame.phase);
-        const y = travel * height;
-        const frameWidth = frame.size * 1.35;
-        const frameHeight = frame.size;
-        const opacity = .045 + .035 * (1 + Math.sin(time * .00045 + frame.phase)) / 2;
-
-        context.save();
-        context.translate(x, y);
-        context.rotate(frame.tilt + Math.sin(time * .00012 + frame.phase) * .035);
-        context.strokeStyle = `rgba(${frame.color},${opacity})`;
-        context.lineWidth = 1;
-        context.shadowColor = `rgba(${frame.color},.16)`;
-        context.shadowBlur = 12;
-        roundedRectangle(-frameWidth / 2, -frameHeight / 2, frameWidth, frameHeight, 7);
-        context.stroke();
-        context.beginPath();
-        context.moveTo(-frameWidth * .34, frameHeight * .2);
-        context.lineTo(-frameWidth * .08, -frameHeight * .08);
-        context.lineTo(frameWidth * .12, frameHeight * .12);
-        context.lineTo(frameWidth * .34, -frameHeight * .18);
-        context.stroke();
-        context.restore();
-    }
-
-    function drawMote(mote, time) {
-        const y = ((mote.y - time * mote.speed) % 1.18 + 1.18) % 1.18 * height;
-        const x = mote.x * width + Math.sin(time * .0002 + mote.phase) * 18 + pointer.x * 6;
-        const pulse = .22 + .2 * (1 + Math.sin(time * .001 + mote.phase)) / 2;
-        context.beginPath();
-        context.arc(x, y, mote.radius, 0, Math.PI * 2);
-        context.fillStyle = `rgba(${mote.color},${pulse})`;
-        context.shadowColor = `rgba(${mote.color},.65)`;
-        context.shadowBlur = 8;
-        context.fill();
-        context.shadowBlur = 0;
-    }
-
-    function draw(time = 0) {
-        context.clearRect(0, 0, width, height);
-        pointer.x += (pointer.targetX - pointer.x) * .035;
-        pointer.y += (pointer.targetY - pointer.y) * .035;
-
-        ribbonSeeds.forEach((seed, index) => drawRibbon(seed, time, index));
-        frames.forEach(frame => drawFrame(frame, time));
-        motes.forEach(mote => drawMote(mote, time));
-
-        if (!reducedMotion) animationFrame = requestAnimationFrame(draw);
-    }
-
-    window.addEventListener('resize', resizeCanvas, { passive: true });
-    window.addEventListener('pointermove', event => {
-        pointer.targetX = event.clientX / Math.max(width, 1) - .5;
-        pointer.targetY = event.clientY / Math.max(height, 1) - .5;
-    }, { passive: true });
-    document.addEventListener('visibilitychange', () => {
-        if (reducedMotion) return;
-        if (document.hidden) {
-            cancelAnimationFrame(animationFrame);
-        } else {
-            cancelAnimationFrame(animationFrame);
-            animationFrame = requestAnimationFrame(draw);
-        }
-    });
-
-    resizeCanvas();
-    draw(reducedMotion ? 1600 : performance.now());
+    if (!canvas) return;
+    canvas.hidden = true;
+    canvas.setAttribute('aria-hidden', 'true');
 }
 
 

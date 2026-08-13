@@ -6,6 +6,9 @@ const INITIAL_SUPER_ADMIN_EMAIL_SHA256S = new Set([
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const MAX_CHAT_FILE_BYTES = 25 * 1024 * 1024;
+const CHAT_HISTORY_LIMIT = 150;
+const CHAT_HISTORY_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+const CHAT_MUTATION_MAX_RETRIES = 6;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_VISION_MODEL = "gpt-5.4-mini";
 const FACE_API_VERSION = "1.7.15";
@@ -590,6 +593,213 @@ function resolveDataOperations(value, previousValue) {
   return value;
 }
 
+
+function chatMessageId(value) {
+  const id = String(value || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
+  if (!id) throw apiError("מזהה ההודעה אינו תקין.", 400, "invalid_message_id");
+  return id;
+}
+
+function chatAttachmentFromPayload(value, conversationUid, request, env) {
+  if (!value || typeof value !== "object") return null;
+  const key = validateObjectKey(value.key);
+  const keyParts = key.split("/");
+  if (keyParts[0] !== "chat" || keyParts[1] !== conversationUid) {
+    throw apiError("הקובץ המצורף אינו שייך לשיחה הזו.", 403, "attachment_conversation_mismatch");
+  }
+  return {
+    key,
+    url: mediaUrl(request, key, env),
+    name: String(value.name || "קובץ").replace(/[\r\n]/g, " ").slice(0, 180),
+    type: String(value.type || "application/octet-stream").slice(0, 120),
+    size: Math.max(0, Math.min(MAX_CHAT_FILE_BYTES, Number(value.size) || 0)),
+    kind: value.kind === "image" ? "image" : "file"
+  };
+}
+
+function sanitizeNewChatMessage(value, actor, conversationUid, request, env) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw apiError("מבנה ההודעה אינו תקין.", 400, "invalid_chat_message");
+  }
+  const isSuperAdmin = actor.initialAdmin || (actor.status === "approved" && actor.role === "super_admin");
+  const direction = isSuperAdmin ? "admin_to_user" : "user_to_admin";
+  const text = String(value.text || "").trim().slice(0, 1500);
+  const attachment = value.attachment ? chatAttachmentFromPayload(value.attachment, conversationUid, request, env) : null;
+  const stickerId = String(value?.sticker?.id || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60);
+  const sticker = stickerId ? { id: stickerId } : null;
+  if (!text && !attachment && !sticker) {
+    throw apiError("אי אפשר לשלוח הודעה ריקה.", 400, "empty_chat_message");
+  }
+  const now = Date.now();
+  return {
+    id: chatMessageId(value.id),
+    text,
+    direction,
+    sender: String(actor.account?.displayName || actor.email || (isSuperAdmin ? "מנהל הגלריה" : "משתמש")).slice(0, 160),
+    senderUid: actor.uid,
+    recipientUid: isSuperAdmin ? conversationUid : "gallery-admin",
+    sentAt: now,
+    read: !isSuperAdmin,
+    readAt: isSuperAdmin ? null : now,
+    readByAdmin: isSuperAdmin,
+    readByAdminAt: isSuperAdmin ? now : null,
+    attachment,
+    sticker,
+    allowReply: true
+  };
+}
+
+function chatMessageTime(message) {
+  const numeric = Number(message?.sentAt);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = new Date(message?.sentAt || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pruneChatHistory(messages, now = Date.now()) {
+  const cutoff = now - CHAT_HISTORY_RETENTION_MS;
+  const seen = new Set();
+  return (Array.isArray(messages) ? messages : [])
+    .filter(message => message && typeof message === "object")
+    .sort((left, right) => chatMessageTime(right) - chatMessageTime(left))
+    .filter(message => {
+      const id = String(message.id || "");
+      if (id && seen.has(id)) return false;
+      if (id) seen.add(id);
+      const unread = (message.direction === "user_to_admin" && message.readByAdmin !== true) ||
+        (message.direction !== "user_to_admin" && message.read !== true);
+      return unread || chatMessageTime(message) >= cutoff;
+    })
+    .slice(0, CHAT_HISTORY_LIMIT);
+}
+
+function chatAttachmentKeys(messages) {
+  const keys = new Set();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    for (const attachment of [message?.attachment, message?.reply?.attachment]) {
+      const key = String(attachment?.key || attachment?.r2Key || "");
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+}
+
+async function cleanupRemovedChatAttachments(env, removedKeys) {
+  for (const key of removedKeys) {
+    try {
+      validateObjectKey(key);
+      const object = await env.GALLERY_BUCKET.head(key);
+      if (!object) continue;
+      if (key.startsWith("chat/") || object.customMetadata?.context === "chat") {
+        await env.GALLERY_BUCKET.delete(key);
+      }
+    } catch (error) {
+      console.warn("Chat attachment cleanup skipped", String(key).slice(0, 180), error?.message || error);
+    }
+  }
+}
+
+async function handleChatMessages(request, env) {
+  await ensureDatabaseSchema(env);
+  const actor = await dataActor(request, env);
+  const approved = actor.initialAdmin || actor.status === "approved";
+  const isSuperAdmin = approved && (actor.initialAdmin || actor.role === "super_admin");
+  if (!approved) throw apiError("החשבון עדיין אינו מאושר.", 403, "account_not_approved");
+
+  const payload = await request.json().catch(() => ({}));
+  const conversationUid = String(payload.conversationUid || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 160);
+  if (!conversationUid) throw apiError("מזהה השיחה אינו תקין.", 400, "invalid_conversation");
+  if (conversationUid !== actor.uid && !isSuperAdmin) {
+    throw apiError("אין הרשאה לעדכן את השיחה הזו.", 403, "permission_denied");
+  }
+
+  const action = String(payload.action || "");
+  if (!["append", "mark_read", "delete"].includes(action)) {
+    throw apiError("פעולת הצ׳אט אינה נתמכת.", 400, "invalid_chat_action");
+  }
+
+  for (let attempt = 0; attempt < CHAT_MUTATION_MAX_RETRIES; attempt += 1) {
+    const row = await env.GALLERY_DB.prepare(
+      "SELECT data_json, updated_at FROM gallery_documents WHERE collection_name = 'userProfiles' AND document_id = ?"
+    ).bind(conversationUid).first();
+    if (!row) throw apiError("פרופיל השיחה לא נמצא.", 404, "conversation_not_found");
+
+    const profile = parseDocumentData(row);
+    const originalMessages = Array.isArray(profile.messages) ? profile.messages : [];
+    let candidateMessages = originalMessages;
+
+    if (action === "append") {
+      const message = sanitizeNewChatMessage(payload.message, actor, conversationUid, request, env);
+      const existing = originalMessages.find(item => String(item?.id || "") === message.id);
+      candidateMessages = existing ? originalMessages : [message, ...originalMessages];
+    } else if (action === "mark_read") {
+      const readAt = Date.now();
+      candidateMessages = originalMessages.map(message => {
+        if (isSuperAdmin && message?.direction === "user_to_admin" && message.readByAdmin !== true) {
+          return { ...message, readByAdmin: true, readByAdminAt: readAt };
+        }
+        if (isSuperAdmin && message?.reply && message.reply.readByAdmin !== true) {
+          return { ...message, reply: { ...message.reply, readByAdmin: true, readByAdminAt: readAt } };
+        }
+        if (!isSuperAdmin && message?.direction !== "user_to_admin" && message.read !== true) {
+          return { ...message, read: true, readAt };
+        }
+        return message;
+      });
+    } else {
+      const messageId = chatMessageId(payload.messageId);
+      candidateMessages = originalMessages.filter(message => String(message?.id || "") !== messageId);
+    }
+
+    const nextMessages = pruneChatHistory(candidateMessages);
+    const nextProfile = {
+      ...profile,
+      messages: nextMessages,
+      ...(action === "append" && !isSuperAdmin ? { supportStatus: "open" } : {})
+    };
+    const previousUpdatedAt = Number(row.updated_at) || 0;
+    const nextUpdatedAt = Math.max(Date.now(), previousUpdatedAt + 1);
+    const updateResult = await env.GALLERY_DB.prepare(
+      `UPDATE gallery_documents
+       SET data_json = ?, updated_at = ?
+       WHERE collection_name = 'userProfiles' AND document_id = ? AND updated_at = ?`
+    ).bind(JSON.stringify(nextProfile), nextUpdatedAt, conversationUid, previousUpdatedAt).run();
+
+    if (updateResult?.meta?.changes == null || Number(updateResult.meta.changes) === 1) {
+      const retainedKeys = chatAttachmentKeys(nextMessages);
+      const removedKeys = [...chatAttachmentKeys(originalMessages)].filter(key => !retainedKeys.has(key));
+      if (removedKeys.length) await cleanupRemovedChatAttachments(env, removedKeys);
+      return json(request, {
+        success: true,
+        action,
+        messages: nextMessages,
+        historyLimit: CHAT_HISTORY_LIMIT,
+        retentionDays: Math.round(CHAT_HISTORY_RETENTION_MS / 86400000)
+      });
+    }
+  }
+
+  throw apiError("השיחה השתנתה במקביל. נסה שוב.", 409, "chat_write_conflict");
+}
+
+async function actorCanAccessLegacyChatAttachment(actor, env, key) {
+  if (actor.initialAdmin || actor.role === "super_admin") return true;
+  const row = await env.GALLERY_DB.prepare(
+    `SELECT 1 AS allowed
+     FROM gallery_documents, json_each(gallery_documents.data_json, '$.messages') AS message
+     WHERE collection_name = 'userProfiles'
+       AND document_id = ?
+       AND (
+         json_extract(message.value, '$.attachment.key') = ?
+         OR json_extract(message.value, '$.attachment.r2Key') = ?
+         OR json_extract(message.value, '$.reply.attachment.key') = ?
+         OR json_extract(message.value, '$.reply.attachment.r2Key') = ?
+       )
+     LIMIT 1`
+  ).bind(actor.uid, key, key, key, key).first();
+  return Boolean(row?.allowed);
+}
+
 async function handleDataRequest(request, env, url) {
   await ensureDatabaseSchema(env);
   const parts = url.pathname.slice("/data/".length).split("/").filter(Boolean).map(decodeURIComponent);
@@ -633,7 +843,7 @@ async function handleDataRequest(request, env, url) {
       throw apiError("מבנה המסמך אינו תקין.", 400, "invalid_document");
     }
     const existingRow = await env.GALLERY_DB.prepare(
-      "SELECT data_json, created_at FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
+      "SELECT data_json, created_at, updated_at FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
     ).bind(collectionName, documentId).first();
     const existing = parseDocumentData(existingRow);
     let nextData = resolveDataOperations(payload.data, existing);
@@ -673,12 +883,29 @@ async function handleDataRequest(request, env, url) {
 
     const now = Date.now();
     const ownerUid = String(nextData.uid || nextData.uploadedBy || nextData.requestedBy || nextData.actorUid || actor.uid).slice(0, 120);
-    await env.GALLERY_DB.prepare(
-      `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(collection_name, document_id) DO UPDATE SET
-         data_json = excluded.data_json, owner_uid = excluded.owner_uid, updated_at = excluded.updated_at`
-    ).bind(collectionName, documentId, JSON.stringify(nextData), ownerUid, existingRow?.created_at || now, now).run();
+    if (existingRow) {
+      const nextUpdatedAt = Math.max(now, (Number(existingRow.updated_at) || 0) + 1);
+      const result = await env.GALLERY_DB.prepare(
+        `UPDATE gallery_documents
+         SET data_json = ?, owner_uid = ?, updated_at = ?
+         WHERE collection_name = ? AND document_id = ? AND updated_at = ?`
+      ).bind(
+        JSON.stringify(nextData), ownerUid, nextUpdatedAt,
+        collectionName, documentId, Number(existingRow.updated_at) || 0
+      ).run();
+      if (result?.meta?.changes != null && Number(result.meta.changes) !== 1) {
+        throw apiError("המסמך השתנה במקביל. רענן ונסה שוב.", 409, "document_write_conflict");
+      }
+    } else {
+      const result = await env.GALLERY_DB.prepare(
+        `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(collection_name, document_id) DO NOTHING`
+      ).bind(collectionName, documentId, JSON.stringify(nextData), ownerUid, now, now).run();
+      if (result?.meta?.changes != null && Number(result.meta.changes) !== 1) {
+        throw apiError("המסמך נוצר במקביל. רענן ונסה שוב.", 409, "document_write_conflict");
+      }
+    }
     if (collectionName === "userProfiles") {
       await updateUserEmailIndex(env, documentId, nextData.email, now);
     }
@@ -1050,6 +1277,7 @@ async function uploadImage(request, env) {
       originalName,
       mediaType,
       context: isChatAttachment ? "chat" : "gallery",
+      conversationUid: isChatAttachment ? conversationUid : "",
       state,
       uploadedAt: new Date().toISOString()
     }
@@ -1069,11 +1297,12 @@ async function uploadImage(request, env) {
 
 async function serveImage(request, env, pathname) {
   const key = decodeObjectKey(pathname, "/media/");
+  let pathActor = null;
 
   if (key.startsWith("chat/")) {
-    const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+    pathActor = await dataActor(request, env);
     const conversationUid = key.split("/")[1] || "";
-    if (user.uid !== conversationUid && !["admin", "super_admin"].includes(user.role)) {
+    if (pathActor.uid !== conversationUid && !["admin", "super_admin"].includes(pathActor.role)) {
       throw apiError("אין הרשאה לפתוח קובץ מהשיחה הזו.", 403, "permission_denied");
     }
   }
@@ -1107,13 +1336,22 @@ async function serveImage(request, env, pathname) {
   );
   if (!object) throw apiError("קובץ המדיה לא נמצא.", 404, "not_found");
 
+  const metadata = object.customMetadata || objectHead?.customMetadata || {};
+  const isChatAttachment = key.startsWith("chat/") || metadata.context === "chat";
+  if (isChatAttachment && !key.startsWith("chat/")) {
+    const actor = pathActor || await dataActor(request, env);
+    if (!(await actorCanAccessLegacyChatAttachment(actor, env, key))) {
+      throw apiError("אין הרשאה לפתוח את הקובץ הישן הזה.", 403, "permission_denied");
+    }
+  }
+
   const headers = new Headers(corsHeaders(request));
   object.writeHttpMetadata(headers);
   headers.set("ETag", object.httpEtag);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Accept-Ranges", "bytes");
-  if (object.customMetadata?.mediaType === "file") {
-    const downloadName = String(object.customMetadata?.originalName || object.customMetadata?.title || "file")
+  if (metadata.mediaType === "file") {
+    const downloadName = String(metadata.originalName || metadata.title || "file")
       .replace(/[\r\n"\\/]+/g, "-")
       .slice(0, 180);
     headers.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
@@ -1124,7 +1362,7 @@ async function serveImage(request, env, pathname) {
   }
   headers.set(
     "Cache-Control",
-    key.startsWith("approved/")
+    key.startsWith("approved/") && !isChatAttachment
       ? "public, max-age=3600, s-maxage=86400"
       : "private, no-store"
   );
@@ -1170,11 +1408,18 @@ async function approveImage(request, env) {
 }
 
 async function deleteImage(request, env, pathname) {
-  await requireUser(request, env, ["super_admin"]);
   const key = decodeObjectKey(pathname, "/media/");
+  if (key.startsWith("chat/")) {
+    const actor = await dataActor(request, env);
+    const conversationUid = key.split("/")[1] || "";
+    if (actor.uid !== conversationUid && !["admin", "super_admin"].includes(actor.role)) {
+      throw apiError("אין הרשאה למחוק קובץ מהשיחה הזו.", 403, "permission_denied");
+    }
+  } else {
+    await requireUser(request, env, ["super_admin"]);
+  }
   await env.GALLERY_BUCKET.delete(key);
-  // מחיקת הקובץ עצמו גוררת מחיקה של טביעות הפנים ששויכו לאותו מזהה תמונה.
-  await deleteFaceIndexForDeletedMedia(env, key);
+  if (!key.startsWith("chat/")) await deleteFaceIndexForDeletedMedia(env, key);
   return json(request, { success: true, key });
 }
 
@@ -1929,6 +2174,9 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/auth/session") {
         return await establishGoogleSession(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/chat/messages") {
+        return await handleChatMessages(request, env);
       }
       if (request.method === "POST" && url.pathname === "/upload") {
         return await uploadImage(request, env);
