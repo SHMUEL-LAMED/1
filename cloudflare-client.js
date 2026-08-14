@@ -5,6 +5,12 @@ const GOOGLE_WEB_CLIENT_ID = "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps
 // ✅ FIX: הגדלת buffer מ-60 שניות ל-5 דקות למניעת בקשות כושלות ברגע האחרון
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
+// אסימון ההתחברות של השרת תקף שלושים יום, והוא מחודש הרבה לפני שתוקפו פג
+// כדי שהמשתמש לא ינותק באמצע השימוש.
+const SESSION_RENEW_BEFORE_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_RENEW_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const SESSION_RENEW_RETRY_DELAY_MS = 10 * 60 * 1000;
+
 // ✅ FIX: הפחתת מספר הניסיונות מ-80 ל-30 (7.5 שניות מקס' במקום 20)
 const GOOGLE_LIBRARY_MAX_ATTEMPTS = 30;
 const EMPTY_FOLDER_CLEANUP_AFTER_DELETE_MS = 3 * 1000;
@@ -35,6 +41,63 @@ function tokenIsUsable(token) {
   return Boolean(payload?.sub && Number(payload.exp || 0) * 1000 > Date.now() + TOKEN_EXPIRY_BUFFER_MS);
 }
 
+function tokenNeedsRenewal(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.sub) return false;
+  return Number(payload.exp || 0) * 1000 - Date.now() < SESSION_RENEW_BEFORE_MS;
+}
+
+// ההתחברות נשמרת ב־localStorage ולא ב־sessionStorage: sessionStorage נמחק
+// בכל סגירת לשונית ואינו משותף בין לשוניות, ולכן הוא חייב את המשתמש להתחבר
+// מחדש בכל כניסה לאתר. בדפדפן שחוסם אחסון ההתחברות נשמרת בזיכרון בלבד.
+const memoryTokenStore = new Map();
+
+function persistentStorage() {
+  try {
+    if (typeof localStorage !== "undefined" && localStorage) return localStorage;
+  } catch { /* הדפדפן חוסם גישה לאחסון */ }
+  return null;
+}
+
+function legacyStorage() {
+  try {
+    if (typeof sessionStorage !== "undefined" && sessionStorage) return sessionStorage;
+  } catch { /* הדפדפן חוסם גישה לאחסון */ }
+  return null;
+}
+
+function readStoredToken() {
+  try {
+    const stored = persistentStorage()?.getItem(TOKEN_STORAGE_KEY);
+    if (stored) return stored;
+  } catch { /* הדפדפן חוסם גישה לאחסון */ }
+
+  if (memoryTokenStore.has(TOKEN_STORAGE_KEY)) return memoryTokenStore.get(TOKEN_STORAGE_KEY);
+
+  // התחברות שנשמרה בגרסה קודמת עוברת פעם אחת לאחסון הקבוע.
+  try {
+    const legacy = legacyStorage()?.getItem(TOKEN_STORAGE_KEY);
+    if (legacy) {
+      writeStoredToken(legacy);
+      return legacy;
+    }
+  } catch { /* הדפדפן חוסם גישה לאחסון */ }
+
+  return "";
+}
+
+function writeStoredToken(token) {
+  const value = String(token || "");
+  memoryTokenStore.set(TOKEN_STORAGE_KEY, value);
+  try { persistentStorage()?.setItem(TOKEN_STORAGE_KEY, value); } catch { /* אחסון מלא או חסום */ }
+}
+
+function clearStoredToken() {
+  memoryTokenStore.delete(TOKEN_STORAGE_KEY);
+  try { persistentStorage()?.removeItem(TOKEN_STORAGE_KEY); } catch { /* הדפדפן חוסם גישה לאחסון */ }
+  try { legacyStorage()?.removeItem(TOKEN_STORAGE_KEY); } catch { /* הדפדפן חוסם גישה לאחסון */ }
+}
+
 function userFromToken(token) {
   const payload = decodeJwtPayload(token);
   if (!payload?.sub) return null;
@@ -47,16 +110,24 @@ function userFromToken(token) {
     isAnonymous: false,
     providerData: [{ providerId: "google.com" }],
     async getIdToken() {
-      const storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || "";
-      if (!tokenIsUsable(storedToken)) {
-        await setGoogleIdToken("");
-        const error = new Error("תוקף ההתחברות הסתיים. התחבר מחדש.");
-        error.code = "unauthenticated";
-        throw error;
-      }
-      return storedToken;
+      return ensureUsableToken();
     }
   };
+}
+
+// מחזירה אסימון תקף לשליחה לשרת. אסימון שתוקפו פג מנסה קודם להתחדש מול
+// השרת, וההתנתקות מתרחשת רק אם גם החידוש נכשל.
+async function ensureUsableToken() {
+  const storedToken = readStoredToken();
+  if (tokenIsUsable(storedToken)) return storedToken;
+
+  const renewedToken = await renewSessionToken();
+  if (tokenIsUsable(renewedToken)) return renewedToken;
+
+  await setGoogleIdToken("");
+  const error = new Error("תוקף ההתחברות הסתיים. התחבר מחדש.");
+  error.code = "unauthenticated";
+  throw error;
 }
 
 function notifyAuthListeners() {
@@ -65,27 +136,77 @@ function notifyAuthListeners() {
   }
 }
 
+// חידוש האסימון מחליף רק את פרטי ההתחברות השמורים. המאזינים מקבלים עדכון
+// אך ורק כשזהות המשתמש עצמה משתנתה — כניסה, יציאה או החלפת חשבון — כדי
+// שחידוש שקט לא יגרום לטעינה מחדש של הגלריה ושל מאזיני הניהול.
 export async function setGoogleIdToken(token) {
   const value = String(token || "");
-  if (value && tokenIsUsable(value)) {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, value);
-    authState.currentUser = userFromToken(value);
-    scheduleEmptyFolderCleanup(15 * 1000);
-  } else {
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-    authState.currentUser = null;
-  }
+  const nextUser = value && tokenIsUsable(value) ? userFromToken(value) : null;
+  const previousUid = authState.currentUser?.uid || "";
+
+  if (nextUser) writeStoredToken(value);
+  else clearStoredToken();
+
+  authState.currentUser = nextUser;
   authState.ready = true;
-  notifyAuthListeners();
+
+  if (previousUid !== (nextUser?.uid || "")) {
+    // התחברות חדשה מאפסת המתנה שנקבעה אחרי כישלון חידוש קודם.
+    sessionRenewalBlockedUntil = 0;
+    if (nextUser) scheduleEmptyFolderCleanup(15 * 1000);
+    notifyAuthListeners();
+  }
   return authState.currentUser;
 }
 
 function bootstrapAuth() {
   if (authState.ready) return;
-  const token = sessionStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  const token = readStoredToken();
   authState.currentUser = tokenIsUsable(token) ? userFromToken(token) : null;
-  if (!authState.currentUser) sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  if (!authState.currentUser) clearStoredToken();
   authState.ready = true;
+}
+
+let sessionRenewalPromise = null;
+let sessionRenewalBlockedUntil = 0;
+
+// חידוש האסימון מול השרת. ריצה אחת בכל רגע נתון, ואחרי כישלון זמני יש
+// המתנה קצרה כדי לא להציף את השרת בניסיונות חוזרים.
+function renewSessionToken() {
+  if (Date.now() < sessionRenewalBlockedUntil) return Promise.resolve("");
+  if (!sessionRenewalPromise) {
+    sessionRenewalPromise = performSessionRenewal().finally(() => {
+      sessionRenewalPromise = null;
+    });
+  }
+  return sessionRenewalPromise;
+}
+
+async function performSessionRenewal() {
+  const storedToken = readStoredToken();
+  if (!decodeJwtPayload(storedToken)?.sub) return "";
+
+  try {
+    const session = await verifyGoogleSessionOnServer(storedToken);
+    const sessionToken = String(session?.sessionToken || "");
+    if (!tokenIsUsable(sessionToken)) {
+      // שרת שעדיין לא מנפיק אסימון משלו: ממשיכים עם האסימון הקיים.
+      sessionRenewalBlockedUntil = Date.now() + SESSION_RENEW_RETRY_DELAY_MS;
+      return "";
+    }
+    sessionRenewalBlockedUntil = 0;
+    await setGoogleIdToken(sessionToken);
+    return sessionToken;
+  } catch (error) {
+    // אסימון שנדחה סופית בשרת אינו שווה ניסיון נוסף.
+    if (["invalid_token", "account_unavailable", "email_not_verified", "account_blocked"].includes(error?.code)) {
+      await setGoogleIdToken("");
+      return "";
+    }
+    sessionRenewalBlockedUntil = Date.now() + SESSION_RENEW_RETRY_DELAY_MS;
+    console.warn("Session renewal failed:", error);
+    return "";
+  }
 }
 
 export function initializeApp(config = {}) {
@@ -605,6 +726,9 @@ async function handleOfficialGoogleCredential(response) {
 
     // אימות האסימון בצד השרת לפני שמכריזים על התחברות מוצלחת.
     const session = await verifyGoogleSessionOnServer(idToken);
+    // אסימון Google תקף כשעה בלבד. השרת מחזיר במקומו אסימון התחברות ארוך
+    // טווח, וזה מה שנשמר בדפדפן — כך ההתחברות נשמרת עד ליציאה מהחשבון.
+    if (tokenIsUsable(session?.sessionToken)) await setGoogleIdToken(session.sessionToken);
     const displayName = session?.user?.displayName || user.displayName;
     // כשהשרת עדיין לא מכיר את הנתיב, מצב האישור מגיע מסנכרון הפרופיל הרגיל.
     const awaitingApproval = session?.user ? session.user.status !== "approved" : false;
@@ -673,6 +797,45 @@ function startOfficialGoogleButtonSetup() {
   installOfficialGoogleButtons().catch(error => {
     console.warn("Installing the official Google buttons failed:", error);
   });
+}
+
+// התחברות או התנתקות בלשונית אחת משתקפת מיד בכל שאר הלשוניות הפתוחות,
+// כי כולן חולקות את אותו אחסון קבוע.
+function watchAuthStorageChanges() {
+  window.addEventListener("storage", event => {
+    // מחיקת האחסון כולו מגיעה עם key ריק.
+    if (event.key !== null && event.key !== TOKEN_STORAGE_KEY) return;
+    const token = readStoredToken();
+    setGoogleIdToken(tokenIsUsable(token) ? token : "").catch(error => {
+      console.warn("Syncing the sign-in state between tabs failed:", error);
+    });
+  });
+}
+
+// בדיקה תקופתית שמחדשת את האסימון הרבה לפני שתוקפו פג, כך שהמשתמש נשאר
+// מחובר גם אחרי שהאתר נשאר פתוח ימים ארוכים.
+function startSessionRenewalWatch() {
+  const checkSession = () => {
+    bootstrapAuth();
+    if (!authState.currentUser) return;
+    if (tokenNeedsRenewal(readStoredToken())) {
+      renewSessionToken().catch(error => {
+        console.warn("Session renewal failed:", error);
+      });
+    }
+  };
+
+  setInterval(checkSession, SESSION_RENEW_CHECK_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkSession();
+  });
+  checkSession();
+}
+
+// רק בדפדפן אמיתי. בסביבת בדיקות אין מאזיני חלון, ואין טעם בטיימרים.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  watchAuthStorageChanges();
+  startSessionRenewalWatch();
 }
 
 if (document.readyState === "loading") {

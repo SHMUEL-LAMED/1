@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import worker from "./cloudflare-worker.js";
 
 class MockD1 {
-  constructor() { this.rows = new Map(); }
+  constructor() { this.rows = new Map(); this.secrets = new Map(); }
   key(collection, id) { return `${collection}/${id}`; }
   prepare(sql) {
     const database = this;
@@ -12,6 +12,10 @@ class MockD1 {
       bind(...values) { bindings = values; return this; },
       async first() {
         if (sql.includes("SELECT 1 AS connected")) return { connected: 1 };
+        if (sql.includes("FROM auth_secrets")) {
+          const secret = database.secrets.get("session_signing");
+          return secret ? { secret_value: secret } : null;
+        }
         if (sql.includes("json_extract")) {
           const email = String(bindings[0] || "").toLowerCase();
           for (const [key, row] of database.rows) {
@@ -43,7 +47,12 @@ class MockD1 {
         return { results: Number.isFinite(size) ? rows.slice(start, start + size) : rows.slice(start) };
       },
       async run() {
-        if (sql.trim().startsWith("INSERT INTO gallery_documents")) {
+        if (sql.trim().startsWith("INSERT INTO auth_secrets")) {
+          // ON CONFLICT DO NOTHING: המפתח הראשון שנשמר הוא הקובע.
+          if (!database.secrets.has("session_signing")) {
+            database.secrets.set("session_signing", String(bindings[0]));
+          }
+        } else if (sql.trim().startsWith("INSERT INTO gallery_documents")) {
           const hasFixedCollection = sql.includes("VALUES ('userProfiles'");
           const [collection, id, dataJson, ownerUid, createdAt, updatedAt] = hasFixedCollection
             ? ["userProfiles", ...bindings]
@@ -219,6 +228,133 @@ function seedApprovedViewer(database) {
     updated_at: Date.now()
   });
 }
+
+function sessionRequest(path, sessionToken, method = "GET", body) {
+  return new Request(`https://simchas-gallery-api.example${path}`, {
+    method,
+    headers: {
+      Origin: "https://shmuel-lamed.github.io",
+      Authorization: `Bearer ${sessionToken}`,
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+async function signIn(database) {
+  const response = await worker.fetch(request("/auth/session", "POST"), env(database));
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+test("signing in returns a long lived session token instead of the hour long Google token", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+
+  const payload = await signIn(database);
+  assert.equal(typeof payload.sessionToken, "string");
+  assert.match(payload.sessionToken, /^v1\.[\w-]+\.[\w-]+$/);
+
+  // אסימון Google תקף כשעה. אסימון ההתחברות חייב להחזיק הרבה מעבר לכך,
+  // אחרת המשתמש ינותק בזמן השימוש ויידרש להתחבר שוב.
+  const remainingDays = (payload.sessionExpiresAt - Date.now()) / (24 * 60 * 60 * 1000);
+  assert.ok(remainingDays > 29, `session should last about a month, got ${remainingDays} days`);
+});
+
+test("a session token authenticates later requests without asking Google again", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const { sessionToken } = await signIn(database);
+
+  // כל פנייה ל־Google תיכשל מכאן ואילך: הבקשה חייבת להסתמך על האסימון בלבד.
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    if (String(url).startsWith("https://oauth2.googleapis.com/tokeninfo")) {
+      throw new Error("the worker must not re-verify a session token against Google");
+    }
+    return previousFetch(url);
+  };
+
+  try {
+    const response = await worker.fetch(sessionRequest("/data/images", sessionToken), env(database));
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("the browser stays signed in after the Google token behind it expired", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const { sessionToken } = await signIn(database);
+
+  // Google פוסלת את האסימון המקורי — בדיוק מה שקורה כשעה אחרי ההתחברות.
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("invalid token", { status: 400 });
+
+  try {
+    const response = await worker.fetch(sessionRequest("/data/images", sessionToken), env(database));
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("a session token can be renewed with itself, without a fresh Google sign-in", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const first = await signIn(database);
+
+  const response = await worker.fetch(
+    sessionRequest("/auth/session", first.sessionToken, "POST"),
+    env(database)
+  );
+  assert.equal(response.status, 200);
+  const renewed = await response.json();
+  assert.match(renewed.sessionToken, /^v1\.[\w-]+\.[\w-]+$/);
+  assert.equal(renewed.user.uid, "google-user-1");
+  assert.ok(renewed.sessionExpiresAt >= first.sessionExpiresAt);
+});
+
+test("a tampered session token is rejected", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const { sessionToken } = await signIn(database);
+
+  const [prefix, payload, signature] = sessionToken.split(".");
+  const forgedPayload = Buffer.from(JSON.stringify({
+    sub: "attacker", email: "attacker@example.com", email_verified: true,
+    name: "Attacker", picture: "", iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600
+  })).toString("base64url");
+
+  const forged = [
+    `${prefix}.${forgedPayload}.${signature}`,
+    `${prefix}.${payload}.${signature.slice(0, -2)}xy`,
+    `${prefix}.${payload}.`
+  ];
+
+  for (const token of forged) {
+    const response = await worker.fetch(sessionRequest("/data/images", token), env(database));
+    assert.equal(response.status, 401, `forged token was accepted: ${token.slice(0, 24)}…`);
+  }
+});
+
+test("blocking an account revokes a session token that was already issued", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const { sessionToken } = await signIn(database);
+
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "blocked", role: "viewer" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+
+  const response = await worker.fetch(sessionRequest("/data/images", sessionToken), env(database));
+  assert.equal(response.status, 403);
+});
 
 function seedImages(database, count) {
   const ids = [];
