@@ -191,6 +191,32 @@ test("התנתקות בלשונית אחת מתנתקת גם בשאר הלשונ
   assert.deepEqual(seen, ["google-user-1", null]);
 });
 
+test("התנתקות בלשונית אחרת מנתקת גם לשונית שהתחברה בעצמה", async () => {
+  // ההבדל מהבדיקה הקודמת: כאן הלשונית כתבה את האסימון בעצמה, כמו לשונית
+  // שבה בוצעה ההתחברות או שבה רץ חידוש. אסור שעותק בזיכרון יחזיר לחיים
+  // התחברות שנמחקה מהאחסון המשותף.
+  const local = new Map();
+  const listeners = {};
+  const { client } = await loadClient({ local, listeners });
+
+  await client.setGoogleIdToken(serverSessionToken());
+  assert.equal(client.getAuth().currentUser?.uid, "google-user-1");
+  assert.ok(local.has(TOKEN_KEY));
+
+  const seen = [];
+  client.onAuthStateChanged(null, user => seen.push(user?.uid || null));
+  await settle();
+
+  // לשונית אחרת יצאה מהחשבון ומחקה את האסימון מהאחסון המשותף.
+  local.delete(TOKEN_KEY);
+  for (const handler of listeners.storage || []) handler({ key: TOKEN_KEY });
+  await settle();
+
+  assert.equal(client.getAuth().currentUser, null, "the sign-out must reach this tab too");
+  assert.equal(local.has(TOKEN_KEY), false, "a signed-out token must not be written back");
+  assert.deepEqual(seen, ["google-user-1", null]);
+});
+
 test("חידוש שקט של האסימון אינו מדווח כהתחברות מחדש", async () => {
   const local = new Map();
   const { client } = await loadClient({ local });

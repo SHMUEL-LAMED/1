@@ -67,12 +67,23 @@ function legacyStorage() {
 }
 
 function readStoredToken() {
-  try {
-    const stored = persistentStorage()?.getItem(TOKEN_STORAGE_KEY);
-    if (stored) return stored;
-  } catch { /* הדפדפן חוסם גישה לאחסון */ }
+  const storage = persistentStorage();
+  let persistentStorageWorks = false;
+  if (storage) {
+    try {
+      const stored = storage.getItem(TOKEN_STORAGE_KEY);
+      persistentStorageWorks = true;
+      if (stored) return stored;
+    } catch { /* הדפדפן חוסם גישה לאחסון */ }
+  }
 
-  if (memoryTokenStore.has(TOKEN_STORAGE_KEY)) return memoryTokenStore.get(TOKEN_STORAGE_KEY);
+  // האחסון הקבוע הוא מקור האמת, גם כשהוא ריק: ריק פירושו שיצאו מהחשבון.
+  // העותק בזיכרון משמש רק בדפדפן שחוסם אחסון קבוע לגמרי. אחרת לשונית
+  // שכתבה אסימון בעצמה הייתה מחזירה אותו לחיים אחרי התנתקות בלשונית אחרת,
+  // וההתנתקות לא הייתה מתפשטת.
+  if (!persistentStorageWorks && memoryTokenStore.has(TOKEN_STORAGE_KEY)) {
+    return memoryTokenStore.get(TOKEN_STORAGE_KEY);
+  }
 
   // התחברות שנשמרה בגרסה קודמת עוברת פעם אחת לאחסון הקבוע.
   try {
