@@ -1,0 +1,385 @@
+/* =========================================================
+   base.css — משתני CSS, reset, טיפוגרפיה, כפתורים ושדות משותפים
+   פוצל מתוך styles.css ללא שינוי בערכי העיצוב.
+   ========================================================= */
+        body {
+            font-family: 'Assistant', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        @keyframes bgMove {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(241, 245, 249, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.4); }
+
+        .fade-up {
+            opacity: 0;
+            transform: translateY(24px);
+            animation: fadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes fadeUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        button {
+            position: relative;
+            overflow: hidden;
+            transition: background-color 0.25s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, opacity 0.25s ease !important;
+        }
+        button::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -150%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transform: skewX(-25deg);
+        }
+        button:hover::before {
+            left: 150%;
+            transition: all 0.8s ease;
+        }
+        button:hover {
+            transform: translateY(-1.5px);
+        }
+        button:active {
+            transform: scale(0.97);
+        }
+
+        /* אנימציות פתיחה */
+        .animate-fade-in {
+            animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* אנימציית פתיחת חלונות מודאל אלסטית */
+        .modal-animate-popup {
+            animation: popup 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        @keyframes popup {
+            from { opacity: 0; transform: scale(0.94); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* התאמה למסכי טלפונים ניידים */
+        @media (max-width: 768px) {
+            #photosGrid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 12px !important;
+            }
+            #adminDrawer {
+                width: 100% !important;
+            }
+            button {
+                min-height: 48px;
+            }
+        }
+        @media (max-width: 500px) {
+            #photosGrid {
+                grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        .simchat-header {
+            position: relative; height: 220px; overflow: hidden;
+            background: linear-gradient(135deg, #e0e7ff, #c7d2fe); border-radius: 20px;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .simchat-header h1 { color: #1e1b4b; font-size: 38px; z-index: 2; text-shadow: 0 0 15px rgba(255,255,255,.9); margin: 0; font-weight: 850; }
+        @keyframes float { from { transform: translateX(0); } to { transform: translateX(100vw); } }
+
+        /* ==========================================================
+           BLACK LABEL — שפה עיצובית חדשה: ארכיון מגזיני כהה
+           ========================================================== */
+        :root {
+            color-scheme: dark;
+            --ink: #090b10;
+            --ink-soft: #10131b;
+            --panel: #141821;
+            --panel-2: #1a1f2a;
+            --line: rgba(255, 255, 255, 0.1);
+            --line-strong: rgba(255, 255, 255, 0.18);
+            --paper: #f5f1e8;
+            --muted: #9ba3b4;
+            --accent: #ffb627;
+            --accent-soft: rgba(255, 182, 39, 0.13);
+            --cyan: #64d8e5;
+            --danger: #ff6868;
+            --radius-sm: 12px;
+            --radius-md: 18px;
+            --radius-lg: 28px;
+        }
+
+        html { scroll-behavior: smooth; background: var(--ink); }
+
+        ::selection { color: #050608; background: var(--accent); }
+        :focus-visible { outline: 3px solid rgba(255, 182, 39, .8) !important; outline-offset: 3px; }
+
+        @keyframes breatheGlow {
+            0%, 100% { 
+                box-shadow: inset 0 0 0 5px rgba(5,6,9,.7), 0 0 25px rgba(255,182,39,.12); 
+                border-color: rgba(255, 182, 39, .44);
+            }
+            50% { 
+                box-shadow: inset 0 0 0 5px rgba(5,6,9,.7), 0 0 38px rgba(255,182,39,.3); 
+                border-color: rgba(255, 182, 39, .8);
+            }
+        }
+
+        @keyframes pulseCyan {
+            0% { box-shadow: 0 0 4px rgba(255, 182, 39, 0.5); }
+            100% { box-shadow: 0 0 16px rgba(255, 182, 39, 1); }
+        }
+
+        /* Luxury Classes & Controls */
+        .google-auth-card {
+            background: rgba(255, 255, 255, 0.03) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2) !important;
+        }
+        .btn-google-login {
+            background: #ffffff !important;
+            color: #1e293b !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .btn-google-login:hover {
+            background: #f8fafc !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 6px 16px rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .luxury-action-card {
+            background: linear-gradient(145deg, rgba(255, 182, 39, 0.05), rgba(0, 0, 0, 0)) !important;
+            border: 1px solid rgba(255, 182, 39, 0.15) !important;
+            border-radius: 20px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+        }
+        .luxury-icon-circle {
+            background: var(--accent-soft) !important;
+            border: 1px solid rgba(255, 182, 39, 0.3) !important;
+            color: var(--accent) !important;
+            box-shadow: 0 0 15px rgba(255,182,39,0.1) !important;
+        }
+
+        .btn-primary-gold {
+            background: linear-gradient(135deg, #ffe082, #ffb627) !important;
+            color: #050609 !important;
+            border: none !important;
+            box-shadow: 0 4px 15px rgba(255, 182, 39, 0.2) !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .btn-primary-gold:hover {
+            transform: translateY(-1.5px) !important;
+            box-shadow: 0 6px 20px rgba(255, 182, 39, 0.35) !important;
+            filter: brightness(1.08) !important;
+        }
+        .btn-primary-gold:disabled {
+            background: #2a2e37 !important;
+            color: #64748b !important;
+            box-shadow: none !important;
+            cursor: not-allowed !important;
+        }
+        
+        .btn-secondary-dark {
+            background: rgba(255, 255, 255, 0.05) !important;
+            color: var(--paper) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            transition: all 0.3s ease !important;
+        }
+        .btn-secondary-dark:hover {
+            background: rgba(255, 255, 255, 0.1) !important;
+            border-color: rgba(255, 182, 39, 0.3) !important;
+            color: var(--accent) !important;
+        }
+        #imageCounter {
+            min-width: 92px;
+            text-align: center;
+            color: var(--accent) !important;
+            background: var(--accent-soft) !important;
+            border-color: rgba(255,182,39,.25) !important;
+            border-radius: 999px !important;
+        }
+        .gallery-media {
+            aspect-ratio: 4 / 3;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+            cursor: zoom-in;
+            background: #0d1016;
+            border: 0;
+            border-radius: 0;
+            padding: 0;
+            text-align: right;
+        }
+        .gallery-media:hover, .gallery-media:active { transform: none !important; }
+        .gallery-media::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(5,6,9,.74), transparent 44%);
+            opacity: .62;
+            transition: opacity .3s ease;
+        }
+        .gallery-number {
+            position: absolute;
+            z-index: 3;
+            top: 14px;
+            right: 14px;
+            direction: ltr;
+            padding: 5px 8px;
+            color: var(--paper);
+            background: rgba(8,10,14,.58);
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 8px;
+            backdrop-filter: blur(8px);
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: .11em;
+        }
+        .gallery-view {
+            position: absolute;
+            z-index: 3;
+            left: 14px;
+            bottom: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--paper);
+            font-size: 10px;
+            font-weight: 800;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: .25s ease;
+        }
+        .gallery-caption { padding: 18px !important; color: var(--paper) !important; }
+        .gallery-title { color: var(--paper) !important; font-size: 15px; }
+        .gallery-meta { margin-top: 8px; color: #7f899b !important; }
+        .gallery-folder-tag { color: var(--cyan) !important; background: rgba(100,216,229,.09) !important; border: 1px solid rgba(100,216,229,.18) !important; border-radius: 7px !important; }
+        .gallery-actions { border-color: var(--line) !important; }
+        .gallery-actions button:first-child { color: var(--accent) !important; }
+
+        @keyframes folderChipIn {
+            from { opacity: 0; transform: translateY(10px) scale(.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes heroAmbient {
+            0% { background-position: center, 88% 22%, 50% 50%; }
+            100% { background-position: center, 74% 42%, 58% 46%; }
+        }
+        @keyframes orbitGlow {
+            0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: .72; }
+            50% { transform: translate3d(18px, 12px, 0) scale(1.08); opacity: 1; }
+        }
+        @keyframes heroContentIn {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes sealFloat {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-8px) rotate(4deg); }
+        }
+        @keyframes toolbarGlow {
+            0%, 18% { transform: translateX(-75%); opacity: 0; }
+            42%, 58% { opacity: .55; }
+            82%, 100% { transform: translateX(75%); opacity: 0; }
+        }
+        @keyframes galleryCardIn {
+            from { opacity: 0; transform: translateY(18px) scale(.985); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        #drawerOverlay { background: rgba(3,4,7,.72) !important; backdrop-filter: blur(6px) !important; }
+
+        #newUpdatesBanner {
+            color: var(--paper) !important;
+            background: #141821 !important;
+            border-color: rgba(255,182,39,.24) !important;
+            border-radius: 20px !important;
+        }
+        #newUpdatesBanner h3 { color: var(--paper) !important; }
+
+        #customAlert {
+            max-width: min(390px, calc(100vw - 32px));
+            background: #151922 !important;
+            border-radius: 14px !important;
+            border-color: var(--line-strong) !important;
+            box-shadow: 0 18px 70px rgba(0,0,0,.42) !important;
+        }
+
+        [id$="Modal"] { background-color: rgba(4,5,8,.82) !important; }
+        [id$="Modal"] > div:not(.flex-1) {
+            background: #131720 !important;
+            border: 1px solid var(--line-strong) !important;
+            border-radius: 24px !important;
+            color: var(--paper) !important;
+            box-shadow: 0 35px 120px rgba(0,0,0,.55) !important;
+        }
+        [id$="Modal"] h3, [id$="Modal"] h4 { color: var(--paper) !important; }
+        [id$="Modal"] p { color: #a8b0bf; }
+        [id$="Modal"] [class*="bg-white"],
+        [id$="Modal"] [class*="bg-slate-50"],
+        [id$="Modal"] [class*="bg-slate-100"] { background-color: rgba(255,255,255,.04) !important; }
+        [id$="Modal"] [class*="bg-indigo-50"] { background-color: rgba(100,216,229,.07) !important; }
+        [id$="Modal"] [class*="text-slate-8"],
+        [id$="Modal"] [class*="text-slate-7"] { color: #e8ebf0 !important; }
+        [id$="Modal"] [class*="text-slate-6"],
+        [id$="Modal"] [class*="text-slate-5"] { color: #a6afbf !important; }
+        [id$="Modal"] [class*="border-slate"] { border-color: var(--line) !important; }
+        [id$="Modal"] input, [id$="Modal"] select { color: var(--paper) !important; background: #0b0e14 !important; border-color: var(--line-strong) !important; }
+        [id$="Modal"] > div > div:first-child { border-color: var(--line) !important; }
+
+        @media (max-width: 680px) {
+            #newUpdatesBanner { right: 14px !important; left: 14px; bottom: 82px !important; max-width: none !important; }
+            #customAlert { left: 16px !important; bottom: 82px !important; }}
+
+        /* Expanded Luxury Styling — Black Label Golden Cyber Mesh */
+        .neon-glow-gold {
+            box-shadow: 0 0 20px rgba(255, 182, 39, 0.35), inset 0 0 10px rgba(255, 182, 39, 0.2);
+            border-color: rgba(255, 182, 39, 0.6) !important;
+        }
+        .neon-glow-cyan {
+            box-shadow: 0 0 20px rgba(100, 216, 229, 0.3), inset 0 0 10px rgba(100, 216, 229, 0.15);
+            border-color: rgba(100, 216, 229, 0.5) !important;
+        }
+        
+        /* Shimmer sweep line animation */
+        .gold-sweep-line {
+            position: relative;
+            overflow: hidden;
+        }
+        .gold-sweep-line::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0; left: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 182, 39, 0.15), transparent);
+            transform: translateX(-100%);
+            animation: sweepShimmer 4s infinite;
+        }
+        @keyframes sweepShimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+/* מצב ללא אנימציות: כל הממשק מגיב מיד ונשאר גלוי. */
+html { scroll-behavior: auto !important; }
