@@ -734,7 +734,11 @@
             <button type="button" onclick="window.closePopupAnnouncement()" class="absolute top-3 right-3 z-20 w-9 h-9 bg-black/70 hover:bg-black text-white rounded-full flex items-center justify-center transition-all shadow-lg" aria-label="סגור">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
-            <img id="popupAnnouncementDisplayImg" src="" alt="הודעה" class="w-full block rounded-2xl shadow-2xl" style="cursor:default" onclick="window.handlePopupAnnouncementClick()" onerror="window.closePopupAnnouncement()">
+            <!-- אין כאן src ריק: src="" גורם לדפדפן לנסות טעינה כבר בפריסת הדף,
+                 להיכשל, ולהפעיל onerror לפני שהמודולים הספיקו להיטען. טיפול
+                 בשגיאת טעינה נקבע ב-showPopupAnnouncement, שמציב onerror משלו
+                 לפני שהוא מציב src. -->
+            <img id="popupAnnouncementDisplayImg" alt="הודעה" class="w-full block rounded-2xl shadow-2xl" style="cursor:default" onclick="window.handlePopupAnnouncementClick()">
         </div>
     </div>
 
