@@ -235,10 +235,13 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
     const link = document.createElement('a');
     link.href = objectUrl;
     link.download = safeDownloadFileName(item?.title, fallbackName);
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    window.setTimeout(() => {
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+    }, 100);
 }
 
 window.downloadGalleryMedia = async function(item) {
