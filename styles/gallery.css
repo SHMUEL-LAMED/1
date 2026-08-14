@@ -1,0 +1,545 @@
+/* =========================================================
+   gallery.css — כרטיסי מדיה ותיקיות, עמוד אירוע, lightbox, בחירה מרובה, חיפוש והעלאות
+   פוצל מתוך styles.css ללא שינוי בערכי העיצוב.
+   ========================================================= */
+        .gallery-card {
+            content-visibility: auto;
+            contain-intrinsic-size: 360px 430px;
+        }
+
+        /* אפקט ריחוף, זוהר ותלת-ממד עדין לכרטיסים (בסגנון זכוכית חלבית בהירה) */
+        .gallery-card {
+            transform-style: preserve-3d;
+            perspective: 1000px;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+        }
+        .gallery-card:hover {
+            transform: perspective(1000px) rotateX(4deg) rotateY(-4deg) translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(99, 102, 241, 0.08), 0 1px 3px rgba(0, 0, 0, 0.02);
+            border-color: rgba(99, 102, 241, 0.3) !important;
+        }
+        .gallery-card-img {
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .gallery-card:hover .gallery-card-img {
+            transform: scale(1.06);
+        }
+
+        #folderList {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+            gap: 8px;
+            max-height: none !important;
+            padding: 0 !important;
+            overflow: visible !important;
+        }
+        #folderList .folder-row {
+            min-width: 0;
+            border-radius: 14px;
+            opacity: 0;
+            animation: folderChipIn .48s cubic-bezier(.16, 1, .3, 1) forwards;
+        }
+        #folderList .folder-row:nth-child(2) { animation-delay: 55ms; }
+        #folderList .folder-row:nth-child(3) { animation-delay: 110ms; }
+        #folderList .folder-row:nth-child(4) { animation-delay: 165ms; }
+        #folderList .folder-row:nth-child(5) { animation-delay: 220ms; }
+        #folderList .folder-row:nth-child(n+6) { animation-delay: 275ms; }
+        #folderList .folder-button {
+            min-height: 46px;
+            border: 1px solid transparent !important;
+            border-radius: 13px !important;
+            color: #cbd5e1 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        #folderList .folder-button:hover { 
+            color: var(--paper) !important; 
+            background: rgba(255,255,255,.05) !important; 
+            border-color: rgba(255,255,255,0.06) !important;
+            transform: translateY(-2px) !important;
+        }
+        #folderList .folder-row.is-active .folder-button {
+            color: #050609 !important;
+            background: linear-gradient(135deg, var(--accent), #fbbf24) !important;
+            border-color: var(--accent) !important;
+            font-weight: 900 !important;
+            box-shadow: 0 4px 15px rgba(251,191,36,0.2) !important;
+        }
+        #folderList .folder-row.is-active { background: transparent !important; }
+        #folderList .folder-count {
+            color: #7d8798 !important;
+            background: rgba(255,255,255,.05) !important;
+            border: 1px solid var(--line) !important;
+        }
+        #folderList .folder-row.is-active .folder-count { color: #111318 !important; background: rgba(0,0,0,.11) !important; border-color: transparent !important; }
+        .face-search-button {
+            min-height: 48px;
+            color: #050609 !important;
+            background: linear-gradient(135deg, #ffe082, #ffb627) !important;
+            border-color: transparent !important;
+            border-radius: 16px !important;
+            box-shadow: 0 4px 15px rgba(255, 182, 39, 0.25) !important;
+            font-weight: 800 !important;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .face-search-button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 20px rgba(255, 182, 39, 0.45) !important;
+            filter: brightness(1.1);
+        }
+        .face-search-button svg { color: #0c0f14 !important; }
+        #submitFaceSearchBtn:enabled { opacity: 1 !important; cursor: pointer !important; }
+        body.gallery-locked .folder-rail,
+        body.gallery-locked .gallery-toolbar,
+        body.gallery-locked #tempSearchBanner,
+        body.gallery-locked #photosGrid,
+        body.gallery-locked #emptyState,
+        body.gallery-locked #newUpdatesBanner { display: none !important; }
+
+        #tempSearchBanner {
+            color: var(--paper) !important;
+            background: var(--panel) !important;
+            border-color: var(--line) !important;
+            border-radius: var(--radius-md) !important;
+        }
+        #tempSearchBanner h4 { color: var(--paper) !important; }
+        #tempSearchBanner p { color: var(--cyan) !important; }
+        #tempSearchBanner button { color: var(--accent) !important; background: rgba(255,182,39,.08) !important; border-color: rgba(255,182,39,.2) !important; }
+
+        #photosGrid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 18px !important;
+        }
+
+        .gallery-card {
+            min-height: 100%;
+            color: var(--paper) !important;
+            background: linear-gradient(135deg, var(--panel), #181d29) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-radius: 24px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+            transform: none;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            opacity: 0;
+            animation: galleryCardIn .62s cubic-bezier(.16, 1, .3, 1) forwards;
+            animation-delay: calc(var(--card-index, 0) * 55ms);
+        }
+        .gallery-card:hover {
+            transform: translateY(-8px) !important;
+            border-color: rgba(255, 182, 39, 0.3) !important;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.5), 0 0 20px rgba(255, 182, 39, 0.05) !important;
+        }
+        .gallery-card:nth-child(8n + 1) { grid-column: span 2; }
+        .gallery-card:nth-child(8n + 1) .gallery-media { aspect-ratio: 16 / 8.25; }
+        .gallery-card:hover .gallery-media::after { opacity: .35; }
+        .gallery-card-img { filter: saturate(.9) contrast(1.03); }
+        .gallery-card:hover .gallery-card-img { transform: scale(1.045) !important; filter: saturate(1.05) contrast(1.03); }
+        .image-fallback {
+            display: flex !important;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #7f899b;
+            background: #0d1016;
+            font-size: 11px;
+            text-align: center;
+        }
+        .image-fallback svg { width: 24px; height: 24px; color: var(--accent); }
+        #lightboxModal .image-fallback { min-width: min(560px, 80vw); min-height: 45vh; }
+        #pendingList .image-fallback { min-width: 40px; min-height: 40px; }
+        .gallery-card:hover .gallery-view, .gallery-media:focus-visible .gallery-view { opacity: 1; transform: translateY(0); }
+
+        .gallery-empty {
+            color: var(--paper) !important;
+            background: rgba(17,20,28,.7) !important;
+            border: 1px dashed var(--line-strong) !important;
+            border-radius: 26px !important;
+            box-shadow: none !important;
+        }
+        .gallery-empty > div { color: var(--accent) !important; background: var(--accent-soft) !important; }
+        .gallery-empty h3 { color: var(--paper) !important; }
+        .gallery-empty p { color: var(--muted) !important; }
+
+        #lightboxModal { background: rgba(3,4,6,.96) !important; }
+        #lightboxModal > div:first-child { color: var(--paper) !important; background: rgba(18,22,30,.9) !important; border-color: var(--line) !important; }
+        #lightboxModal > div:nth-child(2) { background: transparent !important; border: 0 !important; box-shadow: none !important; }
+        #lightboxModal img { border-radius: 14px !important; }
+
+        @media (max-width: 1080px) {
+            #folderList { display: flex; overflow-x: auto; max-height: none !important; padding-bottom: 4px; }
+            #folderList .folder-row { min-width: max-content; }
+            #photosGrid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }}
+
+        @media (max-width: 680px) {
+            #photosGrid { grid-template-columns: 1fr !important; gap: 15px !important; }
+            .gallery-card:nth-child(8n + 1) { grid-column: span 1; }
+            .gallery-card:nth-child(8n + 1) .gallery-media { aspect-ratio: 4 / 3; }}
+
+
+/* Collections redesign — immersive event navigation */
+.collections-deck.folder-rail {
+    width: 100% !important;
+    position: relative;
+    z-index: 3;
+}
+.collections-panel.folder-panel {
+    position: relative;
+    padding: clamp(18px, 2.7vw, 32px) !important;
+    overflow: hidden;
+    border-radius: 34px !important;
+    background:
+        radial-gradient(circle at 8% -10%, rgba(255, 182, 39, .2), transparent 33%),
+        radial-gradient(circle at 92% 110%, rgba(34, 211, 238, .09), transparent 30%),
+        linear-gradient(145deg, rgba(21, 27, 40, .98), rgba(7, 10, 17, .99)) !important;
+    border: 1px solid rgba(255, 255, 255, .105) !important;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .43), inset 0 1px rgba(255, 255, 255, .065) !important;
+}
+.collections-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: .34;
+    background-image:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: linear-gradient(to bottom, #000, transparent 78%);
+}
+.collections-header {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 22px;
+    padding-bottom: 21px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, .085);
+}
+.collections-heading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.collections-emblem {
+    width: 56px;
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border-radius: 19px;
+    color: #0b0d12;
+    background: linear-gradient(145deg, #ffe499, #ffb627);
+    box-shadow: 0 15px 36px rgba(255, 182, 39, .2), inset 0 1px rgba(255,255,255,.55);
+}
+.collections-kicker {
+    margin: 0 0 2px;
+    color: #fbbf24;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .14em;
+}
+.collections-title {
+    margin: 0;
+    color: #fff;
+    font-size: clamp(21px, 2.6vw, 30px);
+    font-weight: 950;
+    line-height: 1.15;
+    letter-spacing: -.025em;
+}
+.collections-copy {
+    margin: 5px 0 0;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 650;
+}
+.collections-summary {
+    min-width: 184px;
+    padding: 11px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    border-radius: 19px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.08);
+}
+.collections-stat {
+    min-width: 54px;
+    display: grid;
+    text-align: center;
+}
+.collections-stat strong {
+    color: #fff;
+    font-size: 19px;
+    font-weight: 950;
+    line-height: 1;
+}
+.collections-stat span {
+    margin-top: 4px;
+    color: #778399;
+    font-size: 8px;
+    font-weight: 850;
+}
+.collections-stat-divider {
+    width: 1px;
+    height: 30px;
+    background: rgba(255,255,255,.1);
+}
+.collections-grid#folderList {
+    position: relative;
+    z-index: 1;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    max-height: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}
+.collections-grid .collection-card.folder-row {
+    position: relative;
+    min-width: 0 !important;
+    min-height: 122px;
+    margin-inline-start: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    border-radius: 23px !important;
+    opacity: 1;
+    background:
+        linear-gradient(145deg, rgba(255,255,255,.072), rgba(255,255,255,.025)) !important;
+    border: 1px solid rgba(255,255,255,.085);
+    box-shadow: 0 14px 34px rgba(0,0,0,.18);
+    animation: none !important;
+    transition: none !important;
+}
+.collections-grid .collection-card:hover {
+    transform: none !important;
+    border-color: rgba(255, 182, 39, .26);
+    box-shadow: 0 14px 34px rgba(0,0,0,.18);
+}
+.collections-grid .collection-card-main.folder-button {
+    width: 100%;
+    min-height: 122px;
+    padding: 18px 16px 17px !important;
+    display: grid;
+    grid-template-columns: 48px minmax(0,1fr) auto;
+    align-items: center;
+    gap: 13px;
+    text-align: right;
+    color: #e8edf5 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 22px !important;
+    box-shadow: none !important;
+}
+.collections-grid .collection-card-main:hover {
+    transform: none !important;
+    background: rgba(255,255,255,.025) !important;
+}
+.collection-card-icon {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border-radius: 17px;
+    color: #fbbf24;
+    background: rgba(251,191,36,.1);
+    border: 1px solid rgba(251,191,36,.17);
+}
+.collection-card-content {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+}
+.collection-card-title {
+    overflow: hidden;
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 950;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.collection-card-meta {
+    overflow: hidden;
+    color: #748096;
+    font-size: 8.5px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.collections-grid .collection-card-count.folder-count {
+    min-width: 48px;
+    padding: 8px 7px !important;
+    display: grid;
+    justify-items: center;
+    border-radius: 15px !important;
+    color: #cbd5e1 !important;
+    background: rgba(255,255,255,.045) !important;
+    border: 1px solid rgba(255,255,255,.07) !important;
+}
+.collection-card-count strong {
+    font-size: 15px;
+    font-weight: 950;
+    line-height: 1;
+}
+.collection-card-count small {
+    margin-top: 4px;
+    color: #6f7a8d;
+    font-size: 7px;
+    font-weight: 800;
+}
+.collection-card-actions {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: none;
+
+}
+.collection-card:hover .collection-card-actions,
+.collection-card:focus-within .collection-card-actions {
+    opacity: 1;
+    transform: translateY(0);
+}
+.folder-card-action {
+    width: 29px;
+    height: 29px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: #94a3b8;
+    background: rgba(5,8,14,.72);
+    border: 1px solid rgba(255,255,255,.09);
+}
+.folder-card-action:hover { color: #fbbf24; border-color: rgba(251,191,36,.22); }
+.folder-card-delete:hover { color: #fda4af; border-color: rgba(251,113,133,.24); }
+.collection-card-active-label {
+    position: absolute;
+    top: 9px;
+    left: 10px;
+    padding: 4px 7px;
+    display: none;
+    align-items: center;
+    gap: 3px;
+    border-radius: 999px;
+    color: #18130a;
+    background: #fbbf24;
+    font-size: 7px;
+    font-weight: 950;
+    box-shadow: 0 5px 14px rgba(251,191,36,.2);
+}
+.collections-grid .collection-card.is-active {
+    background:
+        radial-gradient(circle at 0 0, rgba(255,255,255,.24), transparent 33%),
+        linear-gradient(135deg, #d98b00, #ffb627 55%, #ffd86e) !important;
+    border-color: rgba(255,224,143,.68);
+    box-shadow: 0 18px 42px rgba(255,182,39,.2);
+}
+.collections-grid .collection-card.is-active .collection-card-main {
+    color: #151006 !important;
+    background: transparent !important;
+}
+.collections-grid .collection-card.is-active .collection-card-icon {
+    color: #151006;
+    background: rgba(255,255,255,.24);
+    border-color: rgba(255,255,255,.3);
+}
+.collections-grid .collection-card.is-active .collection-card-title { color: #171107; }
+.collections-grid .collection-card.is-active .collection-card-meta { color: rgba(30,22,6,.68); }
+.collections-grid .collection-card.is-active .collection-card-count {
+    color: #171107 !important;
+    background: rgba(0,0,0,.09) !important;
+    border-color: rgba(0,0,0,.08) !important;
+}
+.collections-grid .collection-card.is-active .collection-card-count small { color: rgba(30,22,6,.6); }
+.collections-grid .collection-card.is-active .collection-card-active-label { display: inline-flex; }
+.collections-grid .collection-card.is-active .folder-card-action {
+    color: #291d07;
+    background: rgba(255,255,255,.2);
+    border-color: rgba(0,0,0,.08);
+}
+@media (max-width: 1080px) {
+    .collections-grid#folderList {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+        overflow: visible !important;
+    }
+    .collections-grid .collection-card.folder-row { min-width: 0 !important; }
+}
+@media (max-width: 680px) {
+    .collections-panel.folder-panel {
+        padding: 16px !important;
+        border-radius: 26px !important;
+    }
+    .collections-header {
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .collections-emblem { width: 48px; height: 48px; border-radius: 16px; }
+    .collections-copy { max-width: 235px; }
+    .collections-summary {
+        width: 100%;
+        min-width: 0;
+        justify-content: space-around;
+    }
+    .collections-grid#folderList {
+        grid-template-columns: 1fr !important;
+        gap: 9px !important;
+    }
+    .collections-grid .collection-card.folder-row,
+    .collections-grid .collection-card-main.folder-button { min-height: 100px; }
+    .collections-grid .collection-card-main.folder-button {
+        grid-template-columns: 43px minmax(0,1fr) auto;
+        padding: 14px 13px !important;
+    }
+    .collection-card-icon { width: 43px; height: 43px; border-radius: 15px; }
+    .collection-card-actions { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .collections-grid .collection-card.folder-row { animation: none; }
+}
+
+
+/* Folder area is intentionally motion-free */
+.collections-deck *,
+.collections-deck *::before,
+.collections-deck *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+}
+.collections-deck button:hover,
+.collections-deck button:active,
+.collections-deck .collection-card:hover,
+.collections-deck .collection-card:active {
+    transform: none !important;
+}
+
+/* The collection selector now deliberately follows the introduction. */
+.collections-deck { order: initial !important; }
+
+
+/* Critical visibility fix: folder motion is disabled, so cards must not keep the
+   pre-animation hidden state from the original entrance effect. */
+.collections-deck #folderList .folder-row,
+.collections-deck .collections-grid .collection-card.folder-row {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    animation: none !important;
+}

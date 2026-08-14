@@ -1,0 +1,21 @@
+/* =========================================================
+   responsive.css — media queries כלליים, התאמות לטלפון ולטאבלט ו־reduced-motion
+   פוצל מתוך styles.css ללא שינוי בערכי העיצוב.
+   ========================================================= */
+        @media (max-width: 900px) {
+        }
+*, *::before, *::after {
+    animation: none !important;
+    animation-name: none !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition: none !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+}
+#ambientCanvas { display: none !important; }
+.fade-up,
+#folderList .folder-row {
+    opacity: 1 !important;
+    transform: none !important;
+}

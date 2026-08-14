@@ -1,0 +1,715 @@
+/* =========================================================
+   layout.css — מבנה הכותרת, עמוד הבית, במת הגלריה ואזור התיקיות
+   פוצל מתוך styles.css ללא שינוי בערכי העיצוב.
+   ========================================================= */
+        /* רקע דינמי בהיר, יוקרתי, מרגיע ונע בעדינות */
+        #bg-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -10;
+            background: linear-gradient(-45deg, #f8fafc, #f1f5f9, #eef2ff, #f0fdfa);
+            background-size: 400% 400%;
+            animation: bgMove 20s ease infinite;
+        }
+
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out, padding 0.3s ease-out; }
+        .accordion-content.active { max-height: 2000px; padding-top: 1rem; padding-bottom: 0.5rem; }
+        .floating-text { position: absolute; color: rgba(99, 102, 241, 0.08); font-size: 70px; font-weight: bold; animation: float 12s linear infinite; white-space: nowrap; }
+        .floating-text:nth-child(1) { top: 20px; left: -150px; }
+        .floating-text:nth-child(2) { top: 90px; left: -250px; animation-delay: 2s; }
+        .floating-text:nth-child(3) { top: 150px; left: -200px; animation-delay: 4s; }
+
+        body.app-shell {
+            background: var(--ink) !important;
+            color: var(--paper) !important;
+            letter-spacing: 0.005em;
+        }
+
+        body.app-shell::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -8;
+            pointer-events: none;
+            opacity: 0.38;
+            background-image:
+                linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.015) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: linear-gradient(to bottom, black, transparent 90%);
+        }
+
+        body.app-shell::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -7;
+            pointer-events: none;
+            opacity: 0.015;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        #bg-container {
+            background:
+                radial-gradient(circle at 12% 14%, rgba(255, 182, 39, .12), transparent 30%),
+                radial-gradient(circle at 88% 24%, rgba(100, 216, 229, .1), transparent 28%),
+                radial-gradient(circle at 55% 76%, rgba(255, 182, 39, .045), transparent 42%),
+                linear-gradient(150deg, #040508 0%, #0a0e16 48%, #05070c 100%) !important;
+            animation: none !important;
+        }
+
+        #bg-container > div { display: none !important; }
+        #ambientCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            opacity: .72;
+            pointer-events: none;
+            mix-blend-mode: screen;
+        }
+        body.app-shell button::before { display: none !important; }
+        body.app-shell button:hover { transform: none; }
+
+        .site-header {
+            background: rgba(5, 6, 9, 0.85) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4) !important;
+            backdrop-filter: blur(20px) saturate(150%) !important;
+        }
+
+        .site-header > div { height: 88px !important; max-width: 1480px !important; }
+
+        .brand-lockup { gap: 14px !important; }
+
+        .brand-mark {
+            width: 50px;
+            height: 50px;
+            padding: 0 !important;
+            border: 1px solid rgba(255, 182, 39, .44);
+            border-radius: 50% !important;
+            color: var(--accent) !important;
+            background: var(--accent-soft) !important;
+            display: grid;
+            place-items: center;
+            animation: breatheGlow 4s ease-in-out infinite;
+        }
+
+        .brand-mark svg { width: 23px; height: 23px; }
+        .brand-kicker { color: var(--accent) !important; letter-spacing: .2em; font-size: 9px !important; font-weight: 800; text-transform: uppercase; opacity: 0.9; }
+
+        .brand-title {
+            background: linear-gradient(135deg, #ffe082 0%, #ffb627 50%, #b38938 100%) !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            font-size: clamp(20px, 2.2vw, 27px) !important;
+            font-weight: 900 !important;
+            line-height: 1.05;
+            letter-spacing: -0.01em;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border: 1px solid rgba(255, 182, 39, 0.2) !important;
+            border-radius: 999px;
+            color: var(--paper);
+            background: rgba(255, 182, 39, 0.04);
+            font-size: 11px;
+            font-weight: 700;
+            backdrop-filter: blur(10px);
+            box-shadow: inset 0 1px 1px rgba(255, 182, 39, 0.05);
+            transition: all 0.3s ease;
+        }
+        .header-status:hover {
+            border-color: rgba(255, 182, 39, 0.4) !important;
+            background: rgba(255, 182, 39, 0.08);
+            box-shadow: 0 0 10px rgba(255, 182, 39, 0.1);
+        }
+
+        .header-status::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 14px var(--accent);
+            animation: pulseCyan 2s infinite alternate;
+        }
+
+        .theme-toggle {
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 8px 13px;
+            border: 1px solid rgba(255,255,255,.09);
+            border-radius: 999px;
+            color: #d9dee8;
+            background: rgba(255,255,255,.045);
+            font-size: 11px;
+            font-weight: 800;
+        }
+        .theme-toggle:hover {
+            color: var(--accent);
+            border-color: rgba(255,182,39,.3);
+            background: rgba(255,182,39,.07);
+        }
+
+        .gallery-layout {
+            max-width: 1480px !important;
+            padding-top: 42px !important;
+            padding-bottom: 70px !important;
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            align-items: start;
+            gap: 22px !important;
+        }
+
+        .settings-wrap { display: none !important; }
+        .settings-trigger {
+            width: 48px !important;
+            height: 48px !important;
+            border-radius: 50% !important;
+            color: var(--accent) !important;
+            background: var(--panel-2) !important;
+            border: 1px solid rgba(255, 182, 39, 0.2) !important;
+            box-shadow: 0 14px 45px rgba(0,0,0,.28) !important;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+        }
+        .settings-trigger:hover { 
+            color: #ffffff !important; 
+            border-color: rgba(255,182,39,.65) !important; 
+            transform: scale(1.06) rotate(15deg) !important;
+            box-shadow: 0 0 20px rgba(255,182,39,0.3) !important;
+        }
+
+        .folder-rail {
+            width: 100% !important;
+            position: static;
+            z-index: 2;
+        }
+        .folder-panel {
+            padding: 14px 16px !important;
+            border-radius: 24px !important;
+            background:
+                linear-gradient(110deg, rgba(255,182,39,.035), transparent 32%),
+                linear-gradient(160deg, rgba(25,29,39,.92), rgba(15,18,25,.94)) !important;
+            border: 1px solid var(--line) !important;
+            box-shadow: 0 18px 55px rgba(0,0,0,.22) !important;
+            backdrop-filter: blur(18px) saturate(130%) !important;
+            transition: border-color .35s ease, box-shadow .35s ease;
+        }
+        .folder-panel:hover {
+            border-color: rgba(255,182,39,.2) !important;
+            box-shadow: 0 22px 65px rgba(0,0,0,.3), 0 0 30px rgba(255,182,39,.025) !important;
+        }
+
+        .folder-panel-heading {
+            border-color: var(--line) !important;
+            padding: 0 3px 11px !important;
+            margin-bottom: 11px !important;
+        }
+        .folder-panel-heading h2 { color: var(--paper) !important; font-size: 13px; letter-spacing: .04em; }
+        .folder-panel-heading svg { color: var(--accent) !important; }
+        .folder-panel-note { color: #70798b; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+
+        .gallery-stage {
+            width: 100%;
+            gap: 22px !important;
+            min-width: 0;
+        }
+
+        .gallery-hero {
+            min-height: 300px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 34px;
+            padding: clamp(28px, 5vw, 60px);
+            overflow: hidden;
+            position: relative;
+            isolation: isolate;
+            display: flex;
+            align-items: flex-end;
+            background:
+                linear-gradient(90deg, rgba(5,6,9,.98) 0%, rgba(5,6,9,.8) 52%, rgba(5,6,9,.2) 100%),
+                radial-gradient(circle at 88% 22%, rgba(100,216,229,.38), transparent 24%),
+                linear-gradient(135deg, #131c26, #110e17 52%, #261c0a);
+            background-size: 100% 100%, 145% 145%, 115% 115%;
+            background-position: center, 88% 22%, center;
+            box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,0.06);
+            transition: border-color 0.4s ease, box-shadow 0.4s ease;
+            animation: heroAmbient 12s ease-in-out infinite alternate;
+        }
+        .gallery-hero:hover {
+            border-color: rgba(255,182,39,.3);
+            box-shadow: 0 30px 100px rgba(255,182,39,.05), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+
+        .gallery-hero::after {
+            content: "";
+            position: absolute;
+            width: 220px;
+            height: 220px;
+            left: 7%;
+            top: -72px;
+            border: 1px solid rgba(255,182,39,.25);
+            border-radius: 50%;
+            box-shadow: 0 0 0 24px rgba(255,182,39,.015), 0 0 0 48px rgba(255,182,39,.01);
+            animation: orbitGlow 9s ease-in-out infinite;
+        }
+
+        #holidayBanner { display: none !important; }
+
+        .gallery-toolbar {
+            padding: 14px !important;
+            border-radius: 24px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            background: rgba(14, 18, 27, 0.85) !important;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5) !important;
+            backdrop-filter: blur(18px) saturate(140%) !important;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            isolation: isolate;
+        }
+        .gallery-toolbar::before {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            inset: -1px;
+            pointer-events: none;
+            opacity: .45;
+            background: linear-gradient(105deg, transparent 22%, rgba(100,216,229,.07) 45%, rgba(255,182,39,.08) 55%, transparent 78%);
+            transform: translateX(-75%);
+            animation: toolbarGlow 9s ease-in-out infinite;
+        }
+        .gallery-toolbar:hover {
+            border-color: rgba(255, 255, 255, 0.12) !important;
+        }
+
+        .gallery-toolbar input {
+            min-height: 48px;
+            color: var(--paper) !important;
+            background: #080a0f !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+            border-radius: 16px !important;
+            transition: all 0.3s ease !important;
+        }
+        .gallery-toolbar input::placeholder { color: #525a6c; }
+        .gallery-toolbar input:focus { 
+            border-color: rgba(255,182,39,.65) !important; 
+            box-shadow: 0 0 0 4px rgba(255,182,39,.12) !important;
+            background: #050609 !important;
+        }
+        .gallery-toolbar .search-icon { color: #525a6c !important; }
+        body.gallery-locked .gallery-layout {
+            grid-template-columns: minmax(0, 1fr) !important;
+        }
+        /* טרם התחברת: רצועת הכניסה נשארת בגובהה הרגיל, וכרטיס הכניסה
+           היחיד מתמרכז מתחתיה. */
+        body.gallery-locked .gallery-stage {
+            grid-column: 1 / -1;
+            width: 100%;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .gallery-hero,
+            .gallery-hero::after,
+            .entry-top,
+            .gallery-toolbar::before,
+            #folderList .folder-row,
+            .gallery-card {
+                animation: none !important;
+                opacity: 1 !important;
+                transform: none !important;
+            }
+        }
+
+        @media (max-width: 1080px) {
+            .gallery-layout { grid-template-columns: 1fr !important; }
+            .folder-rail { position: static; }
+            .folder-panel-note { display: none; }}
+
+        @media (max-width: 680px) {
+            .site-header > div { height: 76px !important; }
+            .header-status { display: none; }
+            .gallery-layout { padding-top: 22px !important; padding-inline: 14px !important; }
+            .settings-wrap { position: fixed !important; top: auto !important; left: 16px !important; bottom: 18px; z-index: 35; }
+            .gallery-hero { min-height: 285px; border-radius: 25px; align-items: center; }
+            .gallery-hero::after { width: 150px; height: 150px; left: -25px; }
+            .gallery-toolbar { align-items: stretch !important; }
+            .gallery-toolbar > div:first-child { max-width: none !important; }}
+
+        @media (max-width: 680px) {
+            .theme-toggle { width: 42px; padding-inline: 0; }
+            .theme-toggle span { display: none; }
+            .brand-lockup { gap: 9px !important; }
+            .brand-mark { padding: 8px !important; }
+            .brand-mark svg { width: 24px !important; height: 24px !important; }
+            .brand-title { font-size: 15px !important; }
+            .brand-kicker { font-size: 8px !important; }}
+
+
+/* =========================================================
+   HOME ENTRY + PROFILE REFINEMENT — August 2026
+   ========================================================= */
+.gallery-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+/* ---------------------------------------------------------
+   כניסה לארכיון — לא באנר פרסומי.
+   הרצועה העליונה אומרת היכן אנחנו, מה שמור כאן וכיצד נכנסים:
+   סמל, שם המקום, שורת הסבר אחת, דלת אחת ונתונים חיים.
+   היא נמוכה בכוונה, כדי שהאירועים והתמונות יישארו בשדה הראייה.
+   --------------------------------------------------------- */
+.home-intro {
+    width: 100%;
+    /* הרוחב כולל את הריפוד, כך שהרצועה לעולם אינה חורגת מרוחב העמוד. */
+    box-sizing: border-box;
+    min-height: clamp(196px, 21vw, 260px);
+    padding: clamp(24px, 3.2vw, 38px) clamp(22px, 3.6vw, 48px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: clamp(18px, 2.4vw, 28px);
+    border-radius: 28px;
+    border-color: rgba(255,255,255,.07);
+    background:
+        radial-gradient(125% 160% at 88% -25%, rgba(255,182,39,.10), transparent 58%),
+        radial-gradient(90% 130% at 8% 120%, rgba(34,211,238,.07), transparent 60%),
+        linear-gradient(180deg, rgba(13,17,24,.97), rgba(7,9,14,.99));
+    box-shadow: 0 22px 55px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.05);
+    animation: none !important;
+}
+/* קו הסף: חוט זהב דק לרוחב, במקום כיתוב ענק ברקע. */
+.home-intro::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: clamp(22px, 3.6vw, 48px);
+    right: clamp(22px, 3.6vw, 48px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,182,39,.5), transparent);
+}
+/* קשת עדינה בצד הפנוי — נותנת עומק אדריכלי בלי להסיח מהתוכן. */
+.home-intro::after {
+    width: clamp(230px, 30vw, 420px);
+    height: clamp(230px, 30vw, 420px);
+    left: -8%;
+    right: auto;
+    top: -62%;
+    border-color: rgba(255,182,39,.09);
+    box-shadow: none;
+    animation: none !important;
+}
+
+.entry-top {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: clamp(16px, 2.6vw, 32px);
+}
+.entry-identity {
+    display: flex;
+    align-items: center;
+    gap: clamp(13px, 1.6vw, 20px);
+    min-width: 0;
+}
+.entry-emblem {
+    width: clamp(50px, 4.6vw, 62px);
+    height: clamp(50px, 4.6vw, 62px);
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffd27a;
+    background: radial-gradient(circle at 50% 32%, rgba(255,210,122,.15), rgba(255,255,255,.028));
+    border: 1px solid rgba(255,210,122,.26);
+    box-shadow: inset 0 0 0 5px rgba(255,255,255,.02);
+}
+.entry-naming { min-width: 0; }
+.entry-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #8a93a4;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .19em;
+}
+.entry-eyebrow::before {
+    content: "";
+    width: 16px;
+    height: 1px;
+    background: rgba(255,210,122,.75);
+}
+.entry-title {
+    margin-top: 7px;
+    color: var(--paper);
+    font-size: clamp(27px, 3.4vw, 43px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -.032em;
+}
+.entry-title strong {
+    color: #ffd27a;
+    font-weight: 800;
+}
+.entry-lede {
+    margin-top: 9px;
+    max-width: 54ch;
+    color: #98a1b0;
+    font-size: clamp(12.5px, 1.1vw, 15px);
+    line-height: 1.65;
+}
+.entry-door {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 22px;
+    border-radius: 999px;
+    color: #ffe0a3;
+    background: rgba(255,182,39,.07);
+    border: 1px solid rgba(255,182,39,.3);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+}
+/* האתר עובד ללא אנימציות, ולכן המעבר הוא החלפת צבע מיידית ולא תנועה. */
+.entry-door:hover {
+    color: #1a1206;
+    background: linear-gradient(120deg, #ffdd8e, #ffb627);
+    border-color: transparent;
+}
+/* כשעדיין לא נכנסו לחשבון, הדלת היחידה היא כפתור ההתחברות שבכרטיס הכניסה,
+   והנתונים על תוכן הארכיון עדיין לא נטענו — ולכן שניהם אינם מוצגים. */
+body.gallery-locked .entry-door,
+body.gallery-locked .entry-facts { display: none; }
+/* בלי שורת הנתונים הרצועה מתכווצת לגובה הזהות בלבד. */
+body.gallery-locked .home-intro { min-height: auto; }
+
+.entry-facts {
+    position: relative;
+    z-index: 2;
+    margin: 0;
+    padding-top: clamp(15px, 1.9vw, 21px);
+    border-top: 1px solid rgba(255,255,255,.07);
+    display: flex;
+    flex-wrap: wrap;
+    /* הנתונים נפרשים לרוחב הרצועה, כמו שורת פרטים על שלט כניסה. */
+    justify-content: space-between;
+    gap: clamp(18px, 3.4vw, 44px);
+}
+.entry-facts > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.entry-facts dd {
+    order: 1;
+    margin: 0;
+    color: #e9eef6;
+    font-size: clamp(15px, 1.5vw, 19px);
+    font-weight: 800;
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+}
+.entry-facts dt {
+    order: 2;
+    color: #7b8394;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .16em;
+}
+.gallery-stage { order: initial !important; }
+
+/* ---------------------------------------------------------
+   מסך טרם ההתחברות — כרטיס אחד, לא שניים.
+   הרצועה שמעליו כבר אומרת לאן הגעת, ולכן כאן יש דבר אחד בלבד:
+   הדרך פנימה, ומה מצב החשבון ברגע זה.
+   --------------------------------------------------------- */
+.gate {
+    width: min(560px, 100%);
+    margin: clamp(14px, 3vw, 34px) auto 0;
+    padding: clamp(30px, 4vw, 46px) clamp(24px, 3.4vw, 40px);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    border-radius: 28px;
+    color: var(--paper);
+    background:
+        radial-gradient(120% 130% at 50% -20%, rgba(255,182,39,.10), transparent 60%),
+        linear-gradient(180deg, rgba(13,17,24,.97), rgba(7,9,14,.99));
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 26px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.gate.hidden { display: none !important; }
+
+.gate-mark {
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffd27a;
+    background: radial-gradient(circle at 50% 32%, rgba(255,210,122,.16), rgba(255,255,255,.03));
+    border: 1px solid rgba(255,210,122,.26);
+}
+.gate-chip {
+    margin-top: 16px;
+    color: #8a93a4;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .18em;
+}
+.gate h2 {
+    margin-top: 10px;
+    max-width: 22ch;
+    color: #f8fafc;
+    font-size: clamp(21px, 2.4vw, 28px);
+    font-weight: 800;
+    line-height: 1.28;
+    letter-spacing: -.02em;
+}
+.gate > p:not(.gate-chip):not(.gate-note) {
+    margin-top: 12px;
+    max-width: 44ch;
+    color: #98a1b0;
+    font-size: clamp(12.5px, 1.1vw, 14.5px);
+    line-height: 1.7;
+}
+
+/* כפתור Google נשאר בעיצובו המוכר — זה מה שמזהים ולוחצים עליו. */
+.gate-login {
+    width: 100%;
+    max-width: 340px;
+    margin-top: 26px;
+    padding: 14px 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 11px;
+    border-radius: 999px;
+    color: #16202e;
+    background: #ffffff;
+    border: 1px solid rgba(255,255,255,.6);
+    box-shadow: 0 14px 34px rgba(0,0,0,.34);
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.gate-login:hover { background: #f1f5f9; }
+.gate-login svg { width: 20px; height: 20px; flex: none; }
+
+.gate-secondary {
+    margin-top: 24px;
+    padding: 12px 22px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    border-radius: 999px;
+    color: #ffe0a3;
+    background: rgba(255,182,39,.08);
+    border: 1px solid rgba(255,182,39,.3);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.gate-secondary:hover { color: #1a1206; background: linear-gradient(120deg, #ffdd8e, #ffb627); border-color: transparent; }
+
+.gate-steps {
+    width: 100%;
+    margin: 24px 0 0;
+    padding: 18px 0 0;
+    border-top: 1px solid rgba(255,255,255,.07);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 22px;
+    list-style: none;
+    counter-reset: none;
+}
+.gate-steps li {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #9aa3b2;
+    font-size: 11px;
+    font-weight: 700;
+}
+.gate-steps li span {
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffd27a;
+    background: rgba(255,210,122,.1);
+    border: 1px solid rgba(255,210,122,.24);
+    font-size: 10px;
+    font-weight: 900;
+}
+.gate-note {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    color: #6c7585;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* כל מצב מציג רק את מה ששייך לו. */
+.gate [data-gate-only] { display: none; }
+.gate[data-gate-state="signed-out"] .gate-login[data-gate-only="signed-out"] { display: inline-flex; }
+.gate[data-gate-state="signed-out"] .gate-steps[data-gate-only="signed-out"] { display: flex; }
+.gate[data-gate-state="signed-out"] .gate-note[data-gate-only="signed-out"] { display: flex; }
+.gate[data-gate-state="pending"] .gate-secondary[data-gate-only="pending"] { display: inline-flex; }
+.gate[data-gate-state="pending"] .gate-note[data-gate-only="pending"] { display: flex; }
+.gate[data-gate-state="pending"] .gate-mark { color: #7dd3fc; border-color: rgba(125,211,252,.28); background: radial-gradient(circle at 50% 32%, rgba(125,211,252,.16), rgba(255,255,255,.03)); }
+.gate[data-gate-state="blocked"] .gate-note[data-gate-only="blocked"] { display: flex; }
+.gate[data-gate-state="blocked"] .gate-mark { color: #fca5a5; border-color: rgba(252,165,165,.3); background: radial-gradient(circle at 50% 32%, rgba(252,165,165,.14), rgba(255,255,255,.03)); }
+.gate[data-gate-state="blocked"] .gate-chip { color: #fca5a5; }
+
+@media (max-width: 760px) {
+    .gate {
+        width: 100%;
+        padding: 28px 20px;
+        border-radius: 24px;
+    }
+    .gate-steps { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
+
+@media (max-width: 760px) {
+    .home-intro {
+        min-height: auto;
+        padding: 26px 22px;
+        gap: 20px;
+        border-radius: 24px;
+        align-items: stretch;
+    }
+    .entry-top { flex-direction: column; align-items: stretch; gap: 18px; }
+    /* במסך צר הסמל עומד מעל השם, כמו שלט כניסה, ולא לצד שורה שנשברה. */
+    .entry-identity { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .entry-emblem { width: 48px; height: 48px; }
+    .entry-title { font-size: clamp(25px, 7.5vw, 34px); }
+    .entry-door { width: 100%; justify-content: center; }
+    .entry-facts { gap: 12px 26px; }}
