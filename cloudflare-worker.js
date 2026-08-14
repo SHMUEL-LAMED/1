@@ -226,6 +226,147 @@ async function verifyGoogleAccount(idToken, env) {
   };
 }
 
+// --- אסימון התחברות מתמשך ---
+// אסימון Google תקף כשעה בלבד, ולכן הוא משמש רק לכניסה הראשונה. מיד אחריה
+// השרת מנפיק אסימון משלו, חתום ב־HMAC, שתקף שלושים יום. כך המשתמש נשאר
+// מחובר באותו דפדפן עד שהוא מתנתק, בלי להתחבר מחדש בכל כניסה לאתר.
+const SESSION_TOKEN_PREFIX = "v1";
+const SESSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+let sessionSigningKeyPromise = null;
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecodeToBytes(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+}
+
+async function loadStoredSessionSecret(env) {
+  const readSecret = () => env.GALLERY_DB.prepare(
+    "SELECT secret_value FROM auth_secrets WHERE secret_key = 'session_signing'"
+  ).first();
+
+  const existing = String((await readSecret())?.secret_value || "");
+  if (existing) return existing;
+
+  const generated = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO auth_secrets (secret_key, secret_value, created_at)
+     VALUES ('session_signing', ?, ?)
+     ON CONFLICT(secret_key) DO NOTHING`
+  ).bind(generated, Date.now()).run();
+
+  // שני עותקים של ה־Worker עלולים לייצר מפתח באותו רגע; הערך שנשמר בפועל קובע.
+  return String((await readSecret())?.secret_value || generated);
+}
+
+function sessionSigningKey(env) {
+  if (!sessionSigningKeyPromise) {
+    sessionSigningKeyPromise = (async () => {
+      const configured = String(env.SESSION_SIGNING_SECRET || "").trim();
+      if (!configured) await ensureDatabaseSchema(env);
+      const secret = configured || await loadStoredSessionSecret(env);
+      return crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
+    })().catch(error => {
+      // כישלון זמני לא ננעל במטמון, כדי שהבקשה הבאה תנסה שוב.
+      sessionSigningKeyPromise = null;
+      throw error;
+    });
+  }
+  return sessionSigningKeyPromise;
+}
+
+async function signSessionPayload(env, encodedPayload) {
+  const key = await sessionSigningKey(env);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${SESSION_TOKEN_PREFIX}.${encodedPayload}`)
+  );
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+// מבנה האסימון זהה למבנה של JWT, כך שהדפדפן קורא ממנו את פרטי המשתמש
+// בדיוק כפי שהוא קורא מאסימון Google.
+async function createSessionToken(env, account, profile = null) {
+  const issuedAt = Date.now();
+  const payload = {
+    sub: String(account.localId),
+    email: String(account.email || ""),
+    email_verified: true,
+    name: String(profile?.displayName || account.displayName || "משתמש Google"),
+    picture: String(profile?.photoURL || account.photoUrl || ""),
+    iat: Math.floor(issuedAt / 1000),
+    exp: Math.floor((issuedAt + SESSION_TOKEN_TTL_MS) / 1000)
+  };
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await signSessionPayload(env, encodedPayload);
+  return {
+    token: `${SESSION_TOKEN_PREFIX}.${encodedPayload}.${signature}`,
+    expiresAt: payload.exp * 1000
+  };
+}
+
+function looksLikeSessionToken(token) {
+  return String(token || "").startsWith(`${SESSION_TOKEN_PREFIX}.`);
+}
+
+async function verifySessionToken(env, token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 3 || parts[0] !== SESSION_TOKEN_PREFIX) return null;
+
+  const [, encodedPayload, signature] = parts;
+  const expected = await signSessionPayload(env, encodedPayload);
+  if (!constantTimeHexEqual(signature, expected)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(encodedPayload)));
+  } catch {
+    return null;
+  }
+  if (!payload?.sub || !payload?.email) return null;
+  if (Number(payload.exp || 0) * 1000 <= Date.now()) return null;
+  return payload;
+}
+
+// כל בקשה מזוהה או באסימון ההתחברות של השרת, או באסימון Google בכניסה
+// הראשונה. בשני המקרים ההרשאות נקראות מחדש מהמסד בכל בקשה, ולכן חסימת
+// משתמש נכנסת לתוקף מיד גם כשהאסימון שבידיו עדיין תקף.
+async function resolveAccount(request, env) {
+  const token = getBearerToken(request);
+  if (!looksLikeSessionToken(token)) {
+    return { account: await verifyGoogleAccount(token, env), token };
+  }
+
+  const payload = await verifySessionToken(env, token);
+  if (!payload) {
+    throw apiError("תוקף ההתחברות הסתיים. התחבר מחדש.", 401, "invalid_token");
+  }
+  return {
+    account: {
+      localId: String(payload.sub),
+      email: String(payload.email),
+      emailVerified: true,
+      displayName: String(payload.name || "משתמש Google"),
+      photoUrl: String(payload.picture || "")
+    },
+    token
+  };
+}
+
 function parseDocumentData(row) {
   try {
     return JSON.parse(row?.data_json || "{}");
@@ -279,6 +420,15 @@ async function ensureDatabaseSchema(env) {
         normalized_email TEXT PRIMARY KEY,
         document_id TEXT NOT NULL,
         updated_at INTEGER NOT NULL
+      )`
+    ).run();
+    // מפתח החתימה של אסימוני ההתחברות. הוא נוצר פעם אחת ונשמר, כדי שאסימונים
+    // שהונפקו לפני פריסה מחדש של ה־Worker יישארו תקפים והמשתמשים לא יינתקו.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS auth_secrets (
+        secret_key TEXT PRIMARY KEY,
+        secret_value TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       )`
     ).run();
     // טביעות הפנים נשמרות בטבלה נפרדת, שורה לכל פרצוף בתמונה, כדי שתמונה
@@ -407,8 +557,7 @@ async function updateUserEmailIndex(env, documentId, email, updatedAt = Date.now
 }
 
 async function requireUser(request, env, allowedRoles = null) {
-  const idToken = getBearerToken(request);
-  const account = await verifyGoogleAccount(idToken, env);
+  const { account, token } = await resolveAccount(request, env);
   const isInitialSuperAdmin = isInitialSuperAdminHash(await sha256(account.email));
   const profile = isInitialSuperAdmin
     ? await ensureInitialSuperAdminProfile(account, env)
@@ -432,7 +581,7 @@ async function requireUser(request, env, allowedRoles = null) {
     uid: account.localId,
     email: account.email,
     role: profile.role,
-    idToken,
+    idToken: token,
     account
   };
 }
@@ -450,8 +599,7 @@ const DATA_COLLECTIONS = new Set([
 ]);
 
 async function dataActor(request, env) {
-  const idToken = getBearerToken(request);
-  const account = await verifyGoogleAccount(idToken, env);
+  const { account } = await resolveAccount(request, env);
   const initialAdmin = isInitialSuperAdminHash(await sha256(account.email));
   const profile = initialAdmin
     ? { status: "approved", role: "super_admin" }
@@ -507,16 +655,23 @@ function sessionUser(account, profile) {
   };
 }
 
-// אימות שרתי של אסימון Google מיד לאחר ההתחברות: הדפדפן שולח את ה־ID Token,
-// והשרת מאמת מול Google, יוצר פרופיל ממתין למשתמש חדש ומחזיר דרגה ומצב אישור.
+// אימות שרתי של ההתחברות. בכניסה הראשונה הדפדפן שולח את אסימון Google, וכאן
+// הוא מוחלף באסימון התחברות ארוך־טווח של השרת. אותו מסלול משמש גם לחידוש
+// האסימון לפני שתוקפו פג, ואז הדפדפן שולח את האסימון הקיים.
 async function establishGoogleSession(request, env) {
-  const idToken = getBearerToken(request);
-  const account = await verifyGoogleAccount(idToken, env);
+  const { account } = await resolveAccount(request, env);
   await ensureDatabaseSchema(env);
 
   if (isInitialSuperAdminHash(await sha256(account.email))) {
     const profile = await ensureInitialSuperAdminProfile(account, env);
-    return json(request, { success: true, isNewUser: false, user: sessionUser(account, profile) });
+    const session = await createSessionToken(env, account, profile);
+    return json(request, {
+      success: true,
+      isNewUser: false,
+      user: sessionUser(account, profile),
+      sessionToken: session.token,
+      sessionExpiresAt: session.expiresAt
+    });
   }
 
   const now = Date.now();
@@ -542,7 +697,14 @@ async function establishGoogleSession(request, env) {
   ).bind(account.localId, JSON.stringify(profile), account.localId, existing?.requestedAt || now, now).run();
   await updateUserEmailIndex(env, account.localId, account.email, now);
 
-  return json(request, { success: true, isNewUser: !existing, user: sessionUser(account, profile) });
+  const session = await createSessionToken(env, account, profile);
+  return json(request, {
+    success: true,
+    isNewUser: !existing,
+    user: sessionUser(account, profile),
+    sessionToken: session.token,
+    sessionExpiresAt: session.expiresAt
+  });
 }
 
 function assertDataPermission(actor, collectionName, method, documentId = "") {
