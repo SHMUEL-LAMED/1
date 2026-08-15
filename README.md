@@ -144,6 +144,26 @@
 
 לפני מעבר סופי מומלץ להוריד גיבוי JSON מממשק הניהול הישן, ולאחר חיבור D1 לשחזר אותו דרך מסך הגיבוי באתר. קובצי המדיה עצמם נשארים ב־R2.
 
+### הבדיקה האדומה של Workers Builds — אין לתקן אותה בהוספת wrangler.jsonc
+
+בכל PR מופיעה בדיקה כושלת בשם `Workers Builds: simchas-gallery-api`. היא אינה
+נובעת מהקוד ואינה חוסמת מיזוג: מקורה בשילוב ה־Git של Cloudflare Workers Builds,
+שמחובר למאגר ומריץ `npx wrangler deploy` בכל דחיפה. במאגר אין `wrangler.jsonc`,
+ולכן הריצה נכשלת מיד. הכשלון הזה קיים בכל commit — למשל ב־#47, שנגע רק
+ב־`cloudflare-client.js` ומוזג כך.
+
+**הפתרון אינו הוספת קובץ `wrangler.jsonc`.** `wrangler deploy` מוחק כל Binding
+שמוגדר בדשבורד ואינו מוצהר בקובץ ההגדרות, ו־`keep_vars` מכסה משתנים בלבד ולא
+חיבורי D1 ו־R2. קובץ כזה היה הופך בדיקה אדומה בלתי מזיקה למפגע אמיתי: פריסה של
+ה־Worker מכל ענף ומכל PR, ומחיקת `GALLERY_DB` ו־`GALLERY_BUCKET` בכל פעם שהמזהים
+בקובץ אינם מדויקים. הכשלון הנוכחי הוא למעשה מה שמונע את זה.
+
+הפריסה הנכונה כבר קיימת — `deploy-worker.yml`, שיורש את ה־Bindings מהגרסה הפעילה
+(`bindings_inherit=strict`), רץ רק על `main`, ורק כששונה `cloudflare-worker.js`.
+לכן הדרך לסגור את הבדיקה היא **לנתק את שילוב ה־Git**, בדשבורד של Cloudflare:
+**Workers & Pages → simchas-gallery-api → Settings → Build → Disconnect repository**.
+פעולה זו אינה נוגעת ב־Worker הפעיל, ב־Bindings או בפריסה דרך ה־Action.
+
 ## אבטחה והרשאות
 
 - Google ID Token נבדק בשרת וגם מול מזהה הלקוח הנכון.
