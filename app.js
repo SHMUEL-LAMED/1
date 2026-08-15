@@ -3,10 +3,66 @@
 
 import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
-import './chat.js';
 import { initAdmin } from './admin.js';
-import './face-search.js';
-import './face-index.js';
+import './popup-announcement.js';
+
+// מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
+// יורדים רק כשצריך אותם. עד אז יושבת כאן מעטפת בשם כל פונקציה: המטפלים
+// שב-HTML קוראים לה, היא מושכת את המודול, והמודול דורס אותה בפונקציה
+// האמיתית. כך אורח שרק מסתכל בגלריה אינו מוריד אותם כלל.
+function defineLazyModule(load, names) {
+    let promise = null;
+    const ensure = () => (promise ||= load());
+    for (const name of names) {
+        const placeholder = (...args) => {
+            ensure()
+                .then(() => {
+                    // בלי הבדיקה הזו, מודול שלא הגדיר את הפונקציה היה גורם
+                    // למעטפת לקרוא לעצמה שוב ושוב.
+                    if (window[name] === placeholder) throw new Error(`lazy module did not define ${name}`);
+                    window[name](...args);
+                })
+                .catch(error => {
+                    console.error('Lazy module failed to load:', error);
+                    window.showNotification?.('טעינת הרכיב נכשלה. נסה שוב.', false);
+                });
+        };
+        window[name] = placeholder;
+    }
+    return ensure;
+}
+
+const ensureFaceSearchModule = defineLazyModule(() => import('./face-search.js'), [
+    'openFaceSearchModal', 'openFaceCamera', 'closeFaceCamera', 'flipFaceCamera',
+    'captureFacePhoto', 'executeFaceSearch', 'handleFaceSearchFileSelect'
+]);
+const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), [
+    'startFaceIndexing', 'stopFaceIndexing', 'resetFaceIndex'
+]);
+window.ensureFaceSearchModule = ensureFaceSearchModule;
+window.ensureFaceIndexModule = ensureFaceIndexModule;
+
+// chat.js אינו נטען בפתיחת האתר אלא בייבוא דינמי. מבקר שאינו מחובר לעולם
+// אינו מוריד אותו, ולמי שכן מחובר הוא יורד אחרי הציור הראשון במקום לעכב
+// אותו. ensureChatModule היא השער היחיד, והמודול נטען פעם אחת בלבד.
+const ensureChatModule = defineLazyModule(() => import('./chat.js'), [
+    'openUserConversation', 'openAdminMessagesCenter', 'openAdminConversation', 'openAdminMessagesForUser'
+]);
+window.ensureChatModule = ensureChatModule;
+
+// תג ההודעות שלא נקראו מוצג בפאנל הפרופיל בלי שנפתח שום חלון, ולכן משתמש
+// מחובר חייב את chat.js גם אם לא נגע בצ׳אט. הפונקציה הזו מושכת את המודול
+// ואז מצייר; לאורח שאינו מחובר אין מה להציג והמודול אינו נטען כלל.
+window.refreshChatUI = function() {
+    if (!window.state?.currentUser) return;
+    ensureChatModule()
+        .then(() => {
+            window.renderFloatingInbox?.();
+            window.renderAdminMessageReplies?.();
+        })
+        .catch(error => console.warn('Chat module failed to load:', error));
+};
+
 
 // lucide.createIcons() סורק את כל ה-DOM בכל קריאה — יקר מאד לגלריה גדולה.
 // קריאות מרובות באותו frame מתמזגות לאחת, וכשיש container ידוע הסריקה

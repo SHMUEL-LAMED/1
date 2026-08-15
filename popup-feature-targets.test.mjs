@@ -35,7 +35,7 @@ async function loadAdmin(state = {}) {
   };
 
   moduleCounter += 1;
-  const admin = await import(`./admin.js?case=${moduleCounter}`);
+  const admin = await import(`./popup-announcement.js?case=${moduleCounter}`);
   return { admin, opened, win: globalThis.window };
 }
 
