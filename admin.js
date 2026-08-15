@@ -935,6 +935,82 @@ function rejectSelectedPending() {
 
 // =================== POPUP ANNOUNCEMENT ===================
 
+// היעדים שאליהם אפשר להפנות מהפופ-אפ, מעבר לתיקייה ולעדכונים האחרונים.
+// כל יעד מפעיל את אותה נקודת כניסה שהמשתמש לוחץ עליה באתר, ולכן בדיקות
+// ההרשאה וההודעות למי שאינו מורשה נשארות במקום אחד בלבד — בפיצ׳ר עצמו.
+export const POPUP_FEATURE_TARGETS = [
+    {
+        id: 'faceSearch',
+        label: 'חיפוש פנים ב־AI',
+        icon: 'scan-face',
+        hint: 'למשתמשים מאושרים בלבד',
+        run: () => window.openFaceSearchModal?.()
+    },
+    {
+        id: 'aiSearch',
+        label: 'חיפוש AI לפי תיאור',
+        icon: 'brain-circuit',
+        hint: 'למשתמשים מאושרים בלבד',
+        run: () => window.openAiImageSearchModal?.()
+    },
+    {
+        id: 'upload',
+        label: 'העלאת תמונות וסרטונים',
+        icon: 'cloud-upload',
+        hint: 'למשתמשים מאושרים בלבד',
+        run: () => {
+            // openModal עצמו אינו בודק הרשאות, ולכן הבדיקה נעשית כאן.
+            if (window.state?.userApprovalStatus !== 'approved') {
+                window.showNotification?.('העלאת מדיה זמינה למשתמשים מאושרים בלבד.', false);
+                return;
+            }
+            window.openModal?.('userUploadModal');
+        }
+    },
+    {
+        id: 'favorites',
+        label: 'המועדפים שלי',
+        icon: 'heart',
+        hint: 'למשתמשים מאושרים בלבד',
+        run: () => window.openFavoritesFromProfile?.()
+    },
+    {
+        id: 'contactManager',
+        label: 'צ׳אט עם מנהל הגלריה',
+        icon: 'message-circle',
+        hint: 'למשתמשים מחוברים בלבד',
+        run: () => window.openUserConversation?.()
+    },
+    {
+        id: 'profile',
+        label: 'הפרופיל וההתראות',
+        icon: 'user-round',
+        hint: 'זמין לכולם',
+        run: () => window.openFloatingProfile?.()
+    }
+];
+
+export function resolvePopupFeature(featureId) {
+    const id = String(featureId || '');
+    return POPUP_FEATURE_TARGETS.find(feature => feature.id === id) || null;
+}
+
+// התווית והאייקון של כפתור הפעולה בפופ-אפ. מחזיר null כשאין לאן להפנות,
+// וכך גם ההסתרה של הכפתור וגם הטקסט שלו נגזרים מאותו מקום.
+export function popupAnnouncementActionInfo(config, folders = window.state?.folders) {
+    const linkType = config?.linkType || 'none';
+    if (linkType === 'latest') return { label: 'לעדכונים האחרונים', icon: 'sparkles' };
+    if (linkType === 'feature') {
+        const feature = resolvePopupFeature(config?.featureId);
+        return feature ? { label: feature.label, icon: feature.icon } : null;
+    }
+    if (linkType === 'folder' && config?.folderId) {
+        const folder = (folders || []).find(item => String(item.id) === String(config.folderId));
+        return { label: folder?.name ? `למעבר אל ${folder.name}` : 'למעבר לתיקייה', icon: 'folder-open' };
+    }
+    return null;
+}
+
 function popupAnnouncementVersion(config) {
     return String(config?.updatedAt || config?.imageUrl || 'current');
 }
@@ -993,7 +1069,9 @@ window.showPopupAnnouncement = function(config) {
     const img = document.getElementById('popupAnnouncementDisplayImg');
     if (!modal || !img) return;
 
-    img.style.cursor = config.linkType && config.linkType !== 'none' ? 'pointer' : 'default';
+    const action = popupAnnouncementActionInfo(config);
+    img.style.cursor = action ? 'pointer' : 'default';
+    renderPopupAnnouncementActionButton(action);
     img.onload = () => {
         modal.classList.remove('hidden');
         window.scheduleIconRefresh();
@@ -1019,9 +1097,31 @@ window.closePopupAnnouncement = function() {
     } catch (e) { /* ignore */ }
 };
 
+// כפתור הפעולה מציג למשתמש לאן הפופ-אפ מפנה, במקום להסתמך על לחיצה
+// על התמונה בלבד. התוכן נבנה ב-DOM ולא כ-HTML, כדי ששם תיקייה לא יוכל
+// להזריק תגיות.
+function renderPopupAnnouncementActionButton(action) {
+    const button = document.getElementById('popupAnnouncementActionButton');
+    if (!button) return;
+    button.classList.toggle('hidden', !action);
+    button.classList.toggle('flex', !!action);
+    if (!action) {
+        button.replaceChildren();
+        return;
+    }
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', action.icon || 'arrow-left');
+    icon.className = 'w-4 h-4';
+    const label = document.createElement('span');
+    label.textContent = action.label;
+    button.replaceChildren(icon, label);
+}
+
 window.handlePopupAnnouncementClick = function() {
     const config = window.state?.popupAnnouncementConfig;
     if (!config || !config.linkType || config.linkType === 'none') return;
+    // הפופ-אפ נסגר תחילה: הוא יושב מעל כל החלונות, ואילו נשאר פתוח היה
+    // מסתיר את הפיצ׳ר או את התיקייה שנפתחו זה עתה.
     window.closePopupAnnouncement();
     if (config.linkType === 'latest') {
         if (typeof window.setActiveFolder === 'function') window.setActiveFolder('all');
@@ -1029,6 +1129,23 @@ window.handlePopupAnnouncementClick = function() {
         window.renderImages?.();
     } else if (config.linkType === 'folder' && config.folderId) {
         if (typeof window.setActiveFolder === 'function') window.setActiveFolder(config.folderId);
+    } else if (config.linkType === 'feature') {
+        const feature = resolvePopupFeature(config.featureId);
+        if (feature) feature.run();
+        else window.showNotification?.('הפנייה של ההודעה אינה זמינה יותר.', false);
+    }
+};
+
+// הצגה או הסתרה של אזורי הבחירה לפי סוג הפנייה שנבחר. אותה פונקציה
+// משמשת גם את כפתורי הרדיו ב-HTML וגם את טעינת ההגדרות השמורות.
+window.updatePopupLinkTypeUI = function() {
+    const linkType = document.querySelector('input[name="popupLinkType"]:checked')?.value || 'none';
+    document.getElementById('popupFolderSelectorArea')?.classList.toggle('hidden', linkType !== 'folder');
+    document.getElementById('popupFeatureSelectorArea')?.classList.toggle('hidden', linkType !== 'feature');
+    const hint = document.getElementById('popupFeatureHint');
+    if (hint) {
+        const feature = resolvePopupFeature(document.getElementById('popupFeatureSelect')?.value);
+        hint.textContent = linkType === 'feature' && feature ? feature.hint || '' : '';
     }
 };
 
@@ -1039,6 +1156,7 @@ window.renderPopupAnnouncementAdmin = function() {
     const previewImg = document.getElementById('popupAnnouncementPreviewImg');
     const statusEl = document.getElementById('popupAnnouncementStatus');
     const audienceEl = document.getElementById('popupAnnouncementAudienceLabel');
+    const linkEl = document.getElementById('popupAnnouncementLinkLabel');
     const enabledCb = document.getElementById('popupEnabled');
 
     if (config && config.imageUrl) {
@@ -1046,6 +1164,10 @@ window.renderPopupAnnouncementAdmin = function() {
         if (previewImg) previewImg.src = config.imageUrl;
         if (statusEl) statusEl.textContent = config.enabled ? 'פעיל' : 'כבוי';
         if (audienceEl) audienceEl.textContent = config.audience === 'approved' ? 'מורשים בלבד' : 'כולם';
+        if (linkEl) {
+            const action = popupAnnouncementActionInfo(config);
+            linkEl.textContent = action ? `מפנה אל: ${action.label}` : 'ללא פנייה — רק תמונה';
+        }
     } else {
         if (preview) preview.classList.add('hidden');
     }
@@ -1054,8 +1176,6 @@ window.renderPopupAnnouncementAdmin = function() {
 
     const linkType = config?.linkType || 'none';
     document.querySelectorAll('input[name="popupLinkType"]').forEach(r => { r.checked = r.value === linkType; });
-    const folderArea = document.getElementById('popupFolderSelectorArea');
-    if (folderArea) folderArea.classList.toggle('hidden', linkType !== 'folder');
 
     const audience = config?.audience || 'all';
     document.querySelectorAll('input[name="popupAudience"]').forEach(r => { r.checked = r.value === audience; });
@@ -1067,6 +1187,19 @@ window.renderPopupAnnouncementAdmin = function() {
             .map(f => `<option value="${f.id}"${String(config?.folderId) === String(f.id) ? ' selected' : ''}>${f.name || f.id}</option>`)
             .join('');
     }
+
+    const featureSelect = document.getElementById('popupFeatureSelect');
+    if (featureSelect) {
+        featureSelect.replaceChildren(...POPUP_FEATURE_TARGETS.map(feature => {
+            const option = document.createElement('option');
+            option.value = feature.id;
+            option.textContent = feature.label;
+            option.selected = String(config?.featureId) === feature.id;
+            return option;
+        }));
+    }
+
+    window.updatePopupLinkTypeUI();
 };
 
 window.savePopupAnnouncement = async function() {
@@ -1087,6 +1220,9 @@ window.savePopupAnnouncement = async function() {
         const audience = document.querySelector('input[name="popupAudience"]:checked')?.value || 'all';
         const enabled = document.getElementById('popupEnabled')?.checked !== false;
         const folderId = linkType === 'folder' ? (document.getElementById('popupFolderSelect')?.value || '') : '';
+        const featureId = linkType === 'feature' ? (document.getElementById('popupFeatureSelect')?.value || '') : '';
+        if (linkType === 'folder' && !folderId) throw new Error('יש לבחור תיקייה לפנייה.');
+        if (linkType === 'feature' && !resolvePopupFeature(featureId)) throw new Error('יש לבחור פיצ׳ר לפנייה.');
 
         let imageUrl = window.state.popupAnnouncementConfig?.imageUrl || '';
         let r2Key = window.state.popupAnnouncementConfig?.r2Key || '';
@@ -1114,7 +1250,7 @@ window.savePopupAnnouncement = async function() {
 
         if (!imageUrl) throw new Error('יש לבחור תמונה לפופ-אפ.');
 
-        const config = { imageUrl, r2Key, linkType, folderId, audience, enabled, updatedAt: Date.now() };
+        const config = { imageUrl, r2Key, linkType, folderId, featureId, audience, enabled, updatedAt: Date.now() };
         const { doc, setDoc } = window.firestoreModules;
         await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'systemMeta', 'popupAnnouncement'), config);
         window.state.popupAnnouncementConfig = config;

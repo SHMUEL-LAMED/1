@@ -687,20 +687,27 @@
                                 <span id="popupAnnouncementStatus" class="text-[9px] font-bold text-amber-400"></span>
                                 <span id="popupAnnouncementAudienceLabel" class="text-[9px] text-slate-400"></span>
                             </div>
+                            <p id="popupAnnouncementLinkLabel" class="text-[9px] text-slate-400 px-3 pb-1.5 bg-white/5"></p>
                         </div>
                         <label class="block">
                             <span class="text-[9px] font-bold text-slate-400 block mb-1">תמונת הפופ-אפ (JPG/PNG/WebP):</span>
                             <input type="file" id="popupImageInput" accept="image/*" class="w-full text-xs rounded-xl p-2 cursor-pointer text-slate-400 bg-white/5 border border-white/10">
                         </label>
                         <div class="space-y-1">
-                            <span class="text-[9px] font-bold text-slate-400 block">לחיצה על התמונה תפנה אל:</span>
-                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="none" checked class="text-amber-500"><span class="text-[10px] text-slate-300">ללא פנייה — רק תמונה</span></label>
-                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="folder" class="text-amber-500" onchange="document.getElementById('popupFolderSelectorArea').classList.remove('hidden')" onclick="document.getElementById('popupFolderSelectorArea').classList.remove('hidden')"><span class="text-[10px] text-slate-300">תיקייה ספציפית</span></label>
-                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="latest" class="text-amber-500" onchange="document.getElementById('popupFolderSelectorArea').classList.add('hidden')" onclick="document.getElementById('popupFolderSelectorArea').classList.add('hidden')"><span class="text-[10px] text-slate-300">עדכונים אחרונים</span></label>
+                            <span class="text-[9px] font-bold text-slate-400 block">לחיצה על הפופ-אפ תפנה אל:</span>
+                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="none" checked class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">ללא פנייה — רק תמונה</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="folder" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">תיקייה ספציפית</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="latest" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">עדכונים אחרונים</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="feature" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">כלי באתר — חיפוש פנים, חיפוש AI ועוד</span></label>
                         </div>
                         <div id="popupFolderSelectorArea" class="hidden">
                             <span class="text-[9px] font-bold text-slate-400 block mb-1">בחר תיקייה:</span>
                             <select id="popupFolderSelect" class="w-full text-xs rounded-xl py-2 px-3 focus:ring-amber-500"></select>
+                        </div>
+                        <div id="popupFeatureSelectorArea" class="hidden">
+                            <span class="text-[9px] font-bold text-slate-400 block mb-1">בחר כלי:</span>
+                            <select id="popupFeatureSelect" class="w-full text-xs rounded-xl py-2 px-3 focus:ring-amber-500" onchange="window.updatePopupLinkTypeUI()"></select>
+                            <p id="popupFeatureHint" class="text-[9px] text-slate-500 mt-1"></p>
                         </div>
                         <div class="space-y-1">
                             <span class="text-[9px] font-bold text-slate-400 block">מי יראה את הפופ-אפ:</span>
@@ -730,7 +737,9 @@
     <!-- POPUP ANNOUNCEMENT MODAL -->
     <div id="popupAnnouncementModal" class="fixed inset-0 z-[300] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-label="הודעה">
         <div class="fixed inset-0 bg-black/80 backdrop-blur-sm" onclick="window.closePopupAnnouncement()"></div>
-        <div class="relative z-10 w-full max-w-lg animate-fade-in">
+        <!-- גלילה פנימית: בתמונה גבוהה במיוחד כפתור הפעולה שמתחתיה חייב
+             להישאר בהישג יד, ולא להידחף אל מחוץ למסך. -->
+        <div class="relative z-10 w-full max-w-lg max-h-full overflow-y-auto animate-fade-in">
             <button type="button" onclick="window.closePopupAnnouncement()" class="absolute top-3 right-3 z-20 w-9 h-9 bg-black/70 hover:bg-black text-white rounded-full flex items-center justify-center transition-all shadow-lg" aria-label="סגור">
                 <i data-lucide="x" class="w-5 h-5"></i>
             </button>
@@ -739,6 +748,8 @@
                  בשגיאת טעינה נקבע ב-showPopupAnnouncement, שמציב onerror משלו
                  לפני שהוא מציב src. -->
             <img id="popupAnnouncementDisplayImg" alt="הודעה" class="w-full block rounded-2xl shadow-2xl" style="cursor:default" onclick="window.handlePopupAnnouncementClick()">
+            <!-- כפתור הפעולה מתמלא ב-showPopupAnnouncement לפי יעד הפנייה שנבחר בניהול. -->
+            <button type="button" id="popupAnnouncementActionButton" class="hidden mt-3 w-full py-3 btn-primary-gold rounded-2xl text-sm font-extrabold items-center justify-center gap-2" onclick="window.handlePopupAnnouncementClick()"></button>
         </div>
     </div>
 
