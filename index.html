@@ -197,6 +197,12 @@
             <div id="tempSearchBanner" class="hidden rounded-2xl p-4 flex justify-between items-center shadow-sm animate-fade-in transition-all"></div>
 
             <div id="photosGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6"></div>
+            <!-- נקודת הזקיף של העימוד: כשהיא נכנסת למסך, הגלריה מוסיפה מנה
+                 נוספת של פריטים. מוסתרת כשאין עוד מה לטעון. -->
+            <div id="galleryLoadMore" class="hidden py-8 flex flex-col items-center gap-3">
+                <span id="galleryLoadMoreCount" class="text-[10px] text-slate-400"></span>
+                <button type="button" onclick="window.renderMoreImages()" class="btn-secondary-dark rounded-xl px-5 py-2.5 text-xs font-bold">הצג עוד פריטים</button>
+            </div>
 
             <div id="emptyState" class="gallery-empty hidden flex-col items-center justify-center py-20 text-center p-8">
                 <div class="p-4 rounded-full mb-4"><i data-lucide="image-off" class="w-12 h-12"></i></div>
