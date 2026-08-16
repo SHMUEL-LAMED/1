@@ -1023,10 +1023,13 @@ window.exportGalleryBackup = function() {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `simchas-gallery-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
+    setTimeout(() => {
+        link.remove();
+        URL.revokeObjectURL(link.href);
+    }, 100);
     window.showNotification('קובץ הגיבוי הורד בהצלחה.', true);
 };
 
