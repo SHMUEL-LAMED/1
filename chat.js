@@ -863,6 +863,12 @@ window.renderAdminMessageUsers = function() {
     const list = document.getElementById('adminMessageUsersList');
     const summary = document.getElementById('adminMessageUsersSummary');
     if (!list) return;
+    // רשימת הנמענים במרכז ההודעות — מנהל־על בלבד.
+    if (!window.canViewSuperAdminData?.()) {
+        list.replaceChildren();
+        if (summary) summary.textContent = '';
+        return;
+    }
     const users = adminMessageCenterUsers();
     list.replaceChildren();
     if (summary) summary.textContent = `${users.length} משתמשים · ${adminMessageRecipients.size} נבחרו`;
@@ -1049,6 +1055,23 @@ window.renderAdminMessageReplies = function() {
     const list = document.getElementById('adminMessageRepliesList');
     const count = document.getElementById('adminMessageRepliesCount');
     if (!list) return;
+    // מרכז ההודעות המנהלי — מנהל־על בלבד. collectAdminMessageReplies סורק
+    // את ההודעות של כל המשתמשים, ולכן אסור שירוץ בכלל למי שאינו מורשה.
+    if (!window.canViewSuperAdminData?.()) {
+        list.replaceChildren();
+        if (count) count.textContent = '';
+        ['adminChatsUnreadBadge', 'adminMessagesUnreadStat', 'adminMessagesOpenStat',
+         'adminMessagesResolvedStat', 'adminMessagesConversationStat'].forEach(id => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.textContent = '0';
+            if (id === 'adminChatsUnreadBadge') {
+                element.classList.add('hidden');
+                element.classList.remove('flex');
+            }
+        });
+        return;
+    }
     const incomingMessages = collectAdminMessageReplies();
     const conversations = new Map();
     incomingMessages.forEach(item => {

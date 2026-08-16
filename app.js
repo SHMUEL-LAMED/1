@@ -3,10 +3,66 @@
 
 import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
-import './chat.js';
 import { initAdmin } from './admin.js';
-import './face-search.js';
-import './face-index.js';
+import './popup-announcement.js';
+
+// מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
+// יורדים רק כשצריך אותם. עד אז יושבת כאן מעטפת בשם כל פונקציה: המטפלים
+// שב-HTML קוראים לה, היא מושכת את המודול, והמודול דורס אותה בפונקציה
+// האמיתית. כך אורח שרק מסתכל בגלריה אינו מוריד אותם כלל.
+function defineLazyModule(load, names) {
+    let promise = null;
+    const ensure = () => (promise ||= load());
+    for (const name of names) {
+        const placeholder = (...args) => {
+            ensure()
+                .then(() => {
+                    // בלי הבדיקה הזו, מודול שלא הגדיר את הפונקציה היה גורם
+                    // למעטפת לקרוא לעצמה שוב ושוב.
+                    if (window[name] === placeholder) throw new Error(`lazy module did not define ${name}`);
+                    window[name](...args);
+                })
+                .catch(error => {
+                    console.error('Lazy module failed to load:', error);
+                    window.showNotification?.('טעינת הרכיב נכשלה. נסה שוב.', false);
+                });
+        };
+        window[name] = placeholder;
+    }
+    return ensure;
+}
+
+const ensureFaceSearchModule = defineLazyModule(() => import('./face-search.js'), [
+    'openFaceSearchModal', 'openFaceCamera', 'closeFaceCamera', 'flipFaceCamera',
+    'captureFacePhoto', 'executeFaceSearch', 'handleFaceSearchFileSelect'
+]);
+const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), [
+    'startFaceIndexing', 'stopFaceIndexing', 'resetFaceIndex'
+]);
+window.ensureFaceSearchModule = ensureFaceSearchModule;
+window.ensureFaceIndexModule = ensureFaceIndexModule;
+
+// chat.js אינו נטען בפתיחת האתר אלא בייבוא דינמי. מבקר שאינו מחובר לעולם
+// אינו מוריד אותו, ולמי שכן מחובר הוא יורד אחרי הציור הראשון במקום לעכב
+// אותו. ensureChatModule היא השער היחיד, והמודול נטען פעם אחת בלבד.
+const ensureChatModule = defineLazyModule(() => import('./chat.js'), [
+    'openUserConversation', 'openAdminMessagesCenter', 'openAdminConversation', 'openAdminMessagesForUser'
+]);
+window.ensureChatModule = ensureChatModule;
+
+// תג ההודעות שלא נקראו מוצג בפאנל הפרופיל בלי שנפתח שום חלון, ולכן משתמש
+// מחובר חייב את chat.js גם אם לא נגע בצ׳אט. הפונקציה הזו מושכת את המודול
+// ואז מצייר; לאורח שאינו מחובר אין מה להציג והמודול אינו נטען כלל.
+window.refreshChatUI = function() {
+    if (!window.state?.currentUser) return;
+    ensureChatModule()
+        .then(() => {
+            window.renderFloatingInbox?.();
+            window.renderAdminMessageReplies?.();
+        })
+        .catch(error => console.warn('Chat module failed to load:', error));
+};
+
 
 // lucide.createIcons() סורק את כל ה-DOM בכל קריאה — יקר מאד לגלריה גדולה.
 // קריאות מרובות באותו frame מתמזגות לאחת, וכשיש container ידוע הסריקה
@@ -688,6 +744,28 @@ function formatDate(dateStr) {
 window.formatDate = formatDate;
 
 // וידוא הרשאות מנהל לביצוע פעולות רגישות
+// בדיקות הרשאה שקטות, לשימוש בפונקציות שמציירות מונים והתראות ניהול.
+// אסור להשתמש שם ב-checkAdminPermission: היא מציגה טוסט שגיאה, ומשתמש
+// רגיל היה מוצף בהודעות "אין לך הרשאה" בכל ציור של הגלריה.
+function canViewAdminData() {
+    return Boolean(window.state?.isAdminLoggedIn);
+}
+function canViewSuperAdminData() {
+    return Boolean(window.state?.isSuperAdmin);
+}
+window.canViewAdminData = canViewAdminData;
+window.canViewSuperAdminData = canViewSuperAdminData;
+
+// מנקה מונה או רשימה של הניהול. בלי זה, משתמש שהתנתק או שהורד בדרגה היה
+// נשאר עם הערכים האחרונים שנכתבו ל-DOM.
+function clearAdminOutput(id, emptyValue = '') {
+    const element = document.getElementById(id);
+    if (!element) return null;
+    element.textContent = emptyValue;
+    return element;
+}
+window.clearAdminOutput = clearAdminOutput;
+
 function checkAdminPermission() {
     if (!window.state.isAdminLoggedIn) {
         showNotification("אין לך הרשאה לבצע פעולה זו. התחבר כמנהל תחילה.", false);
@@ -1587,6 +1665,12 @@ window.purgeTrashItem = async function(trashId, confirmed = false) {
 window.renderTrashItems = function() {
     const list = document.getElementById('trashItemsList');
     const badge = document.getElementById('trashItemsCountBadge');
+    // סל המחזור — מנהל־על בלבד.
+    if (!canViewSuperAdminData()) {
+        if (badge) badge.textContent = '0';
+        if (list) list.innerHTML = '';
+        return;
+    }
     const allItems = window.state.trashItems || [];
     const items = allItems.filter(item => !item.parentTrashGroupId);
     if (badge) badge.textContent = String(items.length);
@@ -1627,6 +1711,12 @@ window.renderTrashItems = function() {
 window.renderActivityLogs = function() {
     const list = document.getElementById('activityLogList');
     const summary = document.getElementById('activitySummary');
+    // יומן הפעולות וסיכום המשימות הממתינות — מנהל־על בלבד.
+    if (!canViewSuperAdminData()) {
+        if (summary) summary.innerHTML = '';
+        if (list) list.innerHTML = '';
+        return;
+    }
     const logs = window.state.activityLogs || [];
     if (summary) {
         const cards = [

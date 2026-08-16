@@ -529,52 +529,103 @@ window._doRenderFolders = function() {
     window.scheduleIconRefresh(folderList);
 }
 
+// הגלריה מרונדרת במנות. קודם נבנתה כל הרשת בבת אחת, ואז רץ עליה מנוע
+// האייקונים — שבעה אייקונים לכל כרטיס — בכל מעבר תיקייה או לחיצה על לב.
+// בספרייה של מאות פריטים זו הייתה העבודה היקרה ביותר בדף.
+const GALLERY_PAGE_SIZE = 60;
+let galleryPageItems = [];
+let galleryRenderedCount = 0;
+let galleryPageObserver = null;
+
 window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const grid = document.getElementById('photosGrid'); const emptyState = document.getElementById('emptyState');
     if (!grid || !emptyState) return; grid.innerHTML = '';
     const filtered = getFilteredSortedImages();
+    galleryPageItems = filtered;
+    galleryRenderedCount = 0;
 
     const imageCounter = document.getElementById('imageCounter');
     if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = `${filtered.length} פריטים`; }
 
-    if (filtered.length === 0) { grid.classList.add('hidden'); emptyState.classList.remove('hidden'); emptyState.classList.add('flex'); return; }
+    if (filtered.length === 0) {
+        grid.classList.add('hidden'); emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+        updateGalleryLoadMore();
+        return;
+    }
     grid.classList.remove('hidden'); emptyState.classList.add('hidden'); emptyState.classList.remove('flex');
+    window.renderMoreImages();
+};
+
+// בונה כרטיס אחד. הוצא מהלולאה כדי שגם המנה הראשונה וגם כל מנה נוספת
+// ייבנו מאותו קוד בדיוק.
+function buildGalleryCard(img, index, isEditBlocked) {
+    const imageId = window.safeRecordId(img.id);
+    if (!imageId) return;
+    const folder = window.state.folders.find(f => f.id === img.folderId);
+    const imageUrl = window.safeImageUrl(img.url);
+    const isVideo = window.isVideoRecord(img);
+    const isFavorite = window.state.favorites.has(imageId);
+    const isSelected = window.state.selectedMediaIds.has(imageId);
+    const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
+    const videoPoster = window.safeImageUrl(img.thumbnailUrl);
+    const durationLabel = formatMediaDuration(img.duration);
+    const mediaHtml = isVideo
+        ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
+           <span class="absolute inset-0 flex items-center justify-center pointer-events-none"><span class="w-14 h-14 rounded-full bg-black/65 border border-white/30 text-white flex items-center justify-center shadow-xl"><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
+           <span class="absolute top-3 right-3 rounded-full bg-black/70 border border-white/20 px-2.5 py-1 text-[9px] font-bold text-white flex items-center gap-1"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
+        : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onerror="window.handleImageError(this)">`;
+    const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
+    return `
+        <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" style="--card-index:${Math.min(index, 12)}">
+            <button type="button" class="gallery-media" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
+                ${mediaHtml}
+                <span class="gallery-number">${String(index + 1).padStart(2, '0')}</span>
+                <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
+            </button>
+            ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
+            <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="absolute ${window.state.bulkSelectionMode ? 'top-14' : 'top-3'} left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border bg-black/65 ${isFavorite ? 'text-red-400 border-red-300/50' : 'text-white border-white/25'}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
+            <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
+                <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span><time datetime="${window.escapeHtml(img.date || '')}">${window.formatDate(img.date)}</time></div></div>${actionHtml}
+            </div>
+        </article>`;
+}
+
+// מוסיפה את המנה הבאה בלבד, ומרעננת אייקונים רק על מה שנוסף.
+window.renderMoreImages = function() {
+    const grid = document.getElementById('photosGrid');
+    if (!grid || galleryRenderedCount >= galleryPageItems.length) return;
     const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
-    const htmlParts = [];
-    filtered.forEach((img, index) => {
-        const imageId = window.safeRecordId(img.id);
-        if (!imageId) return;
-        const folder = window.state.folders.find(f => f.id === img.folderId);
-        const imageUrl = window.safeImageUrl(img.url);
-        const isVideo = window.isVideoRecord(img);
-        const isFavorite = window.state.favorites.has(imageId);
-        const isSelected = window.state.selectedMediaIds.has(imageId);
-        const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
-        const videoPoster = window.safeImageUrl(img.thumbnailUrl);
-        const durationLabel = formatMediaDuration(img.duration);
-        const mediaHtml = isVideo
-            ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
-               <span class="absolute inset-0 flex items-center justify-center pointer-events-none"><span class="w-14 h-14 rounded-full bg-black/65 border border-white/30 text-white flex items-center justify-center shadow-xl"><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
-               <span class="absolute top-3 right-3 rounded-full bg-black/70 border border-white/20 px-2.5 py-1 text-[9px] font-bold text-white flex items-center gap-1"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
-            : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onerror="window.handleImageError(this)">`;
-        const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
-        htmlParts.push(`
-            <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" style="--card-index:${Math.min(index, 12)}">
-                <button type="button" class="gallery-media" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
-                    ${mediaHtml}
-                    <span class="gallery-number">${String(index + 1).padStart(2, '0')}</span>
-                    <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
-                </button>
-                ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
-                <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="absolute ${window.state.bulkSelectionMode ? 'top-14' : 'top-3'} left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border bg-black/65 ${isFavorite ? 'text-red-400 border-red-300/50' : 'text-white border-white/25'}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
-                <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
-                    <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span><time datetime="${window.escapeHtml(img.date || '')}">${window.formatDate(img.date)}</time></div></div>${actionHtml}
-                </div>
-            </article>`);
-    });
-    grid.innerHTML = htmlParts.join('');
-    window.scheduleIconRefresh(grid);
+    const nextCount = Math.min(galleryRenderedCount + GALLERY_PAGE_SIZE, galleryPageItems.length);
+    const html = galleryPageItems
+        .slice(galleryRenderedCount, nextCount)
+        .map((img, offset) => buildGalleryCard(img, galleryRenderedCount + offset, isEditBlocked))
+        .filter(Boolean)
+        .join('');
+    const firstNewCard = grid.children.length;
+    grid.insertAdjacentHTML('beforeend', html);
+    galleryRenderedCount = nextCount;
+    for (let i = firstNewCard; i < grid.children.length; i++) window.scheduleIconRefresh(grid.children[i]);
+    updateGalleryLoadMore();
+};
+
+function updateGalleryLoadMore() {
+    const footer = document.getElementById('galleryLoadMore');
+    if (!footer) return;
+    const remaining = galleryPageItems.length - galleryRenderedCount;
+    footer.classList.toggle('hidden', remaining <= 0);
+    footer.classList.toggle('flex', remaining > 0);
+    const counter = document.getElementById('galleryLoadMoreCount');
+    if (counter) counter.textContent = remaining > 0 ? `מוצגים ${galleryRenderedCount} מתוך ${galleryPageItems.length} פריטים` : '';
+
+    // הזקיף טוען את המנה הבאה עוד לפני שהמשתמש מגיע לתחתית, כך שהגלילה
+    // נראית רציפה. בדפדפן בלי IntersectionObserver נשאר הכפתור הידני.
+    if (!galleryPageObserver && typeof IntersectionObserver === 'function') {
+        galleryPageObserver = new IntersectionObserver(entries => {
+            if (entries.some(entry => entry.isIntersecting)) window.renderMoreImages();
+        }, { rootMargin: '600px 0px' });
+        galleryPageObserver.observe(footer);
+    }
 }
 
 window.populateFolderSelects = function() {

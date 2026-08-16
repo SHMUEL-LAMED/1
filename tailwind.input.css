@@ -1,0 +1,5 @@
+/* מקור הבנייה של tailwind.generated.css. אין לערוך את הפלט ידנית —
+   מריצים `npm run build:css` אחרי כל שינוי במחלקות שב-HTML או ב-JS. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
