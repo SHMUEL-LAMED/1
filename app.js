@@ -744,6 +744,28 @@ function formatDate(dateStr) {
 window.formatDate = formatDate;
 
 // וידוא הרשאות מנהל לביצוע פעולות רגישות
+// בדיקות הרשאה שקטות, לשימוש בפונקציות שמציירות מונים והתראות ניהול.
+// אסור להשתמש שם ב-checkAdminPermission: היא מציגה טוסט שגיאה, ומשתמש
+// רגיל היה מוצף בהודעות "אין לך הרשאה" בכל ציור של הגלריה.
+function canViewAdminData() {
+    return Boolean(window.state?.isAdminLoggedIn);
+}
+function canViewSuperAdminData() {
+    return Boolean(window.state?.isSuperAdmin);
+}
+window.canViewAdminData = canViewAdminData;
+window.canViewSuperAdminData = canViewSuperAdminData;
+
+// מנקה מונה או רשימה של הניהול. בלי זה, משתמש שהתנתק או שהורד בדרגה היה
+// נשאר עם הערכים האחרונים שנכתבו ל-DOM.
+function clearAdminOutput(id, emptyValue = '') {
+    const element = document.getElementById(id);
+    if (!element) return null;
+    element.textContent = emptyValue;
+    return element;
+}
+window.clearAdminOutput = clearAdminOutput;
+
 function checkAdminPermission() {
     if (!window.state.isAdminLoggedIn) {
         showNotification("אין לך הרשאה לבצע פעולה זו. התחבר כמנהל תחילה.", false);
@@ -1640,6 +1662,12 @@ window.purgeTrashItem = async function(trashId, confirmed = false) {
 window.renderTrashItems = function() {
     const list = document.getElementById('trashItemsList');
     const badge = document.getElementById('trashItemsCountBadge');
+    // סל המחזור — מנהל־על בלבד.
+    if (!canViewSuperAdminData()) {
+        if (badge) badge.textContent = '0';
+        if (list) list.innerHTML = '';
+        return;
+    }
     const allItems = window.state.trashItems || [];
     const items = allItems.filter(item => !item.parentTrashGroupId);
     if (badge) badge.textContent = String(items.length);
@@ -1680,6 +1708,12 @@ window.renderTrashItems = function() {
 window.renderActivityLogs = function() {
     const list = document.getElementById('activityLogList');
     const summary = document.getElementById('activitySummary');
+    // יומן הפעולות וסיכום המשימות הממתינות — מנהל־על בלבד.
+    if (!canViewSuperAdminData()) {
+        if (summary) summary.innerHTML = '';
+        if (list) list.innerHTML = '';
+        return;
+    }
     const logs = window.state.activityLogs || [];
     if (summary) {
         const cards = [

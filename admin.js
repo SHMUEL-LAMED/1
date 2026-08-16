@@ -442,6 +442,8 @@ window.renderManagedUsers = function() {
     const list = document.getElementById('managedUsersList');
     if (!list) return;
     list.innerHTML = '';
+    // רשימת המשתמשים והדרגות — מנהל־על בלבד.
+    if (!window.canViewSuperAdminData?.()) return;
     const users = (window.state.allUsers || []).filter(profile => profile.status !== 'pending');
     if (users.length === 0) {
         const empty = document.createElement('p');
@@ -535,6 +537,12 @@ window.renderManagedUsers = function() {
 window.renderDeletionRequests = function() {
     const list = document.getElementById('deletionRequestsList');
     const badge = document.getElementById('deletionRequestsCountBadge');
+    // בקשות מחיקה — מנהל־על בלבד. המונה מתאפס כדי שלא יישאר ערך ישן.
+    if (!window.canViewSuperAdminData?.()) {
+        if (badge) badge.textContent = '0';
+        if (list) list.innerHTML = '';
+        return;
+    }
     if (badge) badge.textContent = String((window.state.deletionRequests || []).length);
     if (!list) return;
     list.innerHTML = '';
@@ -608,6 +616,8 @@ window.renderPendingUsers = function() {
     const list = document.getElementById('pendingUsersList');
     if (!list) return;
     list.innerHTML = '';
+    // בקשות הצטרפות — מנהל־על בלבד.
+    if (!window.canViewSuperAdminData?.()) return;
     const pendingUsers = window.state.pendingUsers || [];
 
     if (pendingUsers.length === 0) {
@@ -713,9 +723,21 @@ window.renderPendingUsers = function() {
 };
     
 
+// סיכום נתוני הניהול. הפונקציה נקראת מכל רינדור של הגלריה, ולכן היא חייבת
+// לבדוק הרשאה בעצמה ולא להסתמך על כך שהפאנל מוסתר: משתמש רגיל היה מקבל את
+// המספרים כתובים ב-DOM. מונה בקשות ההצטרפות נשאר אפס גם למנהל דרגה 3,
+// משום שהוא נתון של מנהל־על.
 window.updateAdminOverview = function() {
+    const overviewIds = [
+        'adminOverviewUsersCount', 'adminOverviewPendingCount',
+        'adminOverviewImagesCount', 'adminOverviewFoldersCount'
+    ];
+    if (!window.canViewAdminData?.()) {
+        overviewIds.forEach(id => window.clearAdminOutput?.(id, '0'));
+        return;
+    }
     const values = {
-        adminOverviewUsersCount: (window.state.pendingUsers || []).length,
+        adminOverviewUsersCount: window.canViewSuperAdminData?.() ? (window.state.pendingUsers || []).length : 0,
         adminOverviewPendingCount: (window.state.pendingImages || []).length,
         adminOverviewImagesCount: (window.state.images || []).length,
         adminOverviewFoldersCount: (window.state.folders || []).filter(folder => folder.id !== 'all').length
@@ -726,7 +748,13 @@ window.updateAdminOverview = function() {
     });
 };
 
+// מונה בקשות ההצטרפות — נתון של מנהל־על בלבד.
 window.updatePendingUsersBadge = function() {
+    if (!window.canViewSuperAdminData?.()) {
+        window.clearAdminOutput?.('pendingUsersCountBadge', '0');
+        window.updateAdminOverview();
+        return;
+    }
     const badge = document.getElementById('pendingUsersCountBadge');
     if (badge) badge.textContent = String((window.state.pendingUsers || []).length);
     window.updateAdminOverview();
@@ -797,6 +825,8 @@ window.rejectUserAccess = function(uid) {
 
 window.renderPendingImages = function() {
     const list = document.getElementById('pendingList'); if (!list) return;
+    // תמונות הממתינות לאישור — מדרגה 3 ומעלה.
+    if (!window.canViewAdminData?.()) { list.innerHTML = ''; return; }
     const pending = window.state.pendingImages || [];
     if (pending.length === 0) { list.innerHTML = '<p class="text-xs text-center text-slate-500 py-4">אין קבצי מדיה ממתינים לאישור.</p>'; return; }
     const parts = [];
@@ -822,7 +852,13 @@ window.renderPendingImages = function() {
     window.scheduleIconRefresh(list);
 }
 
+// מונה התמונות הממתינות לאישור — מידע ניהולי מדרגה 3 ומעלה.
 window.updatePendingBadge = function() {
+    if (!window.canViewAdminData?.()) {
+        window.clearAdminOutput?.('pendingCountBadge', '0');
+        window.updateAdminOverview();
+        return;
+    }
     const badge = document.getElementById('pendingCountBadge');
     if (badge) badge.innerText = (window.state.pendingImages || []).length;
     window.updateAdminOverview();

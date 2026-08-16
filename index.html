@@ -425,7 +425,9 @@
                 </section>
 
                 <section class="admin-overview" aria-label="סיכום נתוני הגלריה" style="order: 4">
-                    <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="users" class="w-5 h-5"></i></span><div><strong id="adminOverviewUsersCount">0</strong><span>בקשות הצטרפות</span></div></div>
+                    <!-- בקשות הצטרפות הן נתון של מנהל־על, ככל שאר ניהול המשתמשים.
+                         בלי הסימון הזה מנהל דרגה 3 ראה את הכרטיס (תמיד באפס). -->
+                    <div class="admin-stat hidden super-admin-only"><span class="admin-stat-icon"><i data-lucide="users" class="w-5 h-5"></i></span><div><strong id="adminOverviewUsersCount">0</strong><span>בקשות הצטרפות</span></div></div>
                     <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="image-plus" class="w-5 h-5"></i></span><div><strong id="adminOverviewPendingCount">0</strong><span>תמונות לאישור</span></div></div>
                     <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="images" class="w-5 h-5"></i></span><div><strong id="adminOverviewImagesCount">0</strong><span>פריטים בגלריה</span></div></div>
                     <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="folders" class="w-5 h-5"></i></span><div><strong id="adminOverviewFoldersCount">0</strong><span>תיקיות</span></div></div>
