@@ -389,7 +389,7 @@
             <!-- אזור ניהול פעיל (מוצג רק למנהל שהתחבר בצורה מאובטחת) -->
             <div id="sidebarAdminPanel" class="hidden flex flex-col space-y-3">
 
-                <div class="admin-identity-card bg-slate-900 text-white rounded-2xl p-3.5 flex items-center gap-3 border border-white/10 shadow-sm" style="order: 1">
+                <div class="admin-identity-card bg-slate-900 text-white rounded-2xl p-3.5 flex items-center gap-3 border border-white/10 shadow-sm">
                     <div id="adminCurrentUserFallback" class="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center border border-emerald-400/20"><i data-lucide="shield-check" class="w-5 h-5"></i></div>
                     <img id="adminCurrentUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="תמונת פרופיל מנהל" class="hidden w-10 h-10 rounded-full object-cover border border-white/20">
                     <div class="min-w-0 flex-1">
@@ -399,13 +399,13 @@
                     <span id="adminCurrentUserGrade" class="text-[9px] px-2 py-1 rounded-full font-bold bg-emerald-500/15 text-emerald-300">דרגה 3</span>
                 </div>
 
-                <button type="button" onclick="openModal('userUploadModal')" class="admin-primary-action" style="order: 2">
+                <button type="button" onclick="openModal('userUploadModal')" class="admin-primary-action">
                     <span class="admin-primary-action-icon"><i data-lucide="cloud-upload" class="w-5 h-5"></i></span>
                     <span><strong>העלאת מדיה</strong><small>תמונות וסרטונים חדשים</small></span>
                     <i data-lucide="arrow-left" class="w-4 h-4 admin-primary-action-arrow"></i>
                 </button>
 
-                <section class="admin-command-center" style="order: 3" aria-label="חיפוש וקיצורי ניהול">
+                <section class="admin-command-center" aria-label="חיפוש וקיצורי ניהול">
                     <div class="admin-command-title">
                         <span><strong>גישה מהירה</strong><small>בחרו משימה או חפשו כל פעולה בניהול</small></span>
                     </div>
@@ -424,7 +424,7 @@
                     <p id="adminMenuNoResults" class="admin-menu-empty hidden">לא נמצאו פעולות מתאימות.</p>
                 </section>
 
-                <section class="admin-overview" aria-label="סיכום נתוני הגלריה" style="order: 4">
+                <section class="admin-overview" aria-label="סיכום נתוני הגלריה">
                     <!-- בקשות הצטרפות הן נתון של מנהל־על, ככל שאר ניהול המשתמשים.
                          בלי הסימון הזה מנהל דרגה 3 ראה את הכרטיס (תמיד באפס). -->
                     <div class="admin-stat hidden super-admin-only"><span class="admin-stat-icon"><i data-lucide="users" class="w-5 h-5"></i></span><div><strong id="adminOverviewUsersCount">0</strong><span>בקשות הצטרפות</span></div></div>
@@ -433,7 +433,7 @@
                     <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="folders" class="w-5 h-5"></i></span><div><strong id="adminOverviewFoldersCount">0</strong><span>תיקיות</span></div></div>
                 </section>
 
-                <nav class="admin-topic-grid" style="order: 5" aria-label="נושאי ניהול">
+                <nav class="admin-topic-grid" aria-label="נושאי ניהול">
                     <button type="button" onclick="openAdminCategory('gallery')" class="admin-topic-card" data-admin-category="gallery" style="--topic-color:#ffb627;--topic-border:rgba(255,182,39,.35);--topic-glow:rgba(255,182,39,.12)">
                         <span class="admin-topic-icon"><i data-lucide="images" class="w-5 h-5"></i></span>
                         <span>
@@ -457,76 +457,10 @@
                     </button>
                 </nav>
 
-                <p class="admin-section-label super-admin-only hidden" style="order: 6">תקשורת ואנשים</p>
-
-                <div id="superAdminChatsCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden" style="order: 7">
-                    <button type="button" onclick="openAdminMessagesCenter()" class="w-full px-4 py-3.5 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-cyan-300">
-                            <i data-lucide="messages-square" class="w-4 h-4"></i>
-                            שיחות ופניות ממשתמשים
-                            <span id="adminChatsUnreadBadge" class="hidden min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[9px] items-center justify-center">0</span>
-                        </span>
-                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-                    </button>
-                </div>
-
-                <!-- אישור משתמשים חדשים ובחירת דרגה -->
-                <div id="superAdminUsersCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden" style="order: 8">
-                    <button type="button" onclick="openAdminTaskWindow('accUserApprovals')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-amber-400"><i data-lucide="users-round" class="w-4 h-4"></i> ניהול משתמשים ובקשות (<span id="pendingUsersCountBadge">0</span>)</span>
-                        <i id="accUserApprovalsArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
-                    </button>
-                    <div id="accUserApprovals" class="accordion-content px-3 space-y-2">
-                        <p class="text-[10px] text-slate-400 leading-relaxed">מנהל־על יכול לאשר משתמשים, לשנות דרגות ולחסום חשבונות.</p>
-                        <div id="pendingUsersList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-                        <div class="border-t border-slate-200/50 pt-3 mt-3">
-                            <p class="text-[10px] font-bold text-slate-500 mb-2">כל המשתמשים</p>
-                            <div id="managedUsersList" class="max-h-96 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="superAdminDeletionRequestsCard" class="hidden super-admin-only admin-control-card border border-red-200 rounded-2xl overflow-hidden bg-white/40 shadow-sm" style="order: 9">
-                    <button type="button" onclick="openAdminTaskWindow('accDeletionRequests')" class="w-full px-4 py-3 text-xs font-bold text-slate-800 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i> בקשות מחיקה (<span id="deletionRequestsCountBadge">0</span>)</span>
-                        <i id="accDeletionRequestsArrow" data-lucide="chevron-down" class="w-4 h-4 text-red-300"></i>
-                    </button>
-                    <div id="accDeletionRequests" class="accordion-content px-3 space-y-2">
-                        <p class="text-[10px] text-slate-500 leading-relaxed">בקשות שנשלחו ממנהלי דרגה 3. רק מנהל־על יכול לבצע מחיקה סופית.</p>
-                        <div id="deletionRequestsList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-                    </div>
-                </div>
-
-                <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden" style="order: 10">
-                    <button type="button" onclick="openAdminTaskWindow('accActivityCenter')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="activity" class="w-4 h-4"></i> מרכז פעילות</span>
-                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-                    </button>
-                    <div id="accActivityCenter" class="accordion-content px-3 space-y-3">
-                        <div id="activitySummary" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
-                        <div class="flex items-center justify-between">
-                            <p class="text-[10px] font-bold text-slate-400">פעולות אחרונות</p>
-                            <button type="button" onclick="renderActivityLogs()" class="text-[9px] text-cyan-300 hover:underline">רענן</button>
-                        </div>
-                        <div id="activityLogList" class="space-y-2"></div>
-                    </div>
-                </div>
-
-                <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden" style="order: 11">
-                    <button type="button" onclick="openAdminTaskWindow('accTrash')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-orange-300"><i data-lucide="archive-restore" class="w-4 h-4"></i> סל מחזור (<span id="trashItemsCountBadge">0</span>)</span>
-                        <i data-lucide="arrow-left" class="w-4 h-4 text-orange-300/70"></i>
-                    </button>
-                    <div id="accTrash" class="accordion-content px-3 space-y-3">
-                        <p class="text-[10px] text-slate-400 leading-relaxed">פריטים שנמחקו נשמרים כאן עד לשחזור או למחיקה סופית.</p>
-                        <div id="trashItemsList" class="space-y-2"></div>
-                    </div>
-                </div>
-
-                <p class="admin-section-label" style="order: 4">תוכן הגלריה</p>
+                <p class="admin-section-label">תוכן הגלריה</p>
 
                 <!-- אישור ממתינות -->
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 5">
+                <div class="admin-control-card rounded-2xl overflow-hidden">
                     <button type="button" onclick="openAdminTaskWindow('accPending')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
                         <span class="flex items-center gap-2 text-amber-400"><i data-lucide="bell" class="w-4 h-4"></i> בקשות העלאה לאישור (<span id="pendingCountBadge">0</span>)</span>
                         <i id="accPendingArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
@@ -549,43 +483,8 @@
                     </div>
                 </div>
 
-                <p class="admin-section-label" style="order: 12">כלי מערכת</p>
-
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 15">
-                    <button type="button" onclick="openAdminTaskWindow('accSystemHealth')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-emerald-300"><i data-lucide="shield-check" class="w-4 h-4"></i> בדיקת תקינות המערכת</span>
-                        <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-300/70"></i>
-                    </button>
-                    <div id="accSystemHealth" class="accordion-content px-4 space-y-3">
-                        <p class="text-[10px] text-slate-400">בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
-                        <button type="button" onclick="runSystemHealthCheck()" class="w-full py-2.5 btn-primary-gold rounded-xl text-xs font-bold">הרץ בדיקה</button>
-                        <div id="systemHealthResults" class="space-y-2"></div>
-                    </div>
-                </div>
-
-                <!-- הכנת חיפוש הפנים בענן -->
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 16">
-                    <button type="button" onclick="openAdminTaskWindow('accFaceIndex')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-                        <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="scan-face" class="w-4 h-4"></i> הכן חיפוש פנים בענן</span>
-                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-                    </button>
-                    <div id="accFaceIndex" class="accordion-content px-4 space-y-3">
-                        <p class="text-[10px] text-slate-400 leading-relaxed">סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
-                        <p id="faceIndexSummary" class="text-[10px] font-bold text-cyan-200 bg-cyan-500/10 border border-cyan-400/20 rounded-xl px-3 py-2">טוען את מצב האינדוקס…</p>
-                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                            <div id="faceIndexProgressBar" class="bg-gradient-to-r from-cyan-300 to-cyan-500 h-full w-0 transition-all duration-300"></div>
-                        </div>
-                        <p id="faceIndexStatusText" class="text-[10px] text-slate-400" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
-                        <div class="flex gap-2">
-                            <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="flex-1 py-2.5 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50">התחל או המשך אינדוקס</button>
-                            <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="py-2.5 px-4 btn-secondary-dark rounded-xl text-xs font-bold disabled:opacity-50">עצור</button>
-                        </div>
-                        <button type="button" id="faceIndexResetBtn" onclick="resetFaceIndex()" class="w-full py-2 rounded-xl text-[10px] font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">איפוס ואינדוקס מחדש (מנהל־על)</button>
-                    </div>
-                </div>
-
                 <!-- סנכרון Google Drive -->
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 13">
+                <div class="admin-control-card rounded-2xl overflow-hidden">
                     <button type="button" onclick="openAdminTaskWindow('accDriveSync')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
                         <span class="flex items-center gap-2 text-amber-400"><i data-lucide="refresh-cw" class="w-4 h-4"></i> סנכרון מ־Google Drive</span>
                         <i id="accDriveSyncArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
@@ -669,7 +568,7 @@
                 </div>
 
                 <!-- יצירת תיקייה ריקה -->
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 14">
+                <div class="admin-control-card rounded-2xl overflow-hidden">
                     <button type="button" onclick="openAdminTaskWindow('accEmptyFolder')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
                         <span class="flex items-center gap-2 text-amber-400"><i data-lucide="folder-plus" class="w-4 h-4"></i> יצירת תיקייה ריקה</span>
                         <i id="accEmptyFolderArrow" data-lucide="chevron-down" class="w-4 h-4 text-slate-500/70"></i>
@@ -688,8 +587,59 @@
                     </div>
                 </div>
 
+                <div id="superAdminDeletionRequestsCard" class="hidden super-admin-only admin-control-card border border-red-200 rounded-2xl overflow-hidden bg-white/40 shadow-sm">
+                    <button type="button" onclick="openAdminTaskWindow('accDeletionRequests')" class="w-full px-4 py-3 text-xs font-bold text-slate-800 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i> בקשות מחיקה (<span id="deletionRequestsCountBadge">0</span>)</span>
+                        <i id="accDeletionRequestsArrow" data-lucide="chevron-down" class="w-4 h-4 text-red-300"></i>
+                    </button>
+                    <div id="accDeletionRequests" class="accordion-content px-3 space-y-2">
+                        <p class="text-[10px] text-slate-500 leading-relaxed">בקשות שנשלחו ממנהלי דרגה 3. רק מנהל־על יכול לבצע מחיקה סופית.</p>
+                        <div id="deletionRequestsList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
+                    </div>
+                </div>
+
+                <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminTaskWindow('accTrash')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-orange-300"><i data-lucide="archive-restore" class="w-4 h-4"></i> סל מחזור (<span id="trashItemsCountBadge">0</span>)</span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-orange-300/70"></i>
+                    </button>
+                    <div id="accTrash" class="accordion-content px-3 space-y-3">
+                        <p class="text-[10px] text-slate-400 leading-relaxed">פריטים שנמחקו נשמרים כאן עד לשחזור או למחיקה סופית.</p>
+                        <div id="trashItemsList" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <p class="admin-section-label super-admin-only hidden">תקשורת ואנשים</p>
+
+                <!-- אישור משתמשים חדשים ובחירת דרגה -->
+                <div id="superAdminUsersCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminTaskWindow('accUserApprovals')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-amber-400"><i data-lucide="users-round" class="w-4 h-4"></i> ניהול משתמשים ובקשות (<span id="pendingUsersCountBadge">0</span>)</span>
+                        <i id="accUserApprovalsArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
+                    </button>
+                    <div id="accUserApprovals" class="accordion-content px-3 space-y-2">
+                        <p class="text-[10px] text-slate-400 leading-relaxed">מנהל־על יכול לאשר משתמשים, לשנות דרגות ולחסום חשבונות.</p>
+                        <div id="pendingUsersList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
+                        <div class="border-t border-slate-200/50 pt-3 mt-3">
+                            <p class="text-[10px] font-bold text-slate-500 mb-2">כל המשתמשים</p>
+                            <div id="managedUsersList" class="max-h-96 overflow-y-auto space-y-2 pb-2 pr-1"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="superAdminChatsCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminMessagesCenter()" class="w-full px-4 py-3.5 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-cyan-300">
+                            <i data-lucide="messages-square" class="w-4 h-4"></i>
+                            שיחות ופניות ממשתמשים
+                            <span id="adminChatsUnreadBadge" class="hidden min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[9px] items-center justify-center">0</span>
+                        </span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
+                    </button>
+                </div>
+
                 <!-- הודעת פופ-אפ -->
-                <div class="admin-control-card rounded-2xl overflow-hidden" style="order: 15">
+                <div class="admin-control-card rounded-2xl overflow-hidden hidden super-admin-only">
                     <button type="button" onclick="openAdminTaskWindow('accPopupAnnouncement')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
                         <span class="flex items-center gap-2 text-amber-400"><i data-lucide="megaphone" class="w-4 h-4"></i> הודעת פופ-אפ לאתר</span>
                         <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500/70"></i>
@@ -740,7 +690,57 @@
                     </div>
                 </div>
 
-                <button type="button" onclick="lockGalleryImmediatelySidebar()" class="admin-logout w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md mt-4" style="order: 16">
+                <p class="admin-section-label">כלי מערכת</p>
+
+                <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminTaskWindow('accActivityCenter')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="activity" class="w-4 h-4"></i> מרכז פעילות</span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
+                    </button>
+                    <div id="accActivityCenter" class="accordion-content px-3 space-y-3">
+                        <div id="activitySummary" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+                        <div class="flex items-center justify-between">
+                            <p class="text-[10px] font-bold text-slate-400">פעולות אחרונות</p>
+                            <button type="button" onclick="renderActivityLogs()" class="text-[9px] text-cyan-300 hover:underline">רענן</button>
+                        </div>
+                        <div id="activityLogList" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <div class="admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminTaskWindow('accSystemHealth')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-emerald-300"><i data-lucide="shield-check" class="w-4 h-4"></i> בדיקת תקינות המערכת</span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-300/70"></i>
+                    </button>
+                    <div id="accSystemHealth" class="accordion-content px-4 space-y-3">
+                        <p class="text-[10px] text-slate-400">בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
+                        <button type="button" onclick="runSystemHealthCheck()" class="w-full py-2.5 btn-primary-gold rounded-xl text-xs font-bold">הרץ בדיקה</button>
+                        <div id="systemHealthResults" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <!-- הכנת חיפוש הפנים בענן -->
+                <div class="admin-control-card rounded-2xl overflow-hidden">
+                    <button type="button" onclick="openAdminTaskWindow('accFaceIndex')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
+                        <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="scan-face" class="w-4 h-4"></i> הכן חיפוש פנים בענן</span>
+                        <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
+                    </button>
+                    <div id="accFaceIndex" class="accordion-content px-4 space-y-3">
+                        <p class="text-[10px] text-slate-400 leading-relaxed">סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
+                        <p id="faceIndexSummary" class="text-[10px] font-bold text-cyan-200 bg-cyan-500/10 border border-cyan-400/20 rounded-xl px-3 py-2">טוען את מצב האינדוקס…</p>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="faceIndexProgressBar" class="bg-gradient-to-r from-cyan-300 to-cyan-500 h-full w-0 transition-all duration-300"></div>
+                        </div>
+                        <p id="faceIndexStatusText" class="text-[10px] text-slate-400" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="flex-1 py-2.5 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50">התחל או המשך אינדוקס</button>
+                            <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="py-2.5 px-4 btn-secondary-dark rounded-xl text-xs font-bold disabled:opacity-50">עצור</button>
+                        </div>
+                        <button type="button" id="faceIndexResetBtn" onclick="resetFaceIndex()" class="w-full py-2 rounded-xl text-[10px] font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">איפוס ואינדוקס מחדש (מנהל־על)</button>
+                    </div>
+                </div>
+
+                <button type="button" onclick="lockGalleryImmediatelySidebar()" class="admin-logout w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md mt-4">
                     <i data-lucide="log-out" class="w-4 h-4"></i>
                     התנתק ממצב ניהול
                 </button>
