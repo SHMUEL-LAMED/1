@@ -358,6 +358,8 @@ function toggleAccordion(id) {
 }
 window.toggleAccordion = toggleAccordion;
 
+// סדר תפריט הניהול נשמר במקום אחד: כל פעולה שייכת לנושא אחד בלבד, והסדר כאן
+// זהה לסדר הכרטיסים ב-index.html ולסדר adminTaskDefinitions שמזין את החיפוש.
 const adminCategoryDefinitions = {
     gallery: {
         title: 'תמונות ותיקיות',
@@ -370,8 +372,7 @@ const adminCategoryDefinitions = {
             { label: 'יצירת תיקייה חדשה', description: 'הוספת תיקייה חדשה וסמל מתאים לגלריה', icon: 'folder-plus', type: 'task', target: 'accEmptyFolder' },
             { label: 'ניהול ומחיקת מדיה', description: 'מעבר לגלריה להעברה בין תיקיות או למחיקה', icon: 'image-minus', type: 'gallery' },
             { label: 'בקשות מחיקה', description: 'אישור בקשות מחיקה שנשלחו ממנהלי דרגה 3', icon: 'trash-2', type: 'task', target: 'accDeletionRequests', superAdminOnly: true },
-            { label: 'סל מחזור', description: 'שחזור תמונות ותיקיות או מחיקה סופית', icon: 'archive-restore', type: 'task', target: 'accTrash', superAdminOnly: true },
-            { label: 'הודעת פופ-אפ', description: 'הצגת תמונה עם פנייה לתיקייה למבקרי האתר', icon: 'megaphone', type: 'task', target: 'accPopupAnnouncement', superAdminOnly: true }
+            { label: 'סל מחזור', description: 'שחזור תמונות ותיקיות או מחיקה סופית', icon: 'archive-restore', type: 'task', target: 'accTrash', superAdminOnly: true }
         ]
     },
     users: {
@@ -382,7 +383,7 @@ const adminCategoryDefinitions = {
         actions: [
             { label: 'ניהול משתמשים ובקשות', description: 'אישור משתמשים, שינוי דרגות וחסימת חשבונות', icon: 'user-cog', type: 'task', target: 'accUserApprovals' },
             { label: 'שיחות ופניות', description: 'קריאת פניות והמשך שיחה עם משתמשים', icon: 'messages-square', type: 'messages' },
-            { label: 'הודעת פופ-אפ', description: 'הצגת תמונה עם פנייה לתיקייה למבקרי האתר', icon: 'megaphone', type: 'task', target: 'accPopupAnnouncement', superAdminOnly: true }
+            { label: 'הודעת פופ-אפ', description: 'הצגת תמונה עם פנייה לתיקייה למבקרי האתר', icon: 'megaphone', type: 'task', target: 'accPopupAnnouncement' }
         ]
     },
     system: {
@@ -393,8 +394,8 @@ const adminCategoryDefinitions = {
             { label: 'מרכז פעילות', description: 'יומן הפעולות האחרונות ותמונת מצב ניהולית', icon: 'chart-no-axes-combined', type: 'task', target: 'accActivityCenter', superAdminOnly: true },
             { label: 'ניתוח נתונים מתקדם', description: 'צפיות, נפח אחסון, סוגי מדיה והפריטים המובילים', icon: 'chart-column-big', type: 'analytics', superAdminOnly: true },
             { label: 'גיבוי ושחזור', description: 'ייצוא נתוני הגלריה לקובץ ושחזור מגיבוי', icon: 'database-backup', type: 'modal', target: 'backupRestoreModal', superAdminOnly: true },
-            { label: 'הכן חיפוש פנים בענן', description: 'סריקה חד־פעמית ששומרת טביעות פנים ומייתרת סריקה בכל חיפוש', icon: 'scan-face', type: 'task', target: 'accFaceIndex' },
-            { label: 'בדיקת תקינות המערכת', description: 'בדיקת Cloudflare, האחסון, זיהוי פנים ו־Drive', icon: 'shield-check', type: 'task', target: 'accSystemHealth' }
+            { label: 'בדיקת תקינות המערכת', description: 'בדיקת Cloudflare, האחסון, זיהוי פנים ו־Drive', icon: 'shield-check', type: 'task', target: 'accSystemHealth' },
+            { label: 'הכן חיפוש פנים בענן', description: 'סריקה חד־פעמית ששומרת טביעות פנים ומייתרת סריקה בכל חיפוש', icon: 'scan-face', type: 'task', target: 'accFaceIndex' }
         ]
     }
 };
@@ -536,45 +537,13 @@ window.clearAdminMenuSearch = function() {
     window.filterAdminMenu('');
 };
 
+// הסדר כאן הוא גם סדר תוצאות החיפוש בתפריט הניהול, ולכן הוא הולך לפי הנושאים:
+// תוכן הגלריה, אחר כך משתמשים ותקשורת, ולבסוף כלי המערכת.
 const adminTaskDefinitions = {
-    accUserApprovals: {
-        title: 'ניהול משתמשים ובקשות',
-        description: 'אישור משתמשים, שינוי דרגות וחסימת חשבונות',
-        icon: 'users-round',
-        superAdminOnly: true
-    },
-    accDeletionRequests: {
-        title: 'בקשות מחיקה',
-        description: 'בדיקה ואישור של בקשות למחיקת תוכן',
-        icon: 'trash-2',
-        superAdminOnly: true
-    },
-    accActivityCenter: {
-        title: 'מרכז פעילות',
-        description: 'תמונת מצב ויומן הפעולות האחרונות במערכת',
-        icon: 'activity',
-        superAdminOnly: true
-    },
-    accTrash: {
-        title: 'סל מחזור',
-        description: 'שחזור פריטים או מחיקה סופית מהמערכת',
-        icon: 'archive-restore',
-        superAdminOnly: true
-    },
     accPending: {
         title: 'אישור תמונות',
         description: 'בחירת תמונות וסרטונים ממתינים והעברתם לגלריה',
         icon: 'images'
-    },
-    accSystemHealth: {
-        title: 'בדיקת תקינות',
-        description: 'בדיקת החיבורים והשירותים של הגלריה',
-        icon: 'shield-check'
-    },
-    accFaceIndex: {
-        title: 'הכן חיפוש פנים בענן',
-        description: 'סריקה חד־פעמית של הגלריה ושמירת טביעות הפנים ב־D1',
-        icon: 'scan-face'
     },
     accDriveSync: {
         title: 'סנכרון Google Drive',
@@ -586,11 +555,45 @@ const adminTaskDefinitions = {
         description: 'הוספת תיקייה חדשה לארכיון',
         icon: 'folder-plus'
     },
+    accDeletionRequests: {
+        title: 'בקשות מחיקה',
+        description: 'בדיקה ואישור של בקשות למחיקת תוכן',
+        icon: 'trash-2',
+        superAdminOnly: true
+    },
+    accTrash: {
+        title: 'סל מחזור',
+        description: 'שחזור פריטים או מחיקה סופית מהמערכת',
+        icon: 'archive-restore',
+        superAdminOnly: true
+    },
+    accUserApprovals: {
+        title: 'ניהול משתמשים ובקשות',
+        description: 'אישור משתמשים, שינוי דרגות וחסימת חשבונות',
+        icon: 'users-round',
+        superAdminOnly: true
+    },
     accPopupAnnouncement: {
         title: 'הודעת פופ-אפ',
         description: 'ניהול תמונת הפופ-אפ שמוצגת למבקרי האתר',
         icon: 'megaphone',
         superAdminOnly: true
+    },
+    accActivityCenter: {
+        title: 'מרכז פעילות',
+        description: 'תמונת מצב ויומן הפעולות האחרונות במערכת',
+        icon: 'activity',
+        superAdminOnly: true
+    },
+    accSystemHealth: {
+        title: 'בדיקת תקינות',
+        description: 'בדיקת החיבורים והשירותים של הגלריה',
+        icon: 'shield-check'
+    },
+    accFaceIndex: {
+        title: 'הכן חיפוש פנים בענן',
+        description: 'סריקה חד־פעמית של הגלריה ושמירת טביעות הפנים ב־D1',
+        icon: 'scan-face'
     }
 };
 let activeAdminTask = null;
