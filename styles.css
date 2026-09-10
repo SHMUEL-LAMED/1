@@ -1479,15 +1479,14 @@
         
         /* Floating Profile Widget */
         .floating-profile-container {
-            position: fixed;
-            top: 6px;
-            left: 6px;
-            right: auto;
+            position: relative;
+            flex: none;
+            line-height: 0;
             z-index: 60;
         }
         .floating-profile-btn {
-            width: 58px;
-            height: 58px;
+            width: 46px;
+            height: 46px;
             border-radius: 50%;
             background: linear-gradient(135deg, rgba(20, 26, 38, 0.95), rgba(10, 13, 20, 0.97));
             border: 2px solid rgba(255, 182, 39, 0.5);
@@ -1649,8 +1648,7 @@
         html[data-theme="light"] .conversation-stream { background-color: #eef2f7; }
 
         @media (max-width: 680px) {
-            .floating-profile-container { top: 5px; left: 5px; }
-            .floating-profile-btn { width: 44px; height: 44px; }
+            .floating-profile-btn { width: 40px; height: 40px; }
             .theme-toggle { width: 42px; padding-inline: 0; }
             .theme-toggle span { display: none; }
             .brand-lockup { gap: 9px !important; }
@@ -4648,4 +4646,86 @@ html { scroll-behavior: auto !important; }
 #folderList .folder-row {
     opacity: 1 !important;
     transform: none !important;
+}
+
+/* ============================================================
+   רענון עיצוב: אווירה מזמינה יותר
+   הארכיון נשאר כהה ומכובד, אבל הגוונים מתחממים מכחול-שחור קר
+   לגוון פחם חמים, וכפתורי הפעולה הראשיים בולטים לעין.
+   כל כלל כאן מוגבל למצב שלו, כדי שמצב היום יישאר בהיר.
+   ============================================================ */
+
+/* --- מצב לילה: אותו עומק, בגוון חמים במקום כחול קר --- */
+html:not([data-theme="light"]) #bg-container {
+    background:
+        radial-gradient(circle at 50% -8%, rgba(255, 182, 39, .16), transparent 46%),
+        radial-gradient(circle at 12% 14%, rgba(255, 182, 39, .11), transparent 32%),
+        radial-gradient(circle at 88% 24%, rgba(100, 216, 229, .07), transparent 28%),
+        radial-gradient(circle at 55% 78%, rgba(255, 182, 39, .05), transparent 44%),
+        linear-gradient(150deg, #08070a 0%, #100d12 48%, #07060a 100%) !important;
+}
+
+html:not([data-theme="light"]) .site-header {
+    background: rgba(12, 10, 14, 0.86) !important;
+    border-bottom-color: rgba(255, 210, 122, 0.1) !important;
+}
+
+html:not([data-theme="light"]) .gallery-hero.home-intro {
+    background:
+        radial-gradient(125% 150% at 82% -30%, rgba(255, 182, 39, .13), transparent 56%),
+        linear-gradient(165deg, rgba(26, 21, 18, .96), rgba(11, 9, 13, .98));
+    border-color: rgba(255, 210, 122, .12);
+}
+
+html:not([data-theme="light"]) .gate {
+    background:
+        radial-gradient(120% 130% at 50% -20%, rgba(255, 182, 39, .13), transparent 58%),
+        linear-gradient(180deg, rgba(24, 20, 17, .97), rgba(10, 8, 12, .99));
+    border-color: rgba(255, 210, 122, .13);
+}
+
+/* --- מצב יום: אותה חמימות על נייר בהיר --- */
+html[data-theme="light"] .gallery-hero.home-intro {
+    background:
+        radial-gradient(125% 160% at 82% -28%, rgba(255, 182, 39, .2), transparent 58%),
+        linear-gradient(180deg, #fffdf9, #f6f8fc);
+    border-color: rgba(169, 118, 26, .16);
+}
+
+html[data-theme="light"] .gate {
+    background:
+        radial-gradient(120% 130% at 50% -20%, rgba(255, 182, 39, .17), transparent 58%),
+        linear-gradient(180deg, #fffdf9, #f7f9fc);
+    border-color: rgba(169, 118, 26, .16);
+}
+
+/* --- משותף לשני המצבים --- */
+
+/* לפני ההתחברות אין "דלת" בצד השני של הרצועה. במקום להשאיר חצי רצועה
+   ריקה, הזהות עומדת במרכז — פתיחה שמזמינה פנימה במקום שורה תלויה בצד. */
+body.gallery-locked .entry-top { justify-content: center; }
+body.gallery-locked .entry-identity { justify-content: center; text-align: center; }
+body.gallery-locked .entry-eyebrow { justify-content: center; }
+body.gallery-locked .entry-lede { margin-inline: auto; }
+
+/* כפתור הכניסה הוא הפעולה היחידה במסך, ולכן הוא מקבל טבעת זהובה
+   שמסמנת אותו כיעד הלחיצה — גם על רקע כרטיס בהיר במצב היום. */
+.gate-login {
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .34), 0 0 0 3px rgba(255, 182, 39, .22);
+}
+html[data-theme="light"] .gate-login {
+    border-color: rgba(15, 23, 42, .16);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .13), 0 0 0 3px rgba(255, 182, 39, .3);
+}
+
+/* שלבי הכניסה: מספרים חמימים שמובילים את העין משלב לשלב. */
+.gate-steps li span {
+    color: #1a1206;
+    background: linear-gradient(135deg, #ffdd8e, #ffb627);
+    border-color: transparent;
+}
+
+/* במסך צר הזהות נערמת לעמודה — וכשאין עדיין דלת, גם העמודה מתמרכזת. */
+@media (max-width: 680px) {
+    body.gallery-locked .entry-identity { align-items: center; }
 }
