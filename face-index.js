@@ -134,6 +134,17 @@ function renderFaceIndexPanel() {
 }
 window.renderFaceIndexPanel = renderFaceIndexPanel;
 
+// loadFaceApi מוגדרת ב-face-search.js, שנטען עצלה, והיא אינה רשומה כ-placeholder.
+// אינדוקס שהתחיל לפני שנפתח כלי חיפוש הפנים נעצר על
+// "window.loadFaceApi is not a function", ולכן המודול נטען כאן לפני השימוש.
+async function loadFaceApiEngine() {
+    await window.ensureFaceSearchModule?.();
+    if (typeof window.loadFaceApi !== 'function') {
+        throw new Error('מנוע זיהוי הפנים אינו זמין כרגע. רענן את הדף ונסה שוב.');
+    }
+    return window.loadFaceApi();
+}
+
 async function refreshFaceIndexSummary() {
     try {
         const summary = await window.r2Request(
@@ -248,7 +259,7 @@ async function startFaceIndexing() {
 
     let pending = [];
     try {
-        const faceapi = await window.loadFaceApi();
+        const faceapi = await loadFaceApiEngine();
 
         faceIndexRun.message = 'בודק אילו תמונות עדיין ממתינות…';
         renderFaceIndexPanel();
@@ -441,7 +452,7 @@ async function drainAutoIndexQueue() {
     }
     autoIndexDraining = true;
     try {
-        const faceapi = await window.loadFaceApi();
+        const faceapi = await loadFaceApiEngine();
         while (autoIndexQueue.length) {
             const candidates = autoIndexQueue.splice(0, FACE_INDEX_SAVE_CHUNK);
             const pending = await fetchPendingImageIds(candidates);

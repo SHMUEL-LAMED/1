@@ -110,3 +110,55 @@ test("כישלון בקריאת המצב מוצג כתקלה, ולא כטעינ�
     "ניקוי המטמון חייב לאפס גם את תקלת הקריאה האחרונה"
   );
 });
+
+// loadFaceApi מוגדרת ב-face-search.js ואינה רשומה כ-placeholder, אבל
+// face-index.js משתמש בה כדי לטעון את מנוע הזיהוי. אינדוקס שהתחיל לפני
+// שנפתח כלי חיפוש הפנים נעצר על "window.loadFaceApi is not a function".
+const faceSearchJs = withoutComments(readFileSync(new URL("./face-search.js", import.meta.url), "utf8"));
+
+function faceSearchPlaceholders() {
+  const start = appJs.indexOf("const ensureFaceSearchModule = defineLazyModule(");
+  assert.ok(start > -1, "ensureFaceSearchModule לא נמצאה ב-app.js");
+  const block = appJs.slice(start, appJs.indexOf("]);", start));
+  return [...block.matchAll(/'(\w+)'/g)].map(match => match[1]);
+}
+
+test("loadFaceApi מגיעה ממודול עצל אחר, ולכן אינדוקס הפנים חייב לטעון אותו", () => {
+  assert.match(
+    faceSearchJs,
+    /^window\.loadFaceApi\s*=/m,
+    "loadFaceApi אמורה להיות מוגדרת ב-face-search.js"
+  );
+  assert.ok(
+    !faceSearchPlaceholders().includes("loadFaceApi"),
+    "loadFaceApi אינה placeholder, ולכן היא פשוט אינה קיימת עד לטעינת המודול"
+  );
+
+  // אין קריאה ישירה ל-window.loadFaceApi בלי טעינת המודול שלפניה.
+  const direct = [...faceIndexCode.matchAll(/await\s+window\.loadFaceApi\s*\(/g)];
+  assert.equal(
+    direct.length,
+    0,
+    "קריאה ישירה ל-window.loadFaceApi נכשלת כשכלי חיפוש הפנים עוד לא נפתח"
+  );
+});
+
+test("עוזר טעינת המנוע ממתין ל-ensureFaceSearchModule ומדווח בבירור על כישלון", () => {
+  const start = faceIndexCode.indexOf("async function loadFaceApiEngine()");
+  assert.ok(start > -1, "loadFaceApiEngine חסרה — אין מי שיטען את מנוע הזיהוי");
+  const body = faceIndexCode.slice(start, start + 400);
+
+  const ensureAt = body.indexOf("ensureFaceSearchModule");
+  const callAt = body.indexOf("window.loadFaceApi()");
+  assert.ok(ensureAt > -1, "העוזר חייב לטעון את face-search.js לפני השימוש");
+  assert.ok(ensureAt < callAt, "הטעינה חייבת להקדים את הקריאה למנוע");
+  assert.match(
+    body,
+    /typeof\s+window\.loadFaceApi\s*!==\s*'function'/,
+    "אם המנוע עדיין חסר, יש לדווח הודעה ברורה ולא TypeError"
+  );
+
+  // שני מסלולי האינדוקס — הידני והאוטומטי — עוברים דרך אותו עוזר.
+  const uses = [...faceIndexCode.matchAll(/await\s+loadFaceApiEngine\s*\(/g)];
+  assert.equal(uses.length, 2, "גם האינדוקס הידני וגם האוטומטי חייבים לעבור דרך העוזר");
+});
