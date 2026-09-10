@@ -54,6 +54,11 @@
                 </div>
             </div>
             <div class="header-actions flex items-center gap-2 sm:gap-3">
+                <button id="themeToggleButton" type="button" onclick="toggleSiteTheme()" class="theme-toggle" aria-label="מעבר למצב בהיר" title="מעבר בין מצב בהיר לכהה">
+                    <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4"></i>
+                    <span id="themeToggleText">בהיר</span>
+                </button>
+                <div id="headerConnectionStatus" class="header-status" role="status">נדרשת התחברות</div>
                 <div class="floating-profile-container">
                     <span id="floatingWidgetBadge" class="absolute -top-1.5 -left-1.5 w-5 h-5 bg-red-500 border-2 border-slate-950 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white hidden animate-bounce animate-pulse">0</span>
                     <button id="floatingProfileButton" type="button" onclick="openFloatingProfile(event)" class="floating-profile-btn group" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
@@ -63,11 +68,6 @@
                         </span>
                     </button>
                 </div>
-                <button id="themeToggleButton" type="button" onclick="toggleSiteTheme()" class="theme-toggle" aria-label="מעבר למצב בהיר" title="מעבר בין מצב בהיר לכהה">
-                    <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4"></i>
-                    <span id="themeToggleText">בהיר</span>
-                </button>
-                <div id="headerConnectionStatus" class="header-status" role="status">נדרשת התחברות</div>
             </div>
         </div>
     </header>

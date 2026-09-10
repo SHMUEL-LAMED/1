@@ -1840,16 +1840,6 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduleIconRefresh();
         initAdmin();
         initGallery();
-        let showConstructionNotice = true;
-        try {
-            showConstructionNotice = sessionStorage.getItem('construction_notice_seen') !== '1';
-            sessionStorage.setItem('construction_notice_seen', '1');
-        } catch (error) {
-            console.warn('Session storage is unavailable:', error);
-        }
-        if (showConstructionNotice && typeof window.showNotification === 'function') {
-            setTimeout(() => window.showNotification('לתשומת לב: האתר עדיין בבנייה וייתכנו תקלות זמניות.', true, 'warning'), 700);
-        }
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Service worker registration failed:', error));
         }
