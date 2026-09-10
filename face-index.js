@@ -33,6 +33,8 @@ const faceIndexRun = {
 };
 
 let faceIndexSummaryCache = null;
+// נכשלה קריאת המצב מהשרת? הלוח חייב לומר זאת, ולא להישאר על "טוען…".
+let faceIndexSummaryError = null;
 const autoIndexQueue = [];
 let autoIndexTimer = null;
 let autoIndexDraining = false;
@@ -98,9 +100,13 @@ function renderFaceIndexPanel() {
 
     const summary = faceIndexSummaryCache;
     if (summaryEl) {
-        summaryEl.textContent = summary
-            ? `${summary.indexedImages} מתוך ${summary.totalImages} תמונות מוכנות לחיפוש · ${summary.remainingImages} ממתינות · ${summary.failedImages} נכשלו · ${summary.faceCount} פרצופים שמורים`
-            : 'טוען את מצב האינדוקס…';
+        if (summary) {
+            summaryEl.textContent = `${summary.indexedImages} מתוך ${summary.totalImages} תמונות מוכנות לחיפוש · ${summary.remainingImages} ממתינות · ${summary.failedImages} נכשלו · ${summary.faceCount} פרצופים שמורים`;
+        } else {
+            summaryEl.textContent = faceIndexSummaryError
+                ? 'לא ניתן לטעון את מצב האינדוקס כרגע. נסה שוב בעוד רגע.'
+                : 'טוען את מצב האינדוקס…';
+        }
     }
 
     if (statusEl) {
@@ -141,7 +147,9 @@ async function refreshFaceIndexSummary() {
             faceCount: Math.max(0, Number(summary?.faceCount) || 0),
             ready: summary?.ready === true
         };
+        faceIndexSummaryError = null;
     } catch (error) {
+        faceIndexSummaryError = error;
         console.warn('קריאת מצב אינדוקס הפנים נכשלה:', error);
     }
     renderFaceIndexPanel();
@@ -447,7 +455,10 @@ async function drainAutoIndexQueue() {
             }));
             await saveFaceIndexEntries(entries);
         }
+        // המצב השמור אינו עדכני יותר. גם תקלת קריאה קודמת מתאפסת, אחרת
+        // הלוח היה מציג "לא ניתן לטעון" לפני שנעשה ניסיון קריאה חדש.
         faceIndexSummaryCache = null;
+        faceIndexSummaryError = null;
     } catch (error) {
         // תקלה כאן לעולם אינה משפיעה על ההעלאה עצמה; התמונה תיאסף באינדוקס הבא.
         console.warn('אינדוקס אוטומטי של תמונות חדשות נכשל:', error);
