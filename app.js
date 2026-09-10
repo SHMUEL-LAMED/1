@@ -654,8 +654,15 @@ window.openAdminTaskWindow = function(contentId) {
     if (contentId === 'accTrash') window.renderTrashItems?.();
     if (contentId === 'accSystemHealth') window.runSystemHealthCheck?.();
     if (contentId === 'accFaceIndex') {
-        window.renderFaceIndexPanel?.();
-        window.refreshFaceIndexSummary?.();
+        // renderFaceIndexPanel ו-refreshFaceIndexSummary מוגדרות רק בתוך
+        // face-index.js, והוא נטען עצלה. בלי ההמתנה לטעינה שתי הקריאות
+        // היו no-op, והלוח היה נתקע על "טוען את מצב האינדוקס…".
+        window.ensureFaceIndexModule?.()
+            .then(() => {
+                window.renderFaceIndexPanel?.();
+                return window.refreshFaceIndexSummary?.();
+            })
+            .catch(error => console.error('Face index module failed to load:', error));
     }
     if (contentId === 'accDriveSync') {
         window.restoreDriveConnection?.().then(() => window.loadDriveFolders?.()).catch(() => window.loadDriveFolders?.());
@@ -938,6 +945,9 @@ window.runSystemHealthCheck = async function() {
         {
             label: 'אינדוקס פנים בענן',
             run: async () => {
+                // בלי טעינת המודול refreshFaceIndexSummary אינה קיימת,
+                // והבדיקה הייתה מדווחת "אינו זמין" גם כשהאינדוקס תקין.
+                await window.ensureFaceIndexModule?.();
                 const summary = await window.refreshFaceIndexSummary?.();
                 if (!summary) throw new Error('מצב האינדוקס אינו זמין');
                 return summary.ready
