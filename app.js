@@ -3,7 +3,7 @@
 
 import { initDriveSync } from './drive-sync.js';
 import { initGallery } from './gallery.js';
-import { initAdmin } from './admin.js';
+import './session-ui.js';
 import './popup-announcement.js';
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -39,6 +39,17 @@ const ensureFaceSearchModule = defineLazyModule(() => import('./face-search.js')
 const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), [
     'startFaceIndexing', 'stopFaceIndexing', 'resetFaceIndex'
 ]);
+// admin.js ו-session-ui.js היו עד כה מודול אחד, וכל אורח הוריד את שניהם רק
+// כדי שמסך הכניסה ייראה. עכשיו session-ui.js נטען תמיד, ומודול הניהול —
+// שהוא גם האזור האישי שבמגירה — יורד רק כשפותחים את המגירה או כשמתברר
+// שזו כניסת מנהל.
+const ensureAdminModule = defineLazyModule(() => import('./admin.js'), [
+    'approveSelectedPending', 'rejectSelectedPending', 'toggleSelectAllPending',
+    'approveUserAccess', 'rejectUserAccess', 'changeUserRole', 'toggleUserBlock',
+    'deleteManagedUser', 'resolveDeletionRequest', 'forceRefreshUsers'
+]);
+window.ensureAdminModule = ensureAdminModule;
+
 window.ensureFaceSearchModule = ensureFaceSearchModule;
 window.ensureFaceIndexModule = ensureFaceIndexModule;
 
@@ -329,7 +340,12 @@ function toggleAdminDrawer() {
         drawer.removeAttribute('inert');
         overlay.setAttribute('aria-hidden', 'false');
         if (trigger) trigger.setAttribute('aria-expanded', 'true');
-        if (window.updateAdminUI) window.updateAdminUI();
+        // המגירה מחזיקה גם את האזור האישי וגם את הניהול, ולכן המודול שלה
+        // נמשך כאן — בפתיחה — ולא בכל טעינה של האתר.
+        ensureAdminModule()
+            .then(() => window.updateAdminUI?.())
+            .catch(error => console.error('Admin module failed to load:', error));
+        window.updateAdminUI?.();
         const closeButton = drawer.querySelector('button');
         if (closeButton) requestAnimationFrame(() => closeButton.focus({ preventScroll: true }));
     }
@@ -1848,7 +1864,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.setSiteTheme(document.documentElement.dataset.theme, false);
         initAmbientArchiveBackground();
         scheduleIconRefresh();
-        initAdmin();
+        window.updateSessionUI?.();
         initGallery();
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Service worker registration failed:', error));

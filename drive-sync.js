@@ -1202,6 +1202,15 @@ function stopAdminListeners() {
     if (typeof window.updatePendingBadge === 'function') window.updatePendingBadge();
 }
 
+// מודול הניהול נטען עצלה, ולכן מבקר רגיל אינו מוריד אותו כלל. ברגע
+// שמתברר שזו כניסת מנהל הוא נמשך ברקע, וכשהוא מגיע הממשק מצויר מחדש
+// עם המצב העדכני. מאזיני הניהול עצמם סובלניים למודול שטרם הגיע.
+function ensureAdminModuleForSession() {
+    window.ensureAdminModule?.()
+        .then(() => window.updateAdminUI?.())
+        .catch(error => console.warn('טעינת מודול הניהול נכשלה:', error));
+}
+
 function startAdminListeners() {
     if (!window.state.isAdminLoggedIn || window.adminUnsubscribers.length > 0) return;
 
@@ -1210,8 +1219,8 @@ function startAdminListeners() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(image => !image.status || image.status === 'pending');
         window.state.pendingImages.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        window.renderPendingImages();
-        window.updatePendingBadge();
+        window.renderPendingImages?.();
+        window.updatePendingBadge?.();
     }, reportFirestoreError));
 
     if (!window.state.isSuperAdmin) return;
@@ -1226,13 +1235,13 @@ function startAdminListeners() {
 
         window.state.allUsers = allProfiles.sort((a, b) => String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || ''), 'he'));
         window.state.pendingUsers = pending;
-        window.renderPendingUsers();
-        window.renderManagedUsers();
+        window.renderPendingUsers?.();
+        window.renderManagedUsers?.();
         window.renderAdminMessageUsers?.();
         window.renderAdminMessageReplies?.();
         window.renderFloatingInbox?.();
         window.renderActiveConversation?.();
-        window.updatePendingUsersBadge();
+        window.updatePendingUsersBadge?.();
 
         if (newRequests.length > 0) {
             const label = newRequests.length === 1
@@ -1248,8 +1257,8 @@ function startAdminListeners() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(request => request.status === 'pending')
             .sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
-        window.renderDeletionRequests();
-        window.updateAdminOverview();
+        window.renderDeletionRequests?.();
+        window.updateAdminOverview?.();
     }, reportFirestoreError, { initialDelay: 1000 }));
 
     window.adminUnsubscribers.push(onSnapshot(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'trashItems'), (snapshot) => {
@@ -1408,6 +1417,7 @@ async function initFirebase() {
                 window.state.isInitialSuperAdminAccount = isInitialAdmin;
                 window.state.isAdminLoggedIn = isInitialAdmin;
                 window.state.isSuperAdmin = isInitialAdmin;
+                if (isInitialAdmin) ensureAdminModuleForSession();
                 window.state.isLocked = !isInitialAdmin;
                 window.state.userProfile = isInitialAdmin ? {
                     uid: user.uid,
@@ -1607,6 +1617,7 @@ function setupFirestoreListeners(user) {
             if (approved) startGalleryListeners();
             else stopGalleryListeners();
             if (window.state.isAdminLoggedIn) {
+                ensureAdminModuleForSession();
                 startAdminListeners();
                 restoreDriveConnection(driveReturnStatus === 'connected');
             }
