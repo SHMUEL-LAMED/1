@@ -196,12 +196,12 @@ test("מנהל־על מקבל את כל המונים", async () => {
 });
 
 test("סל המחזור ויומן הפעולות שמורים למנהל־על", async () => {
-  // renderTrashItems ו-renderActivityLogs יושבות ב-app.js, שאינו ניתן
-  // לייבוא כאן; נבדק שהן נושאות את אותו guard בדיוק.
-  const source = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+  // renderTrashItems ו-renderActivityLogs עברו עם לוח הניהול ל-admin-ui.js,
+  // שאינו ניתן לייבוא כאן; נבדק שהן נושאות את אותו guard בדיוק.
+  const source = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
   for (const fn of ["window.renderTrashItems", "window.renderActivityLogs"]) {
     const start = source.indexOf(`${fn} = function`);
-    assert.ok(start > 0, `${fn} לא נמצאה ב-app.js`);
+    assert.ok(start > 0, `${fn} לא נמצאה ב-admin-ui.js`);
     const head = source.slice(start, start + 420);
     assert.match(head, /canViewSuperAdminData\(\)/, `${fn} חסרה בדיקת מנהל־על`);
   }

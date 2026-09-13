@@ -2,13 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// תפריט הניהול נשען על שלושה מקורות שחייבים להסכים ביניהם: כרטיסי המגירה
-// ב-index.html, נושאי הניהול (adminCategoryDefinitions) ורשימת המשימות
+// תפריט הניהול נשען על שלושה מקורות שחייבים להסכים ביניהם: כרטיסי הלוח
+// ב-admin.html, נושאי הניהול (adminCategoryDefinitions) ורשימת המשימות
 // (adminTaskDefinitions) שמזינה את החיפוש. כשהסדר שלהם נפרד — כל פעולה נראית
 // תקועה במקום אחר. הבדיקות כאן נועלות סדר אחד לכל המקורות.
+//
+// שלושתם עברו מדף הגלריה לדף הניהול הנפרד: המרקאפ ל-admin.html וההגדרות
+// ל-admin-ui.js, כדי שהאתר עצמו לא יטען עוד שום קוד ניהול.
 
-const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-const appJs = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+const html = readFileSync(new URL("./admin.html", import.meta.url), "utf8");
+const appJs = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
 
 // הסדר הקנוני: תוכן הגלריה, אחר כך אנשים ותקשורת, ולבסוף כלי המערכת.
 const CANONICAL_TASK_ORDER = [
@@ -24,10 +27,10 @@ const CANONICAL_TASK_ORDER = [
   "accFaceIndex"
 ];
 
-function adminDrawerMarkup() {
+function adminPanelMarkup() {
   const start = html.indexOf('id="sidebarAdminPanel"');
   const end = html.indexOf("lockGalleryImmediatelySidebar");
-  assert.ok(start > -1 && end > start, "מגירת הניהול לא נמצאה ב-index.html");
+  assert.ok(start > -1 && end > start, "לוח הניהול לא נמצא ב-admin.html");
   return html.slice(start, end);
 }
 
@@ -43,7 +46,7 @@ function categoryTargets(categoryName) {
 }
 
 test("כרטיסי המגירה מסודרים לפי הנושאים, בלי order ידני שסותר את הסדר", () => {
-  const drawer = adminDrawerMarkup();
+  const drawer = adminPanelMarkup();
 
   // order ידני כפול היה מפזר כרטיסים בין הכותרות; הסדר נקבע לפי ה-DOM בלבד.
   assert.equal(/style="order:/.test(drawer), false, "נשאר style=\"order\" במגירת הניהול");
@@ -71,7 +74,7 @@ test("כרטיסי המגירה מסודרים לפי הנושאים, בלי ord
 });
 
 test("כל כותרת במגירה מקבצת את הכרטיסים ששייכים לה", () => {
-  const drawer = adminDrawerMarkup();
+  const drawer = adminPanelMarkup();
   const [, gallerySection, peopleSection, systemSection] = drawer.split(/<p class="admin-section-label[^>]*>/);
   const targetsIn = section => [...section.matchAll(/openAdminTaskWindow\('(\w+)'\)/g)].map(match => match[1]);
 

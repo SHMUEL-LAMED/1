@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v37";
+const CACHE_VERSION = "v38";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -8,18 +8,20 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // הניווט עצמו תמיד מנסה קודם את הרשת כדי שלא יישאר עותק ישן לנצח.
 // chat.js אינו כאן בכוונה: הוא נטען בייבוא דינמי רק למשתמש מחובר, ואין
 // טעם להוריד אותו מראש לאורח. הוא נכנס למטמון בשימוש הראשון בו.
+// admin.html ומודולי הניהול אינם כאן בכוונה, מאותו טעם: הם שייכים למנהל
+// בלבד ונכנסים למטמון רק כשהוא פותח את לוח הניהול. גם face-index.js הוא
+// כלי ניהול ולכן אינו נטען מראש לאורח.
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./tailwind.generated.css",
   "./app.js",
+  "./session-ui.js",
   "./gallery.js",
   "./drive-sync.js",
-  "./admin.js",
   "./popup-announcement.js",
   "./face-search.js",
-  "./face-index.js",
   "./cloudflare-client.js",
   "./manifest.webmanifest",
   "./favicon-32.png",
@@ -40,6 +42,12 @@ const FACE_CACHE_NAME = `simchat-gallery-face-${FACE_ASSET_VERSION}`;
 const FACE_CACHE_PREFIX = "simchat-gallery-face-";
 
 const STATIC_DESTINATIONS = new Set(["style", "script", "image", "font", "manifest"]);
+
+// כל דף נשמר תחת הכתובת שלו. ניווט לשורש נחשב לדף הגלריה.
+function navigationCacheKey(url) {
+  const page = url.pathname.split("/").pop();
+  return page && /\.html$/i.test(page) ? `./${page}` : "./index.html";
+}
 
 self.addEventListener("install", event => {
   event.waitUntil(
@@ -114,19 +122,23 @@ self.addEventListener("fetch", event => {
   // תשובות פרטיות של Drive, התחברות, הרשאות ו-API לעולם אינן נשמרות.
   if (PRIVATE_PATH_PATTERN.test(url.pathname)) return;
 
-  // ניווט ו-index.html: קודם רשת, ורק בנפילה חוזרים למטמון.
-  if (request.mode === "navigate" || url.pathname.endsWith("/index.html")) {
+  // ניווט ודפי HTML: קודם רשת, ורק בנפילה חוזרים למטמון.
+  // לאתר יש יותר מדף אחד (הגלריה ולוח הניהול), ולכן כל ניווט נשמר תחת
+  // הדף שלו. שמירה קשיחה תחת index.html הייתה מגישה את הגלריה גם למי
+  // שביקש את admin.html במצב לא מקוון.
+  if (request.mode === "navigate" || /\.html$/i.test(url.pathname)) {
+    const pageKey = navigationCacheKey(url);
     event.respondWith(
       fetch(request)
         .then(response => {
           if (response && response.ok) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put("./index.html", copy));
+            caches.open(CACHE_NAME).then(cache => cache.put(pageKey, copy));
           }
           return response;
         })
-        .catch(() => caches.match("./index.html", { cacheName: CACHE_NAME })
-          .then(cached => cached || caches.match("./index.html")))
+        .catch(() => caches.match(pageKey, { cacheName: CACHE_NAME })
+          .then(cached => cached || caches.match(pageKey)))
     );
     return;
   }

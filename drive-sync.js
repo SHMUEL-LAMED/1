@@ -1204,14 +1204,17 @@ function stopAdminListeners() {
 
 function startAdminListeners() {
     if (!window.state.isAdminLoggedIn || window.adminUnsubscribers.length > 0) return;
+    // אוספי הניהול נקראים רק בדף הניהול. בדף הגלריה אין מי שיצייר אותם,
+    // ואין טעם להעיר את ה-Worker בשאילתות שאיש אינו רואה.
+    if (window.PAGE_MODE !== 'admin') return;
 
     window.adminUnsubscribers.push(onSnapshot(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'pendingImages'), (snapshot) => {
         window.state.pendingImages = snapshot.docs
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(image => !image.status || image.status === 'pending');
         window.state.pendingImages.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        window.renderPendingImages();
-        window.updatePendingBadge();
+        window.renderPendingImages?.();
+        window.updatePendingBadge?.();
     }, reportFirestoreError));
 
     if (!window.state.isSuperAdmin) return;
@@ -1226,13 +1229,13 @@ function startAdminListeners() {
 
         window.state.allUsers = allProfiles.sort((a, b) => String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || ''), 'he'));
         window.state.pendingUsers = pending;
-        window.renderPendingUsers();
-        window.renderManagedUsers();
+        window.renderPendingUsers?.();
+        window.renderManagedUsers?.();
         window.renderAdminMessageUsers?.();
         window.renderAdminMessageReplies?.();
         window.renderFloatingInbox?.();
         window.renderActiveConversation?.();
-        window.updatePendingUsersBadge();
+        window.updatePendingUsersBadge?.();
 
         if (newRequests.length > 0) {
             const label = newRequests.length === 1
@@ -1248,8 +1251,8 @@ function startAdminListeners() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(request => request.status === 'pending')
             .sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
-        window.renderDeletionRequests();
-        window.updateAdminOverview();
+        window.renderDeletionRequests?.();
+        window.updateAdminOverview?.();
     }, reportFirestoreError, { initialDelay: 1000 }));
 
     window.adminUnsubscribers.push(onSnapshot(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'trashItems'), (snapshot) => {
