@@ -112,6 +112,7 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 12px !important;
             }
+            #adminDrawer,
             #adminDrawer {
                 width: 100% !important;
             }
@@ -875,6 +876,7 @@
         }
 
         #drawerOverlay { background: rgba(3,4,7,.72) !important; backdrop-filter: blur(6px) !important; }
+        #adminDrawer,
         #adminDrawer {
             width: min(360px, calc(100vw - 16px)) !important;
             color: #e8ebf0;
@@ -883,33 +885,52 @@
             box-shadow: 30px 0 100px rgba(0,0,0,.48) !important;
             backdrop-filter: none !important;
         }
-        #adminDrawer > div:first-child { color: var(--paper) !important; background: #10141c !important; border-color: var(--line) !important; }
-        #adminDrawer > div:first-child h3 { color: var(--paper) !important; }
-        #adminDrawer > div:first-child h3 svg { color: var(--accent) !important; }
+        #adminDrawer > div:first-child,
+        .admin-surface > div:first-child { color: var(--paper) !important; background: #10141c !important; border-color: var(--line) !important; }
+        #adminDrawer > div:first-child h3,
+        .admin-surface > div:first-child h3 { color: var(--paper) !important; }
+        #adminDrawer > div:first-child h3 svg,
+        .admin-surface > div:first-child h3 svg { color: var(--accent) !important; }
         #adminDrawer [class*="bg-white"],
+        .admin-surface [class*="bg-white"],
         #adminDrawer [class*="bg-slate-50"],
-        #adminDrawer [class*="bg-slate-100"] { background-color: rgba(255,255,255,.035) !important; }
+        .admin-surface [class*="bg-slate-50"],
+        #adminDrawer [class*="bg-slate-100"],
+        .admin-surface [class*="bg-slate-100"] { background-color: rgba(255,255,255,.035) !important; }
         #adminDrawer [class*="bg-indigo-50"],
-        #adminDrawer [class*="bg-blue-50"] { background-color: rgba(100,216,229,.07) !important; }
+        .admin-surface [class*="bg-indigo-50"],
+        #adminDrawer [class*="bg-blue-50"],
+        .admin-surface [class*="bg-blue-50"] { background-color: rgba(100,216,229,.07) !important; }
         #adminDrawer [class*="text-slate-8"],
+        .admin-surface [class*="text-slate-8"],
         #adminDrawer [class*="text-slate-7"],
-        #adminDrawer [class*="text-indigo-9"] { color: #e8ebf0 !important; }
+        .admin-surface [class*="text-slate-7"],
+        #adminDrawer [class*="text-indigo-9"],
+        .admin-surface [class*="text-indigo-9"] { color: #e8ebf0 !important; }
         #adminDrawer [class*="text-slate-6"],
-        #adminDrawer [class*="text-slate-5"] { color: #a6afbf !important; }
-        #adminDrawer [class*="border-slate"] { border-color: var(--line) !important; }
-        #adminDrawer input, #adminDrawer select {
+        .admin-surface [class*="text-slate-6"],
+        #adminDrawer [class*="text-slate-5"],
+        .admin-surface [class*="text-slate-5"] { color: #a6afbf !important; }
+        #adminDrawer [class*="border-slate"],
+        .admin-surface [class*="border-slate"] { border-color: var(--line) !important; }
+        #adminDrawer input, #adminDrawer select,
+        .admin-surface input, .admin-surface select {
             color: var(--paper) !important;
             background: #0b0e14 !important;
             border-color: var(--line-strong) !important;
         }
 
         /* לוח ניהול רחב, ברור ונוח יותר */
+        #adminDrawer,
         #adminDrawer {
             width: min(940px, calc(100vw - 28px)) !important;
         }
-        #adminDrawer button::before { display: none; }
-        #adminDrawer button:hover { transform: none; }
-        #adminDrawer .admin-drawer-header {
+        #adminDrawer button::before,
+        .admin-surface button::before { display: none; }
+        #adminDrawer button:hover,
+        .admin-surface button:hover { transform: none; }
+        #adminDrawer .admin-drawer-header,
+        .admin-surface .admin-drawer-header {
             min-height: 76px;
             padding: 18px 26px !important;
             position: sticky;
@@ -918,8 +939,10 @@
             background: rgba(16,20,28,.96) !important;
             backdrop-filter: blur(18px);
         }
-        #adminDrawer .admin-drawer-header h3 { font-size: 19px; letter-spacing: -.02em; }
-        #adminDrawer .admin-drawer-header > button {
+        #adminDrawer .admin-drawer-header h3,
+        .admin-surface .admin-drawer-header h3 { font-size: 19px; letter-spacing: -.02em; }
+        #adminDrawer .admin-drawer-header > button,
+        .admin-surface .admin-drawer-header > button {
             width: 42px;
             height: 42px;
             display: inline-flex;
@@ -929,7 +952,8 @@
             border-radius: 12px;
             background: rgba(255,255,255,.04);
         }
-        #adminDrawer .admin-drawer-body {
+        #adminDrawer .admin-drawer-body,
+        .admin-surface .admin-drawer-body {
             padding: 22px 26px 30px !important;
             background:
                 radial-gradient(circle at 100% 0, rgba(100,216,229,.055), transparent 32%),
@@ -1165,9 +1189,12 @@
             box-shadow: none !important;
         }
         @media (max-width: 760px) {
-            #adminDrawer { width: 100% !important; }
-            #adminDrawer .admin-drawer-header { min-height: 68px; padding: 14px 16px !important; }
-            #adminDrawer .admin-drawer-body { padding: 16px !important; }
+            #adminDrawer,
+            .admin-surface { width: 100% !important; }
+            #adminDrawer .admin-drawer-header,
+            .admin-surface .admin-drawer-header { min-height: 68px; padding: 14px 16px !important; }
+            #adminDrawer .admin-drawer-body,
+            .admin-surface .admin-drawer-body { padding: 16px !important; }
             #sidebarAdminPanel:not(.hidden) { grid-template-columns: 1fr; }
             #sidebarAdminPanel .admin-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             #sidebarAdminPanel .admin-identity-card,
@@ -1346,30 +1373,41 @@
             color: #9a6500 !important;
             background: #fff8e8 !important;
         }
-        html[data-theme="light"] #adminDrawer {
+        html[data-theme="light"] #adminDrawer,
+        html[data-theme="light"] .admin-surface {
             color: #334155;
             background: #f7f9fc !important;
             border-color: rgba(15,23,42,.1) !important;
             box-shadow: 30px 0 90px rgba(15,23,42,.18) !important;
         }
         html[data-theme="light"] #adminDrawer > div:first-child,
-        html[data-theme="light"] #adminDrawer .admin-drawer-header {
+        html[data-theme="light"] .admin-surface > div:first-child,
+        html[data-theme="light"] #adminDrawer .admin-drawer-header,
+        html[data-theme="light"] .admin-surface .admin-drawer-header {
             color: #172033 !important;
             background: rgba(255,255,255,.96) !important;
             border-color: rgba(15,23,42,.09) !important;
         }
-        html[data-theme="light"] #adminDrawer .admin-drawer-body {
+        html[data-theme="light"] #adminDrawer .admin-drawer-body,
+        html[data-theme="light"] .admin-surface .admin-drawer-body {
             background:
                 radial-gradient(circle at 100% 0, rgba(41,171,190,.07), transparent 32%),
                 #f7f9fc;
         }
         html[data-theme="light"] #adminDrawer [class*="text-slate-8"],
+        html[data-theme="light"] .admin-surface [class*="text-slate-8"],
         html[data-theme="light"] #adminDrawer [class*="text-slate-7"],
-        html[data-theme="light"] #adminDrawer [class*="text-indigo-9"] { color: #263247 !important; }
+        html[data-theme="light"] .admin-surface [class*="text-slate-7"],
+        html[data-theme="light"] #adminDrawer [class*="text-indigo-9"],
+        html[data-theme="light"] .admin-surface [class*="text-indigo-9"] { color: #263247 !important; }
         html[data-theme="light"] #adminDrawer [class*="text-slate-6"],
-        html[data-theme="light"] #adminDrawer [class*="text-slate-5"] { color: #667085 !important; }
+        html[data-theme="light"] .admin-surface [class*="text-slate-6"],
+        html[data-theme="light"] #adminDrawer [class*="text-slate-5"],
+        html[data-theme="light"] .admin-surface [class*="text-slate-5"] { color: #667085 !important; }
         html[data-theme="light"] #adminDrawer input,
-        html[data-theme="light"] #adminDrawer select {
+        html[data-theme="light"] .admin-surface input,
+        html[data-theme="light"] #adminDrawer select,
+        html[data-theme="light"] .admin-surface select {
             color: #172033 !important;
             background: #fff !important;
             border-color: rgba(15,23,42,.13) !important;
@@ -4280,6 +4318,7 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 /* ============================================================
    מרכז ניהול חדש + מצב אתר ללא תנועה
    ============================================================ */
+#adminDrawer,
 #adminDrawer {
     width: min(1180px, calc(100vw - 32px)) !important;
     background:
@@ -4605,7 +4644,8 @@ iframe.conversation-viewer-media { width: 100%; height: 100%; background: #fff; 
 .admin-search-hidden { display: none !important; }
 
 @media (max-width: 900px) {
-    #adminDrawer { width: 100vw !important; }
+    #adminDrawer,
+    .admin-surface { width: 100vw !important; }
     .admin-drawer-header { min-height: 76px; padding: 14px 18px; }
     .admin-drawer-body { padding: 16px !important; }
     #sidebarAdminPanel:not(.hidden) { grid-template-columns: 1fr; }
@@ -4729,3 +4769,55 @@ html[data-theme="light"] .gate-login {
 @media (max-width: 680px) {
     body.gallery-locked .entry-identity { align-items: center; }
 }
+
+/* --- דף הניהול הנפרד (admin.html) --- */
+/* לוח הניהול ישב עד היום בתוך #adminDrawer, וכל צביעת הרכיבים שבתוכו
+   נשענה על הסלקטור הזה. בדף הנפרד אין מגירה, ולכן .admin-surface מקבלת
+   את אותן הגדרות תוכן — בלי הגאומטריה של המגירה. */
+.admin-page-main {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 16px 64px;
+    flex: 1;
+}
+.admin-page .gate { margin: 32px auto; }
+.admin-surface {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 26px;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .35);
+}
+.admin-surface .admin-drawer-body { padding: 22px; }
+/* קישור החזרה בכותרת, ובאזור האישי הקישור אל הלוח עצמו. */
+.admin-back-link,
+.admin-page-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: all .2s ease;
+}
+.admin-back-link {
+    padding: 8px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    background: rgba(255, 255, 255, .04);
+    color: #e8ebf0;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.admin-back-link:hover { background: rgba(255, 255, 255, .09); }
+.admin-page-link:not(.hidden) { display: flex; }
+.admin-page-link:hover { background: rgba(16, 185, 129, .12); }
+@media (max-width: 680px) {
+    .admin-page-main { padding: 18px 12px 48px; }
+    .admin-surface { border-radius: 20px; }
+    .admin-surface .admin-drawer-body { padding: 14px; }
+    .admin-back-link span { display: none; }
+}
+html[data-theme="light"] .admin-surface {
+    box-shadow: 0 24px 70px rgba(15, 23, 42, .12);
+}
+html[data-theme="light"] .admin-back-link { color: #263247; background: rgba(15, 23, 42, .04); }

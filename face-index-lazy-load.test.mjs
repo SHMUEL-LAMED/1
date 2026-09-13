@@ -14,7 +14,10 @@ function withoutComments(source) {
   return source.replace(/^[ \t]*\/\/.*$/gm, "");
 }
 
+// המעטפת העצלה נשארה בתשתית המשותפת (app.js), אבל לוח האינדוקס ובדיקת
+// המערכת עברו לדף הניהול הנפרד ולכן נבדקים ב-admin-ui.js.
 const appJs = withoutComments(readFileSync(new URL("./app.js", import.meta.url), "utf8"));
+const adminUiJs = withoutComments(readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8"));
 const faceIndexJs = readFileSync(new URL("./face-index.js", import.meta.url), "utf8");
 const faceIndexCode = withoutComments(faceIndexJs);
 
@@ -31,18 +34,18 @@ function registeredPlaceholders() {
   return [...block.matchAll(/'(\w+)'/g)].map(match => match[1]);
 }
 
-// קטע הקוד שמטפל בפתיחת לוח האינדוקס במגירת הניהול.
+// קטע הקוד שמטפל בפתיחת לוח האינדוקס בלוח הניהול.
 function faceIndexPanelBlock() {
-  const start = appJs.indexOf("if (contentId === 'accFaceIndex')");
-  assert.ok(start > -1, "מסלול פתיחת לוח האינדוקס לא נמצא ב-app.js");
-  return appJs.slice(start, start + 700);
+  const start = adminUiJs.indexOf("if (contentId === 'accFaceIndex')");
+  assert.ok(start > -1, "מסלול פתיחת לוח האינדוקס לא נמצא ב-admin-ui.js");
+  return adminUiJs.slice(start, start + 700);
 }
 
 // בדיקת "אינדוקס פנים בענן" שבמסך בדיקת המערכת.
 function healthCheckBlock() {
-  const start = appJs.indexOf("label: 'אינדוקס פנים בענן'");
-  assert.ok(start > -1, "בדיקת אינדוקס הפנים לא נמצאה ב-app.js");
-  return appJs.slice(start, start + 700);
+  const start = adminUiJs.indexOf("label: 'אינדוקס פנים בענן'");
+  assert.ok(start > -1, "בדיקת אינדוקס הפנים לא נמצאה ב-admin-ui.js");
+  return adminUiJs.slice(start, start + 700);
 }
 
 test("refreshFaceIndexSummary מוגדרת רק במודול העצל, ולכן חייבת המתנה לטעינה", () => {
