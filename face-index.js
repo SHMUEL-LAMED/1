@@ -29,7 +29,10 @@ const faceIndexRun = {
     faces: 0,
     total: 0,
     remaining: 0,
-    message: ''
+    message: '',
+    // התקלה האחרונה נשמרת כדי שהפעלה אוטומטית תדע לנסות שוב בכניסה הבאה,
+    // במקום לסמן את הריצה כ"בוצעה" אחרי שהיא נעצרה באמצע.
+    lastError: null
 };
 
 let faceIndexSummaryCache = null;
@@ -43,6 +46,31 @@ let initialFaceIndexCheckRunning = false;
 function faceIndexModelVersion() {
     return String(window.FACE_MODEL_VERSION || 'faceapi-1.7.15-ssd-l68-r1');
 }
+
+// מנוע זיהוי הפנים עצמו (window.loadFaceApi ו-window.loadFaceImageElement)
+// מוגדר ב-face-search.js. שני המודולים נטענים עצלה ובנפרד, ולכן מנהל שפתח
+// את לוח האינדוקס בלי לפתוח קודם את חיפוש הפנים קיבל
+// "window.loadFaceApi is not a function" והריצה נעצרה מיד. כאן נמשך המודול
+// לפי הצורך לפני כל שימוש במנוע, כך שאין תלות בסדר הפעולות של המשתמש.
+async function ensureFaceEngineModule() {
+    if (typeof window.loadFaceApi === 'function' && typeof window.loadFaceImageElement === 'function') return;
+    if (typeof window.ensureFaceSearchModule === 'function') {
+        await window.ensureFaceSearchModule();
+    } else {
+        await import('./face-search.js');
+    }
+    if (typeof window.loadFaceApi !== 'function' || typeof window.loadFaceImageElement !== 'function') {
+        throw new Error('מודול חיפוש הפנים לא נטען. רענן את הדף ונסה שוב.');
+    }
+}
+window.ensureFaceEngineModule = ensureFaceEngineModule;
+
+// טעינת המנוע עצמו. מחזירה את אותו faceapi שבו משתמש גם חיפוש הפנים.
+async function ensureFaceEngine() {
+    await ensureFaceEngineModule();
+    return window.loadFaceApi();
+}
+window.ensureFaceEngine = ensureFaceEngine;
 
 function faceIndexDelay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -199,6 +227,7 @@ async function describeImageFaces(faceapi, candidate) {
     const cached = window.descriptorCache?.[candidate.imageId];
     if (Array.isArray(cached)) return cached.slice(0, FACE_INDEX_MAX_FACES);
 
+    // ensureFaceEngine כבר ודאה את שני הכלים לפני שהריצה התחילה.
     const element = await window.loadFaceImageElement(candidate.url);
     const detections = await faceapi.detectAllFaces(element).withFaceLandmarks().withFaceDescriptors();
     const faces = (detections || [])
@@ -243,12 +272,13 @@ async function startFaceIndexing() {
     faceIndexRun.processed = 0;
     faceIndexRun.failed = 0;
     faceIndexRun.faces = 0;
+    faceIndexRun.lastError = null;
     faceIndexRun.message = 'טוען את מנוע זיהוי הפנים…';
     renderFaceIndexPanel();
 
     let pending = [];
     try {
-        const faceapi = await window.loadFaceApi();
+        const faceapi = await ensureFaceEngine();
 
         faceIndexRun.message = 'בודק אילו תמונות עדיין ממתינות…';
         renderFaceIndexPanel();
@@ -322,6 +352,7 @@ async function startFaceIndexing() {
         }
     } catch (error) {
         console.error('אינדוקס הפנים נכשל:', error);
+        faceIndexRun.lastError = error;
         faceIndexRun.message = error?.status === 404
             ? 'האינדוקס בענן אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית ולנסות שוב.'
             : `האינדוקס נעצר בגלל שגיאה: ${error?.message || 'שגיאה לא ידועה'}. אפשר להמשיך מהמקום שנעצר.`;
@@ -398,8 +429,14 @@ async function maybeStartInitialFaceIndexing() {
         renderFaceIndexPanel();
         try { sessionStorage.setItem(FACE_INDEX_INITIAL_AUTO_KEY, 'done'); } catch {}
         await startFaceIndexing();
+        // ריצה שנעצרה באמצע בגלל תקלה אינה "בוצעה": מסירים את הסימון כדי
+        // שהכניסה הבאה תמשיך אוטומטית מהמקום שנעצר במקום לוותר עד לחיצה ידנית.
+        if (faceIndexRun.lastError) {
+            try { sessionStorage.removeItem(FACE_INDEX_INITIAL_AUTO_KEY); } catch {}
+        }
     } catch (error) {
         console.warn('הפעלת אינדוקס הפנים הראשוני נכשלה:', error);
+        try { sessionStorage.removeItem(FACE_INDEX_INITIAL_AUTO_KEY); } catch {}
     } finally {
         initialFaceIndexCheckRunning = false;
     }
@@ -441,7 +478,7 @@ async function drainAutoIndexQueue() {
     }
     autoIndexDraining = true;
     try {
-        const faceapi = await window.loadFaceApi();
+        const faceapi = await ensureFaceEngine();
         while (autoIndexQueue.length) {
             const candidates = autoIndexQueue.splice(0, FACE_INDEX_SAVE_CHUNK);
             const pending = await fetchPendingImageIds(candidates);
