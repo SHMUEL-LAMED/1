@@ -113,6 +113,10 @@ async function load(roleName) {
   moduleCounter += 1;
   await import(`./admin.js?perm=${moduleCounter}`);
   await import(`./chat.js?perm=${moduleCounter}`);
+  // מרכז ההודעות של מנהל־העל עבר ל-chat-admin.js, שנטען רק בדף הניהול.
+  // הבדיקה טוענת את שניהם, כי הכלל שנבדק כאן — שאין דליפת מידע ניהולי —
+  // חייב לחול גם כששני המודולים נמצאים יחד.
+  await import(`./chat-admin.js?perm=${moduleCounter}`);
   return { win: globalThis.window, text: id => globalThis.document.getElementById(id).textContent, notifications };
 }
 

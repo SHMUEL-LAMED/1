@@ -9,6 +9,10 @@
 // ב-localStorage — ולכן אין כאן כניסה מחדש.
 
 import './app.js';
+// סנכרון Drive ומאזיני נתוני הניהול נטענים כאן בלבד. app.js מביא את
+// שכבת ההתחברות, והמודול הזה מתחבר אליה דרך window.
+import './drive-sync.js';
+import './popup-admin.js';
 import { initAdmin } from './admin.js';
 import './admin-ui.js';
 
@@ -48,7 +52,7 @@ window.updateAdminPanelUI = function() {
 // נטען עצלה, ולכן ממתינים לו לפני הפתיחה.
 function openRequestedSection() {
     if (window.location.hash !== '#messages' || !window.state?.isSuperAdmin) return;
-    window.ensureChatModule?.()
+    window.ensureChatAdminModule?.()
         .then(() => window.openAdminMessagesCenter?.())
         .catch(error => console.error('Chat module failed to load:', error));
 }
