@@ -4,7 +4,7 @@
 // מודול הניהול אינו מיובא כאן. הוא נטען רק מ-admin-app.js שבדף הניהול,
 // ולכן מבקר בגלריה אינו מוריד אותו — זו הסיבה לקיומו של admin.html.
 
-import { initDriveSync } from './drive-sync.js';
+import { initSession } from './session-auth.js';
 import { initGallery } from './gallery.js';
 import { initSessionUI } from './session-ui.js';
 import './popup-announcement.js';
@@ -54,10 +54,18 @@ window.ensureFaceIndexModule = ensureFaceIndexModule;
 // chat.js אינו נטען בפתיחת האתר אלא בייבוא דינמי. מבקר שאינו מחובר לעולם
 // אינו מוריד אותו, ולמי שכן מחובר הוא יורד אחרי הציור הראשון במקום לעכב
 // אותו. ensureChatModule היא השער היחיד, והמודול נטען פעם אחת בלבד.
-const ensureChatModule = defineLazyModule(() => import('./chat.js'), [
-    'openUserConversation', 'openAdminMessagesCenter', 'openAdminConversation', 'openAdminMessagesForUser'
-]);
+const ensureChatModule = defineLazyModule(() => import('./chat.js'), ['openUserConversation']);
 window.ensureChatModule = ensureChatModule;
+
+// מרכז ההודעות הניהולי הוא מודול נפרד, ונרשם רק בדף הניהול. בדף הגלריה
+// השמות האלה נשארים לא מוגדרים בכוונה: כך כפתור של מנהל־על מנווט לדף
+// הניהול במקום למשוך לכאן קוד שאין לו מרקאפ.
+if (PAGE_MODE === 'admin') {
+    const ensureChatAdminModule = defineLazyModule(() => import('./chat-admin.js'), [
+        'openAdminMessagesCenter', 'openAdminConversation', 'openAdminMessagesForUser'
+    ]);
+    window.ensureChatAdminModule = ensureChatAdminModule;
+}
 
 // תג ההודעות שלא נקראו מוצג בפאנל הפרופיל בלי שנפתח שום חלון, ולכן משתמש
 // מחובר חייב את chat.js גם אם לא נגע בצ׳אט. הפונקציה הזו מושכת את המודול
@@ -1110,8 +1118,9 @@ window.formatBytes = formatBytes;
 window.r2Request = r2Request;
 window.R2_WORKER_BASE_URL = R2_WORKER_BASE_URL;
 
-// אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחבר Drive.
-initDriveSync();
+// אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחילה
+// שכבת ההתחברות. סנכרון Drive עצמו נטען רק בדף הניהול.
+initSession();
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
