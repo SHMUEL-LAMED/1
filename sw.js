@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v36";
+const CACHE_VERSION = "v37";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -33,7 +33,10 @@ const PRIVATE_PATH_PATTERN = /\/(?:drive|auth|login|logout|token|session|user|us
 // נכסי מנוע זיהוי הפנים. אין טעינה מוקדמת שלהם, אך אחרי שהמשתמש
 // פתח את חיפוש הפנים פעם אחת מותר לשמור אותם לשימוש הבא.
 const FACE_ASSET_PATTERN = /\/face-assets\//i;
-const FACE_CACHE_NAME = `simchat-gallery-face-${CACHE_VERSION}`;
+// נכסי המנוע אינם משתנים עם קוד האתר, ולכן יש להם מספר גרסה נפרד: תיקון
+// בקוד לא יגרור הורדה מחדש של מודלי הזיהוי באמצע אינדוקס.
+const FACE_ASSET_VERSION = "faceapi-1.7.15-ssd-l68-r1";
+const FACE_CACHE_NAME = `simchat-gallery-face-${FACE_ASSET_VERSION}`;
 const FACE_CACHE_PREFIX = "simchat-gallery-face-";
 
 const STATIC_DESTINATIONS = new Set(["style", "script", "image", "font", "manifest"]);
