@@ -2,107 +2,116 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// תפריט הניהול נשען על שלושה מקורות שחייבים להסכים ביניהם: כרטיסי הלוח
-// ב-admin.html, נושאי הניהול (adminCategoryDefinitions) ורשימת המשימות
-// (adminTaskDefinitions) שמזינה את החיפוש. כשהסדר שלהם נפרד — כל פעולה נראית
-// תקועה במקום אחר. הבדיקות כאן נועלות סדר אחד לכל המקורות.
+// עד השכתוב היו שלושה מקורות שהיו חייבים להסכים ביניהם: כרטיסי הלוח
+// ב-admin.html, נושאי הניהול ורשימת המשימות שמזינה את החיפוש. כשהסדר שלהם
+// נפרד — כל פעולה נראתה תקועה במקום אחר, ואותו תוכן הופיע בשני מקומות.
 //
-// שלושתם עברו מדף הגלריה לדף הניהול הנפרד: המרקאפ ל-admin.html וההגדרות
-// ל-admin-ui.js, כדי שהאתר עצמו לא יטען עוד שום קוד ניהול.
+// עכשיו יש מקור אחד: ADMIN_VIEWS שב-admin-ui.js. הוא מזין את התפריט, את
+// החיפוש ואת סדר המסכים, ולכל מסך יש section אחד ויחיד ב-admin.html.
+// הבדיקות כאן נועלות בדיוק את זה.
 
 const html = readFileSync(new URL("./admin.html", import.meta.url), "utf8");
-const appJs = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
+const adminUiJs = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
 
-// הסדר הקנוני: תוכן הגלריה, אחר כך אנשים ותקשורת, ולבסוף כלי המערכת.
-const CANONICAL_TASK_ORDER = [
-  "accPending",
-  "accDriveSync",
-  "accEmptyFolder",
-  "accDeletionRequests",
-  "accTrash",
-  "accUserApprovals",
-  "accPopupAnnouncement",
-  "accActivityCenter",
-  "accSystemHealth",
-  "accFaceIndex"
+function viewRegistryBlock() {
+  const start = adminUiJs.indexOf("const ADMIN_VIEWS = [");
+  const end = adminUiJs.indexOf("const VIEW_GROUPS");
+  assert.ok(start > -1 && end > start, "ADMIN_VIEWS לא נמצאה ב-admin-ui.js");
+  return adminUiJs.slice(start, end);
+}
+
+function registeredViews() {
+  return [...viewRegistryBlock().matchAll(/^\s{8}id: '([\w-]+)',\n\s{8}group: '([^']+)'/gm)]
+    .map(match => ({ id: match[1], group: match[2] }));
+}
+
+const CANONICAL_VIEW_ORDER = [
+  "dashboard",
+  "pending",
+  "drive",
+  "folders",
+  "deletions",
+  "trash",
+  "users",
+  "messages",
+  "popup",
+  "activity",
+  "analytics",
+  "backup",
+  "health",
+  "faceindex",
+  "tools"
 ];
 
-function adminPanelMarkup() {
-  const start = html.indexOf('id="sidebarAdminPanel"');
-  const end = html.indexOf("lockGalleryImmediatelySidebar");
-  assert.ok(start > -1 && end > start, "לוח הניהול לא נמצא ב-admin.html");
-  return html.slice(start, end);
-}
-
-function categoryTargets(categoryName) {
-  const block = appJs.slice(appJs.indexOf("const adminCategoryDefinitions"), appJs.indexOf("let activeAdminCategoryId"));
-  const names = ["gallery", "users", "system"];
-  const bounds = names.map(name => ({ name, index: block.indexOf(`\n    ${name}: {`) }));
-  bounds.forEach(({ name, index }) => assert.ok(index > -1, `הנושא ${name} חסר בהגדרות`));
-  const position = bounds.findIndex(entry => entry.name === categoryName);
-  const from = bounds[position].index;
-  const to = position + 1 < bounds.length ? bounds[position + 1].index : block.length;
-  return [...block.slice(from, to).matchAll(/target: '(acc\w+)'/g)].map(match => match[1]);
-}
-
-test("כרטיסי המגירה מסודרים לפי הנושאים, בלי order ידני שסותר את הסדר", () => {
-  const drawer = adminPanelMarkup();
-
-  // order ידני כפול היה מפזר כרטיסים בין הכותרות; הסדר נקבע לפי ה-DOM בלבד.
-  assert.equal(/style="order:/.test(drawer), false, "נשאר style=\"order\" במגירת הניהול");
-
-  const labels = [...drawer.matchAll(/admin-section-label[^>]*>([^<]+)</g)].map(match => match[1].trim());
-  assert.deepEqual(labels, ["תוכן הגלריה", "תקשורת ואנשים", "כלי מערכת"]);
-
-  const cardsRegion = drawer.slice(drawer.indexOf("תוכן הגלריה"));
-  const opened = [...cardsRegion.matchAll(/openAdminTaskWindow\('(\w+)'\)|(openAdminMessagesCenter\(\))/g)]
-    .map(match => match[1] || "messages");
-
-  assert.deepEqual(opened, [
-    "accPending",
-    "accDriveSync",
-    "accEmptyFolder",
-    "accDeletionRequests",
-    "accTrash",
-    "accUserApprovals",
-    "messages",
-    "accPopupAnnouncement",
-    "accActivityCenter",
-    "accSystemHealth",
-    "accFaceIndex"
-  ]);
+test("רשימת המסכים היא המקור היחיד, והסדר שלה קבוע", () => {
+  assert.deepEqual(registeredViews().map(view => view.id), CANONICAL_VIEW_ORDER);
 });
 
-test("כל כותרת במגירה מקבצת את הכרטיסים ששייכים לה", () => {
-  const drawer = adminPanelMarkup();
-  const [, gallerySection, peopleSection, systemSection] = drawer.split(/<p class="admin-section-label[^>]*>/);
-  const targetsIn = section => [...section.matchAll(/openAdminTaskWindow\('(\w+)'\)/g)].map(match => match[1]);
-
-  assert.deepEqual(targetsIn(gallerySection), ["accPending", "accDriveSync", "accEmptyFolder", "accDeletionRequests", "accTrash"]);
-  assert.deepEqual(targetsIn(peopleSection), ["accUserApprovals", "accPopupAnnouncement"]);
-  assert.deepEqual(targetsIn(systemSection), ["accActivityCenter", "accSystemHealth", "accFaceIndex"]);
-});
-
-test("כל משימת ניהול שייכת לנושא אחד בלבד", () => {
-  const all = ["gallery", "users", "system"].flatMap(categoryTargets);
-  const duplicates = all.filter((target, index) => all.indexOf(target) !== index);
-
-  assert.deepEqual(duplicates, [], `משימה שמופיעה בשני נושאים גורמת לפתיחה מהמקום הלא נכון: ${duplicates.join(", ")}`);
-  assert.deepEqual([...all].sort(), [...CANONICAL_TASK_ORDER].sort(), "יש משימה שאינה מגיעה מאף נושא");
-});
-
-test("סדר הפעולות בכל נושא זהה לסדר הקנוני", () => {
-  const rank = target => CANONICAL_TASK_ORDER.indexOf(target);
-  for (const category of ["gallery", "users", "system"]) {
-    const targets = categoryTargets(category);
-    const sorted = [...targets].sort((a, b) => rank(a) - rank(b));
-    assert.deepEqual(targets, sorted, `הפעולות בנושא ${category} אינן בסדר הקנוני`);
+test("לכל מסך ברשימה יש section אחד בדיוק בדף הניהול", () => {
+  for (const view of registeredViews()) {
+    const occurrences = html.split(`data-view="${view.id}"`).length - 1;
+    assert.equal(
+      occurrences,
+      1,
+      `המסך ${view.id} מופיע ${occurrences} פעמים ב-admin.html — חייב להופיע בדיוק פעם אחת`
+    );
+    assert.ok(html.includes(`id="view-${view.id}"`), `החלק view-${view.id} חסר ב-admin.html`);
   }
 });
 
-test("רשימת המשימות שמזינה את החיפוש שומרת על אותו סדר", () => {
-  const block = appJs.slice(appJs.indexOf("const adminTaskDefinitions"), appJs.indexOf("let activeAdminTask"));
-  const keys = [...block.matchAll(/^ {4}(acc\w+): \{/gm)].map(match => match[1]);
+test("אין ב-admin.html מסך שאינו מופיע ברשימת המסכים", () => {
+  const inHtml = [...html.matchAll(/data-view="([\w-]+)"/g)].map(match => match[1]);
+  const known = new Set(registeredViews().map(view => view.id));
+  for (const id of inHtml) {
+    assert.ok(known.has(id), `המסך ${id} קיים ב-admin.html אך אינו רשום ב-ADMIN_VIEWS`);
+  }
+});
 
-  assert.deepEqual(keys, CANONICAL_TASK_ORDER);
+test("המסכים מקובצים לפי הקבוצות המוכרות, והקבוצות אינן מתערבבות", () => {
+  const groups = registeredViews().map(view => view.group);
+  const declared = [...adminUiJs.matchAll(/const VIEW_GROUPS = \[([^\]]+)\]/g)][0];
+  assert.ok(declared, "VIEW_GROUPS לא נמצאה");
+  const order = [...declared[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
+
+  for (const group of groups) {
+    assert.ok(order.includes(group), `הקבוצה ${group} אינה מוכרת ב-VIEW_GROUPS`);
+  }
+  // קבוצה שנפתחת, נסגרת ונפתחת שוב הייתה מפזרת את אותו נושא בשני מקומות בתפריט.
+  const seen = [];
+  let previous = "";
+  for (const group of groups) {
+    if (group === previous) continue;
+    assert.ok(!seen.includes(group), `הקבוצה ${group} מופיעה פעמיים ברשימה`);
+    seen.push(group);
+    previous = group;
+  }
+  assert.deepEqual(seen, order);
+});
+
+test("מסכים של מנהל־על מסומנים ככאלה גם ברשימה וגם במרקאפ", () => {
+  const block = viewRegistryBlock();
+  for (const id of ["deletions", "trash", "users", "messages", "popup", "activity", "analytics", "backup"]) {
+    const entry = block.slice(block.indexOf(`id: '${id}'`), block.indexOf(`id: '${id}'`) + 700);
+    assert.match(entry, /superAdminOnly: true/, `המסך ${id} חייב להיות מסומן כמסך מנהל־על`);
+  }
+
+  // והצד השני: המרקאפ עצמו חייב להיות מסומן, אחרת מנהל דרגה 3 היה רואה
+  // את הכרטיס (ריק) עד שהקוד היה מסתיר אותו.
+  for (const id of ["deletions", "trash", "users", "messages", "popup", "activity", "analytics", "backup"]) {
+    const start = html.indexOf(`id="view-${id}"`);
+    const section = html.slice(start, html.indexOf("</section>", start));
+    assert.match(section, /super-admin-only/, `המרקאפ של ${id} חייב לשאת super-admin-only`);
+  }
+});
+
+test("שמות המסכים הישנים ממשיכים להוביל למסך הנכון", () => {
+  // openAdminTaskWindow('accPending') נקראת עדיין מקוד קיים, ולכן היא חייבת
+  // להמשיך לעבוד — אך בלי לפתוח חלון נפרד שמכפיל את התוכן.
+  const map = adminUiJs.slice(adminUiJs.indexOf("const LEGACY_TASK_TO_VIEW"), adminUiJs.indexOf("window.openAdminTaskWindow"));
+  const known = new Set(registeredViews().map(view => view.id));
+  const pairs = [...map.matchAll(/(acc\w+): '([\w-]+)'/g)];
+  assert.ok(pairs.length >= 10, "מיפוי השמות הישנים לא נקרא כראוי");
+  for (const [, legacy, viewId] of pairs) {
+    assert.ok(known.has(viewId), `${legacy} מפנה למסך ${viewId} שאינו קיים`);
+  }
 });

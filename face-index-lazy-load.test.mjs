@@ -36,8 +36,8 @@ function registeredPlaceholders() {
 
 // קטע הקוד שמטפל בפתיחת לוח האינדוקס בלוח הניהול.
 function faceIndexPanelBlock() {
-  const start = adminUiJs.indexOf("if (contentId === 'accFaceIndex')");
-  assert.ok(start > -1, "מסלול פתיחת לוח האינדוקס לא נמצא ב-admin-ui.js");
+  const start = adminUiJs.indexOf("if (viewId === 'faceindex')");
+  assert.ok(start > -1, "מסלול פתיחת מסך האינדוקס לא נמצא ב-admin-ui.js");
   return adminUiJs.slice(start, start + 700);
 }
 

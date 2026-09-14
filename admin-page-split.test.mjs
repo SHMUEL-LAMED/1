@@ -27,12 +27,12 @@ const chatJs = read("chat.js");
 // שמצייר אותו.
 const ADMIN_MARKUP_IDS = [
   "sidebarAdminPanel",
-  "adminTaskModal",
-  "adminCategoryModal",
+  "adminNav",
   "adminMessagesCenterModal",
-  "backupRestoreModal",
-  "advancedAnalyticsModal",
-  "directEmailModal"
+  "directEmailModal",
+  "view-users",
+  "view-backup",
+  "view-analytics"
 ];
 
 test("דף הגלריה אינו מכיל את מרקאפ הניהול", () => {
@@ -156,19 +156,24 @@ test("אוספי הניהול נקראים רק בדף הניהול", () => {
   assert.match(appJs, /window\.PAGE_MODE = PAGE_MODE/);
 });
 
-test("כל משימת ניהול מוצאת את הכרטיס שלה בדף הניהול", () => {
-  // openAdminTaskWindow מעביר את הכרטיס עצמו לתוך חלון המשימה. אם הכרטיס
-  // נשאר מאחור בדף הגלריה, החלון נפתח ריק.
+test("כל מסך ניהול קיים בדף פעם אחת, ואינו מועבר בין הורים", () => {
+  // הגרסה הקודמת העבירה את הכרטיס עצמו לתוך חלון משימה. משם הגיעו גם
+  // הכפילויות (אותו תוכן בתפריט ובחלון) וגם חלונות שנפתחו ריקים.
   const adminUiJs = read("admin-ui.js");
-  const block = adminUiJs.slice(
-    adminUiJs.indexOf("const adminTaskDefinitions"),
-    adminUiJs.indexOf("let activeAdminTask")
-  );
-  const taskIds = [...block.matchAll(/^ {4}(acc\w+):/gm)].map(match => match[1]);
-  assert.ok(taskIds.length >= 10, "רשימת המשימות לא נקראה כראוי");
-  for (const id of taskIds) {
-    assert.ok(adminHtml.includes(`id="${id}"`), `הכרטיס ${id} חסר ב-admin.html`);
+  const viewIds = [...adminUiJs.matchAll(/^ {8}id: '([\w-]+)',$/gm)].map(match => match[1]);
+  assert.ok(viewIds.length >= 12, "רשימת המסכים לא נקראה כראוי");
+  for (const id of viewIds) {
+    assert.equal(
+      adminHtml.split(`id="view-${id}"`).length - 1,
+      1,
+      `המסך ${id} חייב להופיע בדיוק פעם אחת ב-admin.html`
+    );
   }
+
+  // אין יותר חלון משימה ואין העברת רכיבים בין הורים.
+  assert.ok(!adminHtml.includes('id="adminTaskModal"'), "חלון המשימה הוסר לטובת מסכים קבועים");
+  assert.ok(!adminUiJs.includes("restoreAdminTaskContent"), "אין יותר החזרה של תוכן שהועבר");
+  assert.ok(!read("app.js").includes("restoreAdminTaskContent"), "גם התשתית המשותפת אינה מכירה את המנגנון הישן");
 });
 
 test("המנהל מגיע ללוח מהאתר, ומרכז ההודעות מנווט אליו גם הוא", () => {
