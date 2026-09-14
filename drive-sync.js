@@ -18,6 +18,11 @@ import { onSnapshot, reportFirestoreError, getAuthInstance, dismissGoogleOneTap 
 let driveAccessToken = null;
 let driveAccessTokenExpiresAt = 0;
 let driveRestoredForUid = '';
+// שתי אלה נותרו חסרות מאותו פיצול. DRIVE_WORKER_BASE_URL נדרשת בכל פנייה
+// ל-Worker, ו-driveRestorePromise שומרת על שחזור חיבור יחיד במקום מקביל —
+// שתיהן נמצאות במסלולים שרצים רק אחרי התחברות, ולכן לא צצו בטעינת הדף.
+const DRIVE_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
+let driveRestorePromise = null;
 
 function setDriveConnectionUI(email = '') {
     const connected = Boolean(driveAccessToken);
