@@ -38,9 +38,9 @@ window.updateAdminPanelUI = function() {
     }
     if (adminGrade) {
         adminGrade.textContent = window.state.isSuperAdmin ? 'דרגה 4 — מנהל־על' : 'דרגה 3 — מנהל';
-        adminGrade.className = window.state.isSuperAdmin
-            ? 'text-[9px] px-2 py-1 rounded-full font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20'
-            : 'text-[9px] px-2 py-1 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        // הצבע מגיע מהאסימונים שב-styles.css, ולכן הוא נכון בשני מצבי התצוגה.
+        adminGrade.className = 'admin-grade-badge';
+        adminGrade.dataset.grade = window.state.isSuperAdmin ? 'super' : 'admin';
     }
     if (window.state.isSuperAdmin) {
         superAdminOnlyElements.forEach(element => element.classList.remove('hidden'));
@@ -56,6 +56,9 @@ window.updateAdminPanelUI = function() {
     window.updatePendingUsersBadge();
     window.renderManagedUsers();
     window.renderDeletionRequests();
+    // התפריט נבנה מחדש בכל שינוי הרשאה: מסכי מנהל־על נוספים או נעלמים.
+    window.renderAdminNavigation?.();
+    window.updateAdminOverviewExtras?.();
     window.scheduleIconRefresh();
     // האינדוקס הראשוני מתחיל רק בדף הניהול, ורק אחרי שהלוח כבר מצויר.
     window.setTimeout(() => window.maybeStartInitialFaceIndexing?.(), 1800);
@@ -234,7 +237,7 @@ window.renderManagedUsers = function() {
     const users = (window.state.allUsers || []).filter(profile => profile.status !== 'pending');
     if (users.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'text-xs text-center text-slate-500 py-4';
+        empty.className = 'admin-empty';
         empty.textContent = 'אין משתמשים נוספים במערכת.';
         list.appendChild(empty);
         return;
@@ -249,30 +252,30 @@ window.renderManagedUsers = function() {
     users.forEach(profile => {
         const isCurrentUser = profile.uid === window.state.currentUser?.uid;
         const card = document.createElement('div');
-        card.className = 'rounded-xl border border-slate-200 bg-white/5 p-3 space-y-2';
+        card.className = 'admin-row flex-col items-stretch gap-2';
+        // הסינון שבמסך המשתמשים קורא את הדרגה מכאן, ולכן היא נשמרת על הכרטיס.
+        card.dataset.userRole = profile.status === 'blocked' ? (profile.roleBeforeBlock || profile.role || '') : (profile.role || '');
 
         const header = document.createElement('div');
         header.className = 'flex items-center gap-2';
         const identity = document.createElement('div');
         identity.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
-        name.className = 'text-[11px] font-bold text-slate-100 truncate';
+        name.className = 'admin-row-title truncate';
         name.textContent = profile.displayName || 'משתמש Google';
         const email = document.createElement('p');
-        email.className = 'text-[9px] text-slate-400 truncate';
+        email.className = 'admin-row-meta truncate';
         email.textContent = profile.email || '';
         identity.append(name, email);
         const status = document.createElement('span');
-        status.className = profile.status === 'blocked'
-            ? 'text-[9px] px-2 py-1 rounded-full bg-red-500/10 text-red-300'
-            : 'text-[9px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-300';
+        status.className = profile.status === 'blocked' ? 'chip is-danger' : 'chip is-green';
         status.textContent = profile.status === 'blocked' ? 'חסום' : 'פעיל';
         header.append(identity, status);
 
         const controls = document.createElement('div');
         controls.className = 'flex gap-2';
         const roleSelect = document.createElement('select');
-        roleSelect.className = 'flex-1 text-[10px] border border-slate-700 rounded-lg py-2 px-2 bg-slate-950 text-slate-100';
+        roleSelect.className = 'flex-1 text-[11px] py-1.5 px-2';
         roleOptions.forEach(([value, label]) => {
             const option = document.createElement('option');
             option.value = value;
@@ -284,17 +287,15 @@ window.renderManagedUsers = function() {
 
         const save = document.createElement('button');
         save.type = 'button';
-        save.className = 'px-3 rounded-lg bg-cyan-600 text-white text-[10px] font-bold disabled:opacity-40';
-        save.textContent = 'שמור דרגה';
+        save.className = 'btn-secondary-dark px-3 py-1.5 text-[11px]';
+        save.textContent = 'שמירת דרגה';
         save.disabled = isCurrentUser || profile.status === 'blocked';
         save.onclick = () => window.changeUserRole(profile.uid, roleSelect.value);
 
         const block = document.createElement('button');
         block.type = 'button';
-        block.className = profile.status === 'blocked'
-            ? 'px-3 rounded-lg border border-emerald-500/30 text-emerald-300 text-[10px] font-bold'
-            : 'px-3 rounded-lg border border-red-500/30 text-red-300 text-[10px] font-bold';
-        block.textContent = profile.status === 'blocked' ? 'בטל חסימה' : 'חסום';
+        block.className = profile.status === 'blocked' ? 'btn-secondary-dark px-3 py-1.5 text-[11px]' : 'btn-danger-soft px-3 py-1.5 text-[11px]';
+        block.textContent = profile.status === 'blocked' ? 'ביטול חסימה' : 'חסימה';
         block.disabled = isCurrentUser;
         block.onclick = () => window.toggleUserBlock(profile.uid);
         controls.append(roleSelect, save, block);
@@ -303,14 +304,14 @@ window.renderManagedUsers = function() {
         linkedActions.className = 'grid grid-cols-2 gap-2';
         const message = document.createElement('button');
         message.type = 'button';
-        message.className = 'py-2 rounded-lg btn-primary-gold text-[10px] font-bold flex items-center justify-center gap-1.5';
-        message.innerHTML = '<i data-lucide="message-square" class="w-3.5 h-3.5"></i> שלח הודעה';
+        message.className = 'btn-secondary-dark py-2 text-[11px]';
+        message.innerHTML = '<i data-lucide="message-square" class="w-3.5 h-3.5"></i> שליחת הודעה';
         message.onclick = () => window.openAdminMessagesForUser(profile.uid);
 
         const remove = document.createElement('button');
         remove.type = 'button';
-        remove.className = 'py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-red-300 text-[10px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-40';
-        remove.innerHTML = '<i data-lucide="user-x" class="w-3.5 h-3.5"></i> מחק משתמש';
+        remove.className = 'btn-danger-soft py-2 text-[11px]';
+        remove.innerHTML = '<i data-lucide="user-x" class="w-3.5 h-3.5"></i> מחיקת משתמש';
         remove.disabled = isCurrentUser;
         remove.onclick = () => window.deleteManagedUser(profile.uid);
         linkedActions.append(message, remove);
@@ -336,7 +337,7 @@ window.renderDeletionRequests = function() {
     const requests = window.state.deletionRequests || [];
     if (requests.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'text-xs text-center text-slate-500 py-4';
+        empty.className = 'admin-empty';
         empty.textContent = 'אין בקשות מחיקה ממתינות.';
         list.appendChild(empty);
         return;
@@ -344,24 +345,24 @@ window.renderDeletionRequests = function() {
     const typeLabels = { image: 'תמונה', folder: 'תיקייה', pendingImage: 'תמונה ממתינה' };
     requests.forEach(request => {
         const card = document.createElement('div');
-        card.className = 'rounded-xl border border-red-500/15 bg-red-500/5 p-3 space-y-2';
+        card.className = 'admin-row flex-col items-stretch gap-2';
         const title = document.createElement('p');
-        title.className = 'text-[11px] font-bold text-slate-100';
+        title.className = 'admin-row-title';
         title.textContent = `${typeLabels[request.targetType] || 'פריט'}: ${request.targetName || request.targetId}`;
         const meta = document.createElement('p');
-        meta.className = 'text-[9px] text-slate-400';
+        meta.className = 'admin-row-meta';
         meta.textContent = `נשלח על ידי ${request.requestedByName || request.requestedByEmail || 'מנהל דרגה 3'}`;
         const actions = document.createElement('div');
         actions.className = 'flex gap-2';
         const approve = document.createElement('button');
         approve.type = 'button';
-        approve.className = 'flex-1 py-2 rounded-lg bg-red-600 text-white text-[10px] font-bold';
-        approve.textContent = 'אשר מחיקה';
+        approve.className = 'btn-danger-soft flex-1 py-2 text-[11px]';
+        approve.textContent = 'אישור המחיקה';
         approve.onclick = () => window.showConfirm('אישור מחיקה', 'האם לבצע את המחיקה לצמיתות?', () => window.resolveDeletionRequest(request.id, true));
         const reject = document.createElement('button');
         reject.type = 'button';
-        reject.className = 'flex-1 py-2 rounded-lg border border-slate-600 text-slate-300 text-[10px] font-bold';
-        reject.textContent = 'דחה בקשה';
+        reject.className = 'btn-secondary-dark flex-1 py-2 text-[11px]';
+        reject.textContent = 'דחיית הבקשה';
         reject.onclick = () => window.resolveDeletionRequest(request.id, false);
         actions.append(approve, reject);
         card.append(title, meta, actions);
@@ -409,7 +410,7 @@ window.renderPendingUsers = function() {
 
     if (pendingUsers.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'text-xs text-center text-slate-500 py-4';
+        empty.className = 'admin-empty';
         empty.textContent = 'אין בקשות הצטרפות ממתינות.';
         list.appendChild(empty);
         return;
@@ -417,7 +418,7 @@ window.renderPendingUsers = function() {
 
     pendingUsers.forEach(profile => {
         const card = document.createElement('div');
-        card.className = 'bg-white/5 border border-white/10 rounded-xl p-3 shadow-sm space-y-2.5';
+        card.className = 'admin-row flex-col items-stretch gap-2.5';
 
         const header = document.createElement('div');
         header.className = 'flex items-center gap-2.5';
@@ -427,12 +428,12 @@ window.renderPendingUsers = function() {
             const photo = document.createElement('img');
             photo.src = photoUrl;
             photo.alt = '';
-            photo.className = 'w-9 h-9 rounded-full object-cover border border-slate-700';
+            photo.className = 'w-9 h-9 rounded-full object-cover border border-white/15';
             photo.onerror = () => window.handleImageError(photo);
             header.appendChild(photo);
         } else {
             const icon = document.createElement('div');
-            icon.className = 'w-9 h-9 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/25';
+            icon.className = 'admin-stat-icon w-9 h-9 rounded-full';
             icon.innerHTML = '<i data-lucide="user" class="w-4 h-4"></i>';
             header.appendChild(icon);
         }
@@ -440,10 +441,10 @@ window.renderPendingUsers = function() {
         const identity = document.createElement('div');
         identity.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
-        name.className = 'text-[11px] font-bold text-white truncate';
+        name.className = 'admin-row-title truncate';
         name.textContent = profile.displayName || 'משתמש Google';
         const email = document.createElement('p');
-        email.className = 'text-[9px] text-slate-400 truncate';
+        email.className = 'admin-row-meta truncate';
         email.textContent = profile.email || '';
         identity.append(name, email);
         header.appendChild(identity);
@@ -453,13 +454,13 @@ window.renderPendingUsers = function() {
         // Show submitted details if available
         if (profile.requestDetails) {
             const detailsBox = document.createElement('div');
-            detailsBox.className = 'p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 text-[10px] text-slate-300 leading-relaxed';
+            detailsBox.className = 'p-2.5 rounded-lg bg-amber-400/10 border border-amber-400/25 text-[11px] leading-relaxed';
             detailsBox.innerHTML = `<strong>פרטי בקשה:</strong> ${window.escapeHtml(profile.requestDetails)}`;
             card.appendChild(detailsBox);
         }
 
         const roleSelect = document.createElement('select');
-        roleSelect.className = 'w-full text-[10px] border border-white/10 rounded-lg py-2 px-2 bg-slate-950 text-white';
+        roleSelect.className = 'w-full text-[11px] py-1.5 px-2';
         [
             ['viewer', 'דרגה 1 — העלאה לאחר אישור'],
             ['uploader', 'דרגה 2 — העלאת תמונות ללא אישור'],
@@ -479,25 +480,25 @@ window.renderPendingUsers = function() {
         
         const approve = document.createElement('button');
         approve.type = 'button';
-        approve.className = 'flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] py-2 rounded-lg font-bold';
-        approve.textContent = 'אשר';
+        approve.className = 'btn-primary-gold flex-1 py-2 text-[11px]';
+        approve.textContent = 'אישור';
         approve.onclick = () => window.approveUserAccess(profile.uid, roleSelect.value);
 
         const reject = document.createElement('button');
         reject.type = 'button';
-        reject.className = 'px-2.5 btn-secondary-dark text-[10px] py-2 rounded-lg font-bold';
-        reject.textContent = 'דחה';
+        reject.className = 'btn-danger-soft px-3 py-2 text-[11px]';
+        reject.textContent = 'דחייה';
         reject.onclick = () => window.rejectUserAccess(profile.uid);
 
         const msgBtn = document.createElement('button');
         msgBtn.type = 'button';
-        msgBtn.className = 'px-2.5 btn-secondary-dark text-[10px] py-2 rounded-lg font-bold';
+        msgBtn.className = 'btn-secondary-dark px-3 py-2 text-[11px]';
         msgBtn.innerHTML = '<i data-lucide="message-square" class="w-3.5 h-3.5"></i>';
         msgBtn.onclick = () => window.openAdminMessagesForUser(profile.uid);
 
         const emailBtn = document.createElement('button');
         emailBtn.type = 'button';
-        emailBtn.className = 'px-2.5 btn-secondary-dark text-[10px] py-2 rounded-lg font-bold';
+        emailBtn.className = 'btn-secondary-dark px-3 py-2 text-[11px]';
         emailBtn.innerHTML = '<i data-lucide="mail" class="w-3.5 h-3.5"></i>';
         emailBtn.onclick = () => window.sendDirectMail(profile.email, profile.displayName);
 
@@ -615,7 +616,7 @@ window.renderPendingImages = function() {
     // תמונות הממתינות לאישור — מדרגה 3 ומעלה.
     if (!window.canViewAdminData?.()) { list.innerHTML = ''; return; }
     const pending = window.state.pendingImages || [];
-    if (pending.length === 0) { list.innerHTML = '<p class="text-xs text-center text-slate-500 py-4">אין קבצי מדיה ממתינים לאישור.</p>'; return; }
+    if (pending.length === 0) { list.innerHTML = '<p class="admin-empty">אין קבצי מדיה ממתינים לאישור.</p>'; return; }
     const parts = [];
     pending.forEach(img => {
         const imageId = window.safeRecordId(img.id);
@@ -623,15 +624,15 @@ window.renderPendingImages = function() {
         const imageUrl = window.safeImageUrl(img.url);
         const isVideo = window.isVideoRecord(img);
         const preview = isVideo
-            ? '<span class="w-10 h-10 shrink-0 rounded-lg border border-slate-200 bg-slate-900 text-white flex items-center justify-center"><i data-lucide="video" class="w-4 h-4"></i></span>'
-            : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="" class="w-10 h-10 object-cover rounded-lg border border-slate-200" onerror="window.handleImageError(this)">`;
+            ? '<span class="admin-stat-icon" data-tone="violet"><i data-lucide="video" class="w-4 h-4"></i></span>'
+            : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="" class="w-10 h-10 shrink-0 object-cover rounded-lg border border-white/10" onerror="window.handleImageError(this)">`;
         parts.push(`
-            <label class="flex items-center gap-3 p-2 hover:bg-amber-100/50 border border-amber-100 rounded-xl cursor-pointer transition-all bg-white shadow-sm">
-                <input type="checkbox" name="pendingImgCheck" value="${imageId}" class="rounded text-amber-500 focus:ring-amber-500 bg-white border-slate-200" checked>
+            <label class="admin-row cursor-pointer">
+                <input type="checkbox" name="pendingImgCheck" value="${imageId}" checked>
                 ${preview}
                 <div class="flex-1 min-w-0">
-                    <p class="text-[11px] font-bold text-slate-800 truncate">${window.escapeHtml(img.title)}</p>
-                    <p class="text-[9px] text-slate-500 truncate">${isVideo ? 'סרטון' : 'תמונה'} · תיקייה מקורית: ${window.escapeHtml(img.originalFolderName)}</p>
+                    <p class="admin-row-title truncate">${window.escapeHtml(img.title)}</p>
+                    <p class="admin-row-meta truncate">${isVideo ? 'סרטון' : 'תמונה'} · תיקייה מקורית: ${window.escapeHtml(img.originalFolderName)}</p>
                 </div>
             </label>`);
     });

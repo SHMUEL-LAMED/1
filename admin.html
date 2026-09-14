@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <meta name="theme-color" content="#090b10">
+    <meta name="theme-color" content="#06080e">
     <meta name="robots" content="noindex, nofollow">
     <meta name="description" content="לוח הניהול של גלריית שמחת התורה — אישור תוכן, משתמשים, סנכרון וכלי מערכת.">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
     <link rel="apple-touch-icon" href="./icon-192.png">
     <title>לוח הניהול | גלריית שמחת התורה</title>
+
     <script>
         (() => {
             try {
@@ -21,6 +22,7 @@
             }
         })();
     </script>
+
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
@@ -31,20 +33,18 @@
     <!-- נקודת הכניסה של דף הניהול בלבד. דף הגלריה טוען את app.js לבדו. -->
     <script type="module" src="./admin-app.js"></script>
 </head>
-<body class="app-shell admin-page text-slate-100 min-h-screen flex flex-col bg-slate-950">
+<body class="app-shell admin-page min-h-screen flex flex-col">
 
-    <header class="site-header bg-black/80 backdrop-blur-xl border-b sticky top-0 z-40 shadow-sm" aria-label="כותרת לוח הניהול">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3">
-            <div class="brand-lockup flex items-center gap-4">
-                <div class="brand-mark bg-gradient-to-br text-white p-2.5 rounded-xl shadow-md" aria-hidden="true">
-                    <i data-lucide="layout-dashboard" class="w-8 h-8"></i>
-                </div>
-                <div>
+    <header class="site-header" aria-label="כותרת לוח הניהול">
+        <div class="site-header-inner">
+            <div class="brand-lockup">
+                <span class="brand-mark" aria-hidden="true"><i data-lucide="layout-dashboard" class="w-6 h-6"></i></span>
+                <div class="min-w-0">
                     <p class="brand-kicker">מרכז השליטה</p>
-                    <h1 class="brand-title text-xl sm:text-2xl font-extrabold tracking-tight">לוח הניהול</h1>
+                    <h1 class="brand-title">לוח הניהול</h1>
                 </div>
             </div>
-            <div class="header-actions flex items-center gap-2 sm:gap-3">
+            <div class="header-actions">
                 <button id="themeToggleButton" type="button" onclick="toggleSiteTheme()" class="theme-toggle" aria-label="מעבר למצב בהיר" title="מעבר בין מצב בהיר לכהה">
                     <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4"></i>
                     <span id="themeToggleText">בהיר</span>
@@ -58,662 +58,666 @@
         </div>
     </header>
 
-    <main class="admin-page-main">
-        <!-- מי שאינו מנהל לא מקבל לוח ריק אלא הסבר ודרך חזרה. ההרשאה
-             נבדקת שוב ברגע שמצב ההתחברות מגיע מהשרת. -->
-        <!-- מי שאינו מנהל לא מקבל לוח ריק אלא הסבר ודרך חזרה. ההרשאה
-             נבדקת שוב ברגע שמצב ההתחברות מגיע מהשרת. -->
-        <div id="adminAccessGate" class="gate" data-gate-state="signed-out" aria-labelledby="adminAccessGateTitle">
-            <span class="gate-mark" aria-hidden="true"><i data-lucide="shield-alert" class="w-6 h-6"></i></span>
-            <p class="gate-chip">אזור מוגן</p>
-            <h2 id="adminAccessGateTitle">לוח הניהול דורש התחברות</h2>
-            <p id="adminAccessGateText">התחבר עם חשבון Google בעל הרשאת ניהול כדי לפתוח את הלוח.</p>
+    <!-- מי שאינו מנהל אינו מקבל לוח ריק אלא הסבר ודרך חזרה. ההרשאה נבדקת
+         שוב ברגע שמצב ההתחברות מגיע מהשרת. -->
+    <div id="adminAccessGate" class="gate" data-gate-state="signed-out" aria-labelledby="adminAccessGateTitle">
+        <span class="gate-mark" aria-hidden="true"><i data-lucide="shield-alert" class="w-6 h-6"></i></span>
+        <p class="gate-chip">אזור מוגן</p>
+        <h2 id="adminAccessGateTitle">לוח הניהול דורש התחברות</h2>
+        <p id="adminAccessGateText">התחברו עם חשבון Google בעל הרשאת ניהול כדי לפתוח את הלוח.</p>
 
-            <button type="button" onclick="signInWithGoogleAccount()" class="gate-login">
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
-                <span>כניסה באמצעות Google</span>
-            </button>
+        <button type="button" onclick="signInWithGoogleAccount()" class="gate-login">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
+            <span>כניסה באמצעות Google</span>
+        </button>
 
-            <a href="./index.html" class="gate-secondary">
-                <i data-lucide="arrow-left" class="w-4 h-4"></i> חזרה לגלריה
-            </a>
-
-            <p class="gate-note"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> הלוח פתוח למנהלים בדרגה 3 ומעלה</p>
-        </div>
-
-        <!-- .admin-drawer-body הוא אותו מעטפת שהייתה למגירה, כדי שכל
-             כללי הצבע הקיימים — בשני מצבי התצוגה — יחולו גם כאן. -->
-        <div class="admin-surface">
-            <div class="admin-drawer-body">
-<!-- אזור ניהול פעיל (מוצג רק למנהל שהתחבר בצורה מאובטחת) -->
-<div id="sidebarAdminPanel" class="hidden flex flex-col space-y-3">
-
-    <div class="admin-identity-card bg-slate-900 text-white rounded-2xl p-3.5 flex items-center gap-3 border border-white/10 shadow-sm">
-        <div id="adminCurrentUserFallback" class="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center border border-emerald-400/20"><i data-lucide="shield-check" class="w-5 h-5"></i></div>
-        <img id="adminCurrentUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="תמונת פרופיל מנהל" class="hidden w-10 h-10 rounded-full object-cover border border-white/20">
-        <div class="min-w-0 flex-1">
-            <p id="adminCurrentUserName" class="text-xs font-bold truncate">מנהל המערכת</p>
-            <p id="adminCurrentUserEmail" class="text-[9px] text-slate-400 truncate"></p>
-        </div>
-        <span id="adminCurrentUserGrade" class="text-[9px] px-2 py-1 rounded-full font-bold bg-emerald-500/15 text-emerald-300">דרגה 3</span>
+        <a href="./index.html" class="gate-secondary"><i data-lucide="arrow-left" class="w-4 h-4"></i> חזרה לגלריה</a>
+        <p class="gate-note"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> הלוח פתוח למנהלים בדרגה 3 ומעלה</p>
     </div>
 
-    <button type="button" onclick="openModal('userUploadModal')" class="admin-primary-action">
-        <span class="admin-primary-action-icon"><i data-lucide="cloud-upload" class="w-5 h-5"></i></span>
-        <span><strong>העלאת מדיה</strong><small>תמונות וסרטונים חדשים</small></span>
-        <i data-lucide="arrow-left" class="w-4 h-4 admin-primary-action-arrow"></i>
-    </button>
+    <!-- ======================= לוח הניהול =======================
+         כל מסך קיים כאן פעם אחת בלבד. הניווט מחליף את המסך הפעיל,
+         ואינו מעביר רכיבים בין הורים — כך אין כפילות ואין מסך ריק. -->
+    <main id="sidebarAdminPanel" class="admin-shell hidden">
 
-    <section class="admin-command-center" aria-label="חיפוש וקיצורי ניהול">
-        <div class="admin-command-title">
-            <span><strong>גישה מהירה</strong><small>בחרו משימה או חפשו כל פעולה בניהול</small></span>
-        </div>
-        <div class="admin-menu-search">
-            <i data-lucide="search" class="w-4 h-4"></i>
-            <input id="adminMenuSearch" type="search" autocomplete="off" aria-label="חיפוש בתפריט הניהול" placeholder="חיפוש בניהול..." oninput="filterAdminMenu(this.value)">
-            <button type="button" onclick="clearAdminMenuSearch()" aria-label="ניקוי החיפוש"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
-        </div>
-        <div class="admin-quick-grid">
-            <button type="button" onclick="openAdminCategory('gallery')"><i data-lucide="images" class="w-4 h-4"></i><span>גלריה</span></button>
-            <button type="button" onclick="openAdminTaskWindow('accPending')"><i data-lucide="image-plus" class="w-4 h-4"></i><span>אישורים</span></button>
-            <button type="button" onclick="openAdminCategory('users')" class="hidden super-admin-only"><i data-lucide="users-round" class="w-4 h-4"></i><span>משתמשים</span></button>
-            <button type="button" onclick="openAdminMessagesCenter()" class="hidden super-admin-only"><i data-lucide="messages-square" class="w-4 h-4"></i><span>הודעות</span></button>
-        </div>
-        <div id="adminMenuResults" class="admin-menu-results hidden" role="listbox" aria-label="תוצאות חיפוש בניהול"></div>
-        <p id="adminMenuNoResults" class="admin-menu-empty hidden">לא נמצאו פעולות מתאימות.</p>
-    </section>
-
-    <section class="admin-overview" aria-label="סיכום נתוני הגלריה">
-        <!-- בקשות הצטרפות הן נתון של מנהל־על, ככל שאר ניהול המשתמשים.
-             בלי הסימון הזה מנהל דרגה 3 ראה את הכרטיס (תמיד באפס). -->
-        <div class="admin-stat hidden super-admin-only"><span class="admin-stat-icon"><i data-lucide="users" class="w-5 h-5"></i></span><div><strong id="adminOverviewUsersCount">0</strong><span>בקשות הצטרפות</span></div></div>
-        <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="image-plus" class="w-5 h-5"></i></span><div><strong id="adminOverviewPendingCount">0</strong><span>תמונות לאישור</span></div></div>
-        <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="images" class="w-5 h-5"></i></span><div><strong id="adminOverviewImagesCount">0</strong><span>פריטים בגלריה</span></div></div>
-        <div class="admin-stat"><span class="admin-stat-icon"><i data-lucide="folders" class="w-5 h-5"></i></span><div><strong id="adminOverviewFoldersCount">0</strong><span>תיקיות</span></div></div>
-    </section>
-
-    <nav class="admin-topic-grid" aria-label="נושאי ניהול">
-        <button type="button" onclick="openAdminCategory('gallery')" class="admin-topic-card" data-admin-category="gallery" style="--topic-color:#ffb627;--topic-border:rgba(255,182,39,.35);--topic-glow:rgba(255,182,39,.12)">
-            <span class="admin-topic-icon"><i data-lucide="images" class="w-5 h-5"></i></span>
-            <span>
-                <strong>תמונות ותיקיות</strong>
-                <small>תמונות, סרטונים, סנכרון, תיקיות ומחיקה</small>
-            </span>
-        </button>
-        <button type="button" onclick="openAdminCategory('users')" class="admin-topic-card hidden super-admin-only" data-admin-category="users" style="--topic-color:#64d8e5;--topic-border:rgba(100,216,229,.35);--topic-glow:rgba(100,216,229,.11)">
-            <span class="admin-topic-icon"><i data-lucide="users-round" class="w-5 h-5"></i></span>
-            <span>
-                <strong>משתמשים ותקשורת</strong>
-                <small>בקשות הצטרפות, דרגות, חסימות, הודעות ופניות</small>
-            </span>
-        </button>
-        <button type="button" onclick="openAdminCategory('system')" class="admin-topic-card" data-admin-category="system" style="--topic-color:#86efac;--topic-border:rgba(134,239,172,.3);--topic-glow:rgba(134,239,172,.09)">
-            <span class="admin-topic-icon"><i data-lucide="activity" class="w-5 h-5"></i></span>
-            <span>
-                <strong>פעילות ומערכת</strong>
-                <small>יומן פעילות, מצב המערכת ובדיקות תקינות</small>
-            </span>
-        </button>
-    </nav>
-
-    <p class="admin-section-label">תוכן הגלריה</p>
-
-    <!-- אישור ממתינות -->
-    <div class="admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accPending')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-amber-400"><i data-lucide="bell" class="w-4 h-4"></i> בקשות העלאה לאישור (<span id="pendingCountBadge">0</span>)</span>
-            <i id="accPendingArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
-        </button>
-        <div id="accPending" class="accordion-content px-3 space-y-3">
-            <div class="flex justify-between items-center px-1"><span class="text-[10px] font-semibold text-slate-400">בחר תמונות:</span> <button type="button" onclick="toggleSelectAllPending()" class="text-[9px] text-amber-400 hover:underline">סמן הכל</button></div>
-            <div id="pendingList" class="max-h-60 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-            <div class="border-t border-white/10 pt-3 pb-1 space-y-2.5">
-                <div>
-                    <label class="text-[9px] font-bold text-slate-400 block mb-1">יעד שמירה בגלריה:</label>
-                    <select id="pendingTargetFolder" class="w-full text-xs rounded-lg py-1.5 px-2">
-                        <option value="auto">חלוקה אוטומטית לפי תיקיות מקוריות</option>
-                    </select>
+        <!-- ---------------- ניווט ---------------- -->
+        <aside class="admin-sidebar" aria-label="ניווט בלוח הניהול">
+            <div class="admin-identity-card">
+                <span id="adminCurrentUserFallback" class="admin-identity-avatar"><i data-lucide="shield-check" class="w-5 h-5"></i></span>
+                <img id="adminCurrentUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="תמונת פרופיל מנהל" class="hidden admin-identity-avatar">
+                <div class="min-w-0 flex-1">
+                    <p id="adminCurrentUserName" class="admin-identity-name truncate">מנהל המערכת</p>
+                    <p id="adminCurrentUserEmail" class="admin-identity-mail truncate"></p>
                 </div>
-                <div class="flex gap-2">
-                    <button type="button" onclick="approveSelectedPending()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-2 rounded-lg font-bold transition-all shadow-sm">אשר נבחרים</button>
-                    <button type="button" id="rejectPendingBtn" onclick="rejectSelectedPending()" class="flex-1 bg-red-950/40 hover:bg-red-900/60 text-red-400 text-xs py-2 rounded-lg font-bold transition-all border border-red-500/30">בקש מחיקה</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- סנכרון Google Drive -->
-    <div class="admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accDriveSync')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-amber-400"><i data-lucide="refresh-cw" class="w-4 h-4"></i> סנכרון מ־Google Drive</span>
-            <i id="accDriveSyncArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
-        </button>
-        <div id="accDriveSync" class="accordion-content px-4 space-y-3">
-            <p class="text-[10px] text-slate-400 leading-relaxed">חבר חשבון Drive, הדבק קישור לתיקייה וסנכרן תמונות, סרטונים ותיקיות משנה ישירות לגלריה.</p>
-
-            <div id="driveConnectionStatus" role="status" class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-semibold text-slate-400">
-                Google Drive עדיין לא מחובר
+                <span id="adminCurrentUserGrade" class="admin-grade-badge">דרגה 3</span>
             </div>
 
-            <button type="button" id="connectDriveBtn" onclick="connectGoogleDrive()" class="w-full py-2.5 btn-secondary-dark rounded-xl text-xs font-bold flex items-center justify-center gap-2">
-                <i data-lucide="cloud" class="w-4 h-4"></i>
-                חבר Google Drive
-            </button>
-
-            <label class="block">
-                <span class="text-[9px] font-bold text-slate-400 block mb-1">קישור לתיקיית Drive או מזהה תיקייה:</span>
-                <input type="text" id="driveFolderInput" inputmode="url" autocomplete="off" value="https://drive.google.com/drive/folders/1Hb8mCpdnKcax8T6Xulq8PLXzlGcJaBhF" placeholder="https://drive.google.com/drive/folders/..." class="w-full rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/20" dir="ltr">
+            <label class="admin-menu-search">
+                <i data-lucide="search" class="w-4 h-4"></i>
+                <span class="sr-only">חיפוש בתפריט הניהול</span>
+                <input id="adminMenuSearch" type="search" autocomplete="off" placeholder="חיפוש פעולה…" oninput="filterAdminMenu(this.value)">
+                <kbd aria-hidden="true">/</kbd>
+                <button type="button" onclick="clearAdminMenuSearch()" aria-label="ניקוי החיפוש"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
             </label>
 
-            <div class="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] font-semibold leading-relaxed text-amber-300">
-                כל קישור מסנכרן תמיד את כל התיקייה, כולל כל תיקיות המשנה והמבנה שלהן.
-            </div>
+            <div id="adminMenuResults" class="admin-menu-results hidden" role="listbox" aria-label="תוצאות חיפוש בניהול"></div>
+            <p id="adminMenuNoResults" class="admin-menu-empty hidden">לא נמצאו פעולות מתאימות.</p>
 
-            <div id="driveSyncProgress" class="hidden rounded-xl border border-white/10 bg-white/5 p-3" aria-live="polite">
-                <div class="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
-                    <div id="driveSyncProgressBar" class="h-full w-0 rounded-full bg-amber-400 transition-all duration-300"></div>
-                </div>
-                <p id="driveSyncProgressText" class="mt-2 text-[10px] font-bold text-amber-400">מתכונן לסנכרון...</p>
-            </div>
+            <!-- הפריטים נבנים ב-admin-ui.js מרשימת המסכים, כדי שסדר התפריט
+                 וסדר המסכים יגיעו ממקור אחד. -->
+            <nav id="adminNav" class="admin-nav" aria-label="מסכי הניהול"></nav>
 
-            <button type="button" id="driveSyncBtn" onclick="startGoogleDriveSync()" disabled class="w-full py-2.5 btn-primary-gold rounded-xl text-xs font-bold flex items-center justify-center gap-2">
-                <i data-lucide="folders" class="w-4 h-4"></i>
-                סנכרן את התיקייה וכל תיקיות המשנה
+            <button type="button" onclick="lockGalleryImmediatelySidebar()" class="admin-logout">
+                <i data-lucide="log-out" class="w-4 h-4"></i> התנתקות ממצב ניהול
             </button>
-            <p class="pb-1 text-[9px] text-slate-400 leading-relaxed">הסנכרון מוסיף ומעדכן בלבד. הוא לא מוחק מהגלריה קבצים שהוסרו מ־Drive. סרטוני MP4 ו־WebM מוגבלים ל־100MB.</p>
-            <!-- ──────── סנכרון אוטומטי Worker ──────── -->
-<div class="border-t border-white/10 pt-3 mt-1  space-y-2">
-<div class="flex items-center justify-between">
-<span class="text-[9px] font-bold text-amber-400 uppercase tracking-wide">📂 סנכרון אוטומטי</span>
-<button type="button" onclick="addDriveFolderRow()"
-class="text-[9px] text-amber-400 hover:underline font-bold">+ הוסף תיקייה</button>
-</div>
+        </aside>
 
-<div id="driveFoldersList" class="space-y-2"></div>
-
-<div class="grid grid-cols-2 gap-2">
-<label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
-<input type="checkbox" id="driveAutoSyncEnabled" checked disabled class="rounded text-amber-500 focus:ring-amber-500">
-<span class="text-[10px] font-semibold text-slate-300">הפעל אוטומטית</span>
-</label>
-<select id="driveAutoSyncInterval" class="rounded-xl border border-white/10 bg-slate-900 px-2 py-2 text-[10px] text-slate-200">
-<option value="15">כל 15 דקות</option>
-<option value="30">כל 30 דקות</option>
-<option value="60">כל שעה</option>
-<option value="180">כל 3 שעות</option>
-</select>
-</div>
-
-<p id="noFoldersMsg"
-class="text-[9px] text-slate-500 text-center py-1">
-לא הוגדרו תיקיות לסנכרון אוטומטי
-</p>
-
-<div class="flex gap-2">
-<button type="button" onclick="saveDriveFoldersToWorker()"
-class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all">
-💾 שמור הגדרות
-</button>
-<button type="button" id="workerSyncBtn" onclick="syncNowFromWorker()"
-class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all">
-🔄 סנכרן עכשיו
-</button>
-</div>
-
-<p id="workerLastSync" class="text-[9px] text-slate-500 text-center"></p>
-<p id="workerSyncResult" class="text-[10px] font-semibold text-center min-h-4"></p>
-</div>
-        </div>
-    </div>
-
-    <!-- יצירת תיקייה ריקה -->
-    <div class="admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accEmptyFolder')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-amber-400"><i data-lucide="folder-plus" class="w-4 h-4"></i> יצירת תיקייה ריקה</span>
-            <i id="accEmptyFolderArrow" data-lucide="chevron-down" class="w-4 h-4 text-slate-500/70"></i>
-        </button>
-        <div id="accEmptyFolder" class="accordion-content px-4">
-            <form onsubmit="handleCreateEmptyFolder(event)" class="space-y-3">
-                <input type="text" id="emptyFolderName" required maxlength="60" placeholder="שם התיקייה..." class="w-full rounded-xl px-3 py-2 text-xs focus:outline-none">
-                <div class="grid grid-cols-4 gap-1.5">
-                    <label class="border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5"><input type="radio" name="emptyFolderIcon" value="calendar" checked class="sr-only peer"><i data-lucide="calendar" class="w-4 h-4 text-slate-400 peer-checked:text-amber-400"></i></label>
-                    <label class="border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5"><input type="radio" name="emptyFolderIcon" value="compass" class="sr-only peer"><i data-lucide="compass" class="w-4 h-4 text-slate-400 peer-checked:text-amber-400"></i></label>
-                    <label class="border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5"><input type="radio" name="emptyFolderIcon" value="users" class="sr-only peer"><i data-lucide="users" class="w-4 h-4 text-slate-400 peer-checked:text-amber-400"></i></label>
-                    <label class="border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer hover:bg-white/5"><input type="radio" name="emptyFolderIcon" value="award" class="sr-only peer"><i data-lucide="award" class="w-4 h-4 text-slate-400 peer-checked:text-amber-400"></i></label>
+        <!-- ---------------- תוכן ---------------- -->
+        <div class="admin-main">
+            <div class="admin-main-head">
+                <div class="admin-main-head-text">
+                    <span id="adminViewIcon" class="admin-main-icon"><i data-lucide="gauge" class="w-5 h-5"></i></span>
+                    <div class="min-w-0">
+                        <h2 id="adminViewTitle">סקירה כללית</h2>
+                        <p id="adminViewDescription">תמונת מצב מהירה של הגלריה ושל מה שממתין לטיפול.</p>
+                    </div>
                 </div>
-                <button type="submit" class="w-full py-2 btn-primary-gold rounded-xl text-xs font-bold">צור תיקייה בענן</button>
-            </form>
-        </div>
-    </div>
-
-    <div id="superAdminDeletionRequestsCard" class="hidden super-admin-only admin-control-card border border-red-200 rounded-2xl overflow-hidden bg-white/40 shadow-sm">
-        <button type="button" onclick="openAdminTaskWindow('accDeletionRequests')" class="w-full px-4 py-3 text-xs font-bold text-slate-800 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i> בקשות מחיקה (<span id="deletionRequestsCountBadge">0</span>)</span>
-            <i id="accDeletionRequestsArrow" data-lucide="chevron-down" class="w-4 h-4 text-red-300"></i>
-        </button>
-        <div id="accDeletionRequests" class="accordion-content px-3 space-y-2">
-            <p class="text-[10px] text-slate-500 leading-relaxed">בקשות שנשלחו ממנהלי דרגה 3. רק מנהל־על יכול לבצע מחיקה סופית.</p>
-            <div id="deletionRequestsList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-        </div>
-    </div>
-
-    <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accTrash')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-orange-300"><i data-lucide="archive-restore" class="w-4 h-4"></i> סל מחזור (<span id="trashItemsCountBadge">0</span>)</span>
-            <i data-lucide="arrow-left" class="w-4 h-4 text-orange-300/70"></i>
-        </button>
-        <div id="accTrash" class="accordion-content px-3 space-y-3">
-            <p class="text-[10px] text-slate-400 leading-relaxed">פריטים שנמחקו נשמרים כאן עד לשחזור או למחיקה סופית.</p>
-            <div id="trashItemsList" class="space-y-2"></div>
-        </div>
-    </div>
-
-    <p class="admin-section-label super-admin-only hidden">תקשורת ואנשים</p>
-
-    <!-- אישור משתמשים חדשים ובחירת דרגה -->
-    <div id="superAdminUsersCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accUserApprovals')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-amber-400"><i data-lucide="users-round" class="w-4 h-4"></i> ניהול משתמשים ובקשות (<span id="pendingUsersCountBadge">0</span>)</span>
-            <i id="accUserApprovalsArrow" data-lucide="chevron-down" class="w-4 h-4 text-amber-500/70"></i>
-        </button>
-        <div id="accUserApprovals" class="accordion-content px-3 space-y-2">
-            <p class="text-[10px] text-slate-400 leading-relaxed">מנהל־על יכול לאשר משתמשים, לשנות דרגות ולחסום חשבונות.</p>
-            <div id="pendingUsersList" class="max-h-80 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-            <div class="border-t border-slate-200/50 pt-3 mt-3">
-                <p class="text-[10px] font-bold text-slate-500 mb-2">כל המשתמשים</p>
-                <div id="managedUsersList" class="max-h-96 overflow-y-auto space-y-2 pb-2 pr-1"></div>
-            </div>
-        </div>
-    </div>
-
-    <div id="superAdminChatsCard" class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminMessagesCenter()" class="w-full px-4 py-3.5 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-cyan-300">
-                <i data-lucide="messages-square" class="w-4 h-4"></i>
-                שיחות ופניות ממשתמשים
-                <span id="adminChatsUnreadBadge" class="hidden min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[9px] items-center justify-center">0</span>
-            </span>
-            <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-        </button>
-    </div>
-
-    <!-- הודעת פופ-אפ -->
-    <div class="admin-control-card rounded-2xl overflow-hidden hidden super-admin-only">
-        <button type="button" onclick="openAdminTaskWindow('accPopupAnnouncement')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-amber-400"><i data-lucide="megaphone" class="w-4 h-4"></i> הודעת פופ-אפ לאתר</span>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500/70"></i>
-        </button>
-        <div id="accPopupAnnouncement" class="accordion-content px-4 space-y-3">
-            <div id="popupAnnouncementPreview" class="hidden rounded-xl overflow-hidden border border-white/10">
-                <img id="popupAnnouncementPreviewImg" src="" alt="" class="w-full block">
-                <div class="flex items-center justify-between px-3 py-1.5 bg-white/5">
-                    <span id="popupAnnouncementStatus" class="text-[9px] font-bold text-amber-400"></span>
-                    <span id="popupAnnouncementAudienceLabel" class="text-[9px] text-slate-400"></span>
+                <div class="admin-main-actions">
+                    <button type="button" onclick="openModal('userUploadModal')" class="btn-primary-gold">
+                        <i data-lucide="cloud-upload" class="w-4 h-4"></i> העלאת מדיה
+                    </button>
+                    <button type="button" onclick="refreshAdminData()" class="btn-secondary-dark" title="רענון הנתונים מהשרת">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i> רענון
+                    </button>
                 </div>
-                <p id="popupAnnouncementLinkLabel" class="text-[9px] text-slate-400 px-3 pb-1.5 bg-white/5"></p>
             </div>
-            <label class="block">
-                <span class="text-[9px] font-bold text-slate-400 block mb-1">תמונת הפופ-אפ (JPG/PNG/WebP):</span>
-                <input type="file" id="popupImageInput" accept="image/*" class="w-full text-xs rounded-xl p-2 cursor-pointer text-slate-400 bg-white/5 border border-white/10">
-            </label>
-            <div class="space-y-1">
-                <span class="text-[9px] font-bold text-slate-400 block">לחיצה על הפופ-אפ תפנה אל:</span>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="none" checked class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">ללא פנייה — רק תמונה</span></label>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="folder" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">תיקייה ספציפית</span></label>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="latest" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">עדכונים אחרונים</span></label>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="feature" class="text-amber-500" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[10px] text-slate-300">כלי באתר — חיפוש פנים, חיפוש AI ועוד</span></label>
-            </div>
-            <div id="popupFolderSelectorArea" class="hidden">
-                <span class="text-[9px] font-bold text-slate-400 block mb-1">בחר תיקייה:</span>
-                <select id="popupFolderSelect" class="w-full text-xs rounded-xl py-2 px-3 focus:ring-amber-500"></select>
-            </div>
-            <div id="popupFeatureSelectorArea" class="hidden">
-                <span class="text-[9px] font-bold text-slate-400 block mb-1">בחר כלי:</span>
-                <select id="popupFeatureSelect" class="w-full text-xs rounded-xl py-2 px-3 focus:ring-amber-500" onchange="window.updatePopupLinkTypeUI()"></select>
-                <p id="popupFeatureHint" class="text-[9px] text-slate-500 mt-1"></p>
-            </div>
-            <div class="space-y-1">
-                <span class="text-[9px] font-bold text-slate-400 block">מי יראה את הפופ-אפ:</span>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupAudience" value="all" checked class="text-amber-500"><span class="text-[10px] text-slate-300">כל מי שנכנס לאתר</span></label>
-                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupAudience" value="approved" class="text-amber-500"><span class="text-[10px] text-slate-300">מי שאישרו לו גישה בלבד</span></label>
-            </div>
-            <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
-                <input type="checkbox" id="popupEnabled" checked class="rounded text-amber-500 focus:ring-amber-500 border-white/10">
-                <span class="text-[10px] font-semibold text-slate-300">הפעל את הפופ-אפ</span>
-            </label>
-            <div class="flex gap-2">
-                <button type="button" id="popupSaveButton" onclick="window.savePopupAnnouncement()" class="flex-1 py-2 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50 disabled:cursor-wait">שמור ופרסם</button>
-                <button type="button" onclick="window.deletePopupAnnouncement()" class="py-2 px-3 rounded-xl text-xs font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">מחק</button>
-            </div>
-            <p id="popupSaveStatus" class="text-[9px] text-center text-slate-500 min-h-4"></p>
-        </div>
-    </div>
 
-    <p class="admin-section-label">כלי מערכת</p>
+            <!-- ============ מסך: סקירה כללית ============ -->
+            <section id="view-dashboard" class="admin-view is-active" data-view="dashboard" aria-label="סקירה כללית">
+                <div class="admin-overview">
+                    <div class="admin-stat hidden super-admin-only" data-tone="violet">
+                        <span class="admin-stat-icon"><i data-lucide="user-plus" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewUsersCount">0</strong><span>בקשות הצטרפות</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="gold">
+                        <span class="admin-stat-icon"><i data-lucide="image-plus" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewPendingCount">0</strong><span>פריטים לאישור</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="cyan">
+                        <span class="admin-stat-icon"><i data-lucide="images" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewImagesCount">0</strong><span>פריטים בגלריה</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="green">
+                        <span class="admin-stat-icon"><i data-lucide="folders" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewFoldersCount">0</strong><span>תיקיות</span></div>
+                    </div>
+                    <div class="admin-stat hidden super-admin-only" data-tone="cyan">
+                        <span class="admin-stat-icon"><i data-lucide="users-round" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewMembersCount">0</strong><span>משתמשים רשומים</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="violet">
+                        <span class="admin-stat-icon"><i data-lucide="hard-drive" class="w-5 h-5"></i></span>
+                        <div><strong id="adminOverviewStorage">—</strong><span>נפח מקורי</span></div>
+                    </div>
+                </div>
 
-    <div class="hidden super-admin-only admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accActivityCenter')" class="w-full px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="activity" class="w-4 h-4"></i> מרכז פעילות</span>
-            <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-        </button>
-        <div id="accActivityCenter" class="accordion-content px-3 space-y-3">
-            <div id="activitySummary" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
-            <div class="flex items-center justify-between">
-                <p class="text-[10px] font-bold text-slate-400">פעולות אחרונות</p>
-                <button type="button" onclick="renderActivityLogs()" class="text-[9px] text-cyan-300 hover:underline">רענן</button>
-            </div>
-            <div id="activityLogList" class="space-y-2"></div>
-        </div>
-    </div>
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="bell-ring"></i> ממתין לטיפול</h3>
+                        <button type="button" onclick="renderAdminAttention()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                    </div>
+                    <div class="admin-panel-body">
+                        <div id="adminAttentionList" class="admin-attention-list"></div>
+                    </div>
+                </div>
 
-    <div class="admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accSystemHealth')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-emerald-300"><i data-lucide="shield-check" class="w-4 h-4"></i> בדיקת תקינות המערכת</span>
-            <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-300/70"></i>
-        </button>
-        <div id="accSystemHealth" class="accordion-content px-4 space-y-3">
-            <p class="text-[10px] text-slate-400">בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
-            <button type="button" onclick="runSystemHealthCheck()" class="w-full py-2.5 btn-primary-gold rounded-xl text-xs font-bold">הרץ בדיקה</button>
-            <div id="systemHealthResults" class="space-y-2"></div>
-        </div>
-    </div>
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="zap"></i> פעולות מהירות</h3></div>
+                    <div class="admin-panel-body">
+                        <div id="adminQuickActions" class="admin-quick-grid"></div>
+                    </div>
+                </div>
+            </section>
 
-    <!-- הכנת חיפוש הפנים בענן -->
-    <div class="admin-control-card rounded-2xl overflow-hidden">
-        <button type="button" onclick="openAdminTaskWindow('accFaceIndex')" class="w-full hover:bg-white/5 px-4 py-3 text-xs font-bold text-slate-200 flex items-center justify-between transition-all">
-            <span class="flex items-center gap-2 text-cyan-300"><i data-lucide="scan-face" class="w-4 h-4"></i> הכן חיפוש פנים בענן</span>
-            <i data-lucide="arrow-left" class="w-4 h-4 text-cyan-300/70"></i>
-        </button>
-        <div id="accFaceIndex" class="accordion-content px-4 space-y-3">
-            <p class="text-[10px] text-slate-400 leading-relaxed">סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
-            <p id="faceIndexSummary" class="text-[10px] font-bold text-cyan-200 bg-cyan-500/10 border border-cyan-400/20 rounded-xl px-3 py-2">טוען את מצב האינדוקס…</p>
-            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div id="faceIndexProgressBar" class="bg-gradient-to-r from-cyan-300 to-cyan-500 h-full w-0 transition-all duration-300"></div>
-            </div>
-            <p id="faceIndexStatusText" class="text-[10px] text-slate-400" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
-            <div class="flex gap-2">
-                <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="flex-1 py-2.5 btn-primary-gold rounded-xl text-xs font-bold disabled:opacity-50">התחל או המשך אינדוקס</button>
-                <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="py-2.5 px-4 btn-secondary-dark rounded-xl text-xs font-bold disabled:opacity-50">עצור</button>
-            </div>
-            <button type="button" id="faceIndexResetBtn" onclick="resetFaceIndex()" class="w-full py-2 rounded-xl text-[10px] font-bold text-red-300 border border-red-500/30 hover:bg-red-500/10 transition-all">איפוס ואינדוקס מחדש (מנהל־על)</button>
-        </div>
-    </div>
+            <!-- ============ מסך: אישור העלאות ============ -->
+            <section id="view-pending" class="admin-view" data-view="pending" aria-label="אישור העלאות">
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="image-plus"></i> בקשות העלאה לאישור <span id="pendingCountBadge" class="admin-pane-count">0</span></h3>
+                        <button type="button" onclick="toggleSelectAllPending()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">סימון הכול</button>
+                    </div>
+                    <div id="accPending" class="accordion-content admin-panel-body">
+                        <p>בחרו את הפריטים שברצונכם להעביר לגלריה, ואת תיקיית היעד שלהם.</p>
+                        <div id="pendingList" class="admin-list admin-list-scroll"></div>
+                        <label class="block"><span class="field-label">יעד שמירה בגלריה</span>
+                            <select id="pendingTargetFolder">
+                                <option value="auto">חלוקה אוטומטית לפי תיקיות מקוריות</option>
+                            </select>
+                        </label>
+                        <div class="flex gap-2 flex-wrap">
+                            <button type="button" onclick="approveSelectedPending()" class="btn-primary-gold flex-1 py-2.5 text-xs">אישור הנבחרים</button>
+                            <button type="button" id="rejectPendingBtn" onclick="rejectSelectedPending()" class="btn-danger-soft flex-1 py-2.5 text-xs">בקשת מחיקה</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-    <button type="button" onclick="lockGalleryImmediatelySidebar()" class="admin-logout w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md mt-4">
-        <i data-lucide="log-out" class="w-4 h-4"></i>
-        התנתק ממצב ניהול
-    </button>
-</div>
-            </div>
+            <!-- ============ מסך: סנכרון Drive ============ -->
+            <section id="view-drive" class="admin-view" data-view="drive" aria-label="סנכרון Google Drive">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="folder-sync"></i> סנכרון מ־Google Drive</h3></div>
+                    <div id="accDriveSync" class="accordion-content admin-panel-body">
+                        <p>חברו חשבון Drive, הדביקו קישור לתיקייה וסנכרנו תמונות, סרטונים ותיקיות משנה ישירות לגלריה.</p>
+
+                        <div id="driveConnectionStatus" role="status" class="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold text-slate-400">
+                            Google Drive עדיין לא מחובר
+                        </div>
+
+                        <button type="button" id="connectDriveBtn" onclick="connectGoogleDrive()" class="btn-secondary-dark w-full py-2.5 text-xs">
+                            <i data-lucide="cloud" class="w-4 h-4"></i> חיבור Google Drive
+                        </button>
+
+                        <label class="block"><span class="field-label">קישור לתיקיית Drive או מזהה תיקייה</span>
+                            <input type="text" id="driveFolderInput" inputmode="url" autocomplete="off" value="https://drive.google.com/drive/folders/1Hb8mCpdnKcax8T6Xulq8PLXzlGcJaBhF" placeholder="https://drive.google.com/drive/folders/..." dir="ltr">
+                        </label>
+
+                        <p class="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold">
+                            כל קישור מסנכרן תמיד את כל התיקייה, כולל כל תיקיות המשנה והמבנה שלהן.
+                        </p>
+
+                        <div id="driveSyncProgress" class="hidden rounded-xl border border-white/10 bg-white/5 p-3" aria-live="polite">
+                            <div class="progress-track"><div id="driveSyncProgressBar" class="progress-bar"></div></div>
+                            <p id="driveSyncProgressText" class="mt-2 text-[11px] font-bold text-amber-400">מתכונן לסנכרון…</p>
+                        </div>
+
+                        <button type="button" id="driveSyncBtn" onclick="startGoogleDriveSync()" disabled class="btn-primary-gold w-full py-2.5 text-xs">
+                            <i data-lucide="folders" class="w-4 h-4"></i> סנכרון התיקייה וכל תיקיות המשנה
+                        </button>
+                        <p class="field-hint">הסנכרון מוסיף ומעדכן בלבד. הוא אינו מוחק מהגלריה קבצים שהוסרו מ־Drive. סרטוני MP4 ו־WebM מוגבלים ל־100MB.</p>
+                    </div>
+                </div>
+
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="timer"></i> סנכרון אוטומטי</h3>
+                        <button type="button" onclick="addDriveFolderRow()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">+ הוספת תיקייה</button>
+                    </div>
+                    <div class="admin-panel-body">
+                        <div id="driveFoldersList" class="admin-list"></div>
+                        <p id="noFoldersMsg" class="admin-empty">לא הוגדרו תיקיות לסנכרון אוטומטי</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
+                                <input type="checkbox" id="driveAutoSyncEnabled" checked disabled>
+                                <span class="text-[11px] font-semibold">הפעלה אוטומטית</span>
+                            </label>
+                            <select id="driveAutoSyncInterval" aria-label="תדירות הסנכרון האוטומטי">
+                                <option value="15">כל 15 דקות</option>
+                                <option value="30">כל 30 דקות</option>
+                                <option value="60">כל שעה</option>
+                                <option value="180">כל 3 שעות</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            <button type="button" onclick="saveDriveFoldersToWorker()" class="btn-secondary-dark flex-1 py-2 text-[11px]"><i data-lucide="save" class="w-4 h-4"></i> שמירת הגדרות</button>
+                            <button type="button" id="workerSyncBtn" onclick="syncNowFromWorker()" class="btn-primary-gold flex-1 py-2 text-[11px]"><i data-lucide="refresh-cw" class="w-4 h-4"></i> סנכרון עכשיו</button>
+                        </div>
+                        <p id="workerLastSync" class="field-hint text-center"></p>
+                        <p id="workerSyncResult" class="text-[11px] font-semibold text-center min-h-4"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: תיקיות ============ -->
+            <section id="view-folders" class="admin-view" data-view="folders" aria-label="ניהול תיקיות">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="folder-plus"></i> יצירת תיקייה חדשה</h3></div>
+                    <div id="accEmptyFolder" class="accordion-content admin-panel-body">
+                        <form onsubmit="handleCreateEmptyFolder(event)" class="flex flex-col gap-3">
+                            <label class="block"><span class="field-label">שם התיקייה</span>
+                                <input type="text" id="emptyFolderName" required maxlength="60" placeholder="לדוגמה: שמחת בית השואבה תשפ״ו">
+                            </label>
+                            <div>
+                                <span class="field-label">סמל התיקייה</span>
+                                <div class="grid grid-cols-4 gap-2">
+                                    <label class="admin-filter-chip flex items-center justify-center cursor-pointer"><input type="radio" name="emptyFolderIcon" value="calendar" checked class="sr-only peer"><i data-lucide="calendar" class="w-4 h-4"></i></label>
+                                    <label class="admin-filter-chip flex items-center justify-center cursor-pointer"><input type="radio" name="emptyFolderIcon" value="compass" class="sr-only peer"><i data-lucide="compass" class="w-4 h-4"></i></label>
+                                    <label class="admin-filter-chip flex items-center justify-center cursor-pointer"><input type="radio" name="emptyFolderIcon" value="users" class="sr-only peer"><i data-lucide="users" class="w-4 h-4"></i></label>
+                                    <label class="admin-filter-chip flex items-center justify-center cursor-pointer"><input type="radio" name="emptyFolderIcon" value="award" class="sr-only peer"><i data-lucide="award" class="w-4 h-4"></i></label>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary-gold w-full py-2.5 text-xs">יצירת תיקייה בענן</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="library-big"></i> תיקיות הגלריה</h3>
+                        <button type="button" onclick="renderAdminFolders()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>כאן מוצגת כל תיקייה עם מספר הפריטים שבה. מעבר לגלריה פותח אותה ישירות.</p>
+                        <div id="adminFolderList" class="admin-list admin-list-scroll"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: בקשות מחיקה ============ -->
+            <section id="view-deletions" class="admin-view" data-view="deletions" aria-label="בקשות מחיקה">
+                <div id="superAdminDeletionRequestsCard" class="hidden super-admin-only admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="trash-2"></i> בקשות מחיקה <span id="deletionRequestsCountBadge" class="admin-pane-count">0</span></h3></div>
+                    <div id="accDeletionRequests" class="accordion-content admin-panel-body">
+                        <p>בקשות שנשלחו ממנהלי דרגה 3. רק מנהל־על יכול לבצע מחיקה סופית.</p>
+                        <div id="deletionRequestsList" class="admin-list admin-list-scroll"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: סל מחזור ============ -->
+            <section id="view-trash" class="admin-view" data-view="trash" aria-label="סל המחזור">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="archive-restore"></i> סל מחזור <span id="trashItemsCountBadge" class="admin-pane-count">0</span></h3>
+                        <button type="button" onclick="purgeEntireTrash()" class="btn-danger-soft px-3 py-1.5 text-[11px]">ריקון הסל</button>
+                    </div>
+                    <div id="accTrash" class="accordion-content admin-panel-body">
+                        <p>פריטים שנמחקו נשמרים כאן עד לשחזור או למחיקה סופית.</p>
+                        <div id="trashItemsList" class="admin-list admin-list-scroll"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: משתמשים ============ -->
+            <section id="view-users" class="admin-view" data-view="users" aria-label="ניהול משתמשים">
+                <div id="superAdminUsersCard" class="hidden super-admin-only admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="user-cog"></i> בקשות הצטרפות <span id="pendingUsersCountBadge" class="admin-pane-count">0</span></h3>
+                        <button type="button" onclick="forceRefreshUsers()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                    </div>
+                    <div id="accUserApprovals" class="accordion-content admin-panel-body">
+                        <p>מנהל־על יכול לאשר משתמשים, לשנות דרגות ולחסום חשבונות.</p>
+                        <div id="pendingUsersList" class="admin-list admin-list-scroll"></div>
+                        <div class="admin-toolbar">
+                            <input id="adminUserSearch" type="search" autocomplete="off" placeholder="חיפוש שם או דוא״ל…" oninput="filterManagedUsers()">
+                            <select id="adminUserRoleFilter" onchange="filterManagedUsers()" aria-label="סינון לפי דרגה">
+                                <option value="">כל הדרגות</option>
+                                <option value="viewer">דרגה 1 — צופה</option>
+                                <option value="uploader">דרגה 2 — מעלה</option>
+                                <option value="admin">דרגה 3 — מנהל</option>
+                                <option value="super_admin">דרגה 4 — מנהל־על</option>
+                            </select>
+                            <button type="button" onclick="exportUsersCsv()" class="btn-secondary-dark"><i data-lucide="file-down" class="w-4 h-4"></i> ייצוא CSV</button>
+                        </div>
+                        <p class="section-label">כל המשתמשים</p>
+                        <div id="managedUsersList" class="admin-list admin-list-scroll"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: הודעות ופניות ============ -->
+            <section id="view-messages" class="admin-view" data-view="messages" aria-label="הודעות ופניות">
+                <div id="superAdminChatsCard" class="hidden super-admin-only admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="messages-square"></i> שיחות ופניות ממשתמשים
+                            <span id="adminChatsUnreadBadge" class="hidden admin-nav-count">0</span>
+                        </h3>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>מרכז ההודעות מרכז את כל הפניות הפתוחות ומאפשר לשלוח הודעה לכל משתמש או לקבוצת משתמשים.</p>
+                        <button type="button" onclick="openAdminMessagesCenter()" class="btn-primary-gold w-full py-3 text-xs">
+                            <i data-lucide="inbox" class="w-4 h-4"></i> פתיחת מרכז ההודעות
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: הודעת פופ-אפ ============ -->
+            <section id="view-popup" class="admin-view" data-view="popup" aria-label="הודעת פופ-אפ">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head"><h3><i data-lucide="megaphone"></i> הודעת פופ-אפ לאתר</h3></div>
+                    <div id="accPopupAnnouncement" class="accordion-content admin-panel-body">
+                        <div id="popupAnnouncementPreview" class="hidden rounded-xl overflow-hidden border border-white/10">
+                            <img id="popupAnnouncementPreviewImg" src="" alt="" class="w-full block">
+                            <div class="flex items-center justify-between px-3 py-1.5 bg-white/5">
+                                <span id="popupAnnouncementStatus" class="text-[11px] font-bold text-amber-400"></span>
+                                <span id="popupAnnouncementAudienceLabel" class="text-[11px] text-slate-400"></span>
+                            </div>
+                            <p id="popupAnnouncementLinkLabel" class="text-[11px] text-slate-400 px-3 pb-1.5 bg-white/5"></p>
+                        </div>
+
+                        <label class="block"><span class="field-label">תמונת הפופ-אפ (JPG/PNG/WebP)</span>
+                            <input type="file" id="popupImageInput" accept="image/*">
+                        </label>
+
+                        <div>
+                            <span class="field-label">לחיצה על הפופ-אפ תפנה אל</span>
+                            <div class="flex flex-col gap-1.5">
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="none" checked onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[12px]">ללא פנייה — רק תמונה</span></label>
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="folder" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[12px]">תיקייה ספציפית</span></label>
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="latest" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[12px]">עדכונים אחרונים</span></label>
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupLinkType" value="feature" onchange="window.updatePopupLinkTypeUI()" onclick="window.updatePopupLinkTypeUI()"><span class="text-[12px]">כלי באתר — חיפוש פנים, חיפוש AI ועוד</span></label>
+                            </div>
+                        </div>
+
+                        <div id="popupFolderSelectorArea" class="hidden">
+                            <span class="field-label">בחירת תיקייה</span>
+                            <select id="popupFolderSelect"></select>
+                        </div>
+                        <div id="popupFeatureSelectorArea" class="hidden">
+                            <span class="field-label">בחירת כלי</span>
+                            <select id="popupFeatureSelect" onchange="window.updatePopupLinkTypeUI()"></select>
+                            <p id="popupFeatureHint" class="field-hint mt-1"></p>
+                        </div>
+
+                        <div>
+                            <span class="field-label">מי יראה את הפופ-אפ</span>
+                            <div class="flex flex-col gap-1.5">
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupAudience" value="all" checked><span class="text-[12px]">כל מי שנכנס לאתר</span></label>
+                                <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="popupAudience" value="approved"><span class="text-[12px]">מי שאושרה לו גישה בלבד</span></label>
+                            </div>
+                        </div>
+
+                        <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
+                            <input type="checkbox" id="popupEnabled" checked>
+                            <span class="text-[12px] font-semibold">הפעלת הפופ-אפ</span>
+                        </label>
+
+                        <div class="flex gap-2">
+                            <button type="button" id="popupSaveButton" onclick="window.savePopupAnnouncement()" class="btn-primary-gold flex-1 py-2.5 text-xs">שמירה ופרסום</button>
+                            <button type="button" onclick="window.deletePopupAnnouncement()" class="btn-danger-soft px-4 py-2.5 text-xs">מחיקה</button>
+                        </div>
+                        <p id="popupSaveStatus" class="field-hint text-center min-h-4"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: מרכז פעילות ============ -->
+            <section id="view-activity" class="admin-view" data-view="activity" aria-label="מרכז פעילות">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="activity"></i> מרכז פעילות</h3>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="exportActivityCsv()" class="btn-secondary-dark px-3 py-1.5 text-[11px]"><i data-lucide="file-down" class="w-3.5 h-3.5"></i> ייצוא</button>
+                            <button type="button" onclick="renderActivityLogs()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                        </div>
+                    </div>
+                    <div id="accActivityCenter" class="accordion-content admin-panel-body">
+                        <div id="activitySummary" class="admin-overview"></div>
+                        <div id="activityFilters" class="admin-filter-chips"></div>
+                        <div id="activityLogList" class="admin-list admin-list-scroll"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: ניתוח נתונים ============ -->
+            <section id="view-analytics" class="admin-view" data-view="analytics" aria-label="ניתוח נתונים">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="chart-column-big"></i> נתוני הגלריה והצפיות</h3>
+                        <button type="button" onclick="loadAdvancedAnalytics()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>כאן אפשר לזהות בדיוק איזו תמונה או איזה סרטון קיבלו כל צפייה.</p>
+                        <div id="advancedAnalyticsCards" class="admin-overview"></div>
+                        <div class="analytics-media-section">
+                            <div class="analytics-media-heading">
+                                <h4 id="analyticsMediaTitle">תמונות וסרטונים לפי מספר צפיות</h4>
+                                <span id="advancedAnalyticsMediaCount" class="analytics-media-count">0 פריטים</span>
+                            </div>
+                            <div id="advancedAnalyticsTop" class="analytics-media-grid">טוען נתונים…</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: גיבוי ושחזור ============ -->
+            <section id="view-backup" class="admin-view" data-view="backup" aria-label="גיבוי ושחזור">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head"><h3><i data-lucide="database-backup"></i> גיבוי ושחזור הגלריה</h3></div>
+                    <div class="admin-panel-body">
+                        <p>הגיבוי כולל תיקיות, פריטי מדיה, בקשות ממתינות, משתמשים ובקשות מחיקה. קובצי המדיה עצמם נשארים ב־R2.</p>
+                        <div class="grid sm:grid-cols-2 gap-3">
+                            <button type="button" onclick="exportGalleryBackup()" class="btn-primary-gold py-3 text-xs"><i data-lucide="file-down" class="w-4 h-4"></i> הורדת קובץ גיבוי</button>
+                            <label class="btn-secondary-dark py-3 text-xs cursor-pointer">
+                                <i data-lucide="file-up" class="w-4 h-4"></i> בחירת קובץ לשחזור
+                                <input id="backupRestoreFile" type="file" accept="application/json,.json" class="sr-only" onchange="previewBackupFile(this)">
+                            </label>
+                        </div>
+                        <div id="backupRestoreStatus" class="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-400">טרם נבחר קובץ שחזור.</div>
+                        <button id="backupRestoreSubmit" type="button" onclick="restoreGalleryBackup()" disabled class="btn-primary-gold w-full py-3 text-xs">שחזור הנתונים</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: תקינות המערכת ============ -->
+            <section id="view-health" class="admin-view" data-view="health" aria-label="תקינות המערכת">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="shield-check"></i> בדיקת תקינות המערכת</h3></div>
+                    <div id="accSystemHealth" class="accordion-content admin-panel-body">
+                        <p>בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
+                        <button type="button" onclick="runSystemHealthCheck()" class="btn-primary-gold w-full py-2.5 text-xs">הרצת בדיקה</button>
+                        <div id="systemHealthResults" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: אינדוקס פנים ============ -->
+            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אינדוקס פנים">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="scan-face"></i> הכנת חיפוש הפנים בענן</h3></div>
+                    <div id="accFaceIndex" class="accordion-content admin-panel-body">
+                        <p>סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב.</p>
+                        <p id="faceIndexSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">טוען את מצב האינדוקס…</p>
+                        <div class="progress-track"><div id="faceIndexProgressBar" class="progress-bar"></div></div>
+                        <p id="faceIndexStatusText" class="field-hint" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="btn-primary-gold flex-1 py-2.5 text-xs">התחלה או המשך אינדוקס</button>
+                            <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצירה</button>
+                        </div>
+                        <button type="button" id="faceIndexResetBtn" onclick="resetFaceIndex()" class="btn-danger-soft w-full py-2 text-[11px]">איפוס ואינדוקס מחדש (מנהל־על)</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: כלי תחזוקה ============ -->
+            <section id="view-tools" class="admin-view" data-view="tools" aria-label="כלי תחזוקה">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="wrench"></i> תחזוקה ואבחון</h3></div>
+                    <div class="admin-panel-body">
+                        <p>כלים לפתרון תקלות תצוגה בצד הלקוח. הם אינם נוגעים בנתונים שבענן.</p>
+                        <div class="admin-quick-grid">
+                            <button type="button" onclick="clearClientCaches()">
+                                <i data-lucide="eraser"></i>
+                                ניקוי מטמון האתר
+                                <small>מוחק את המטמון המקומי וטוען את הדף מחדש</small>
+                            </button>
+                            <button type="button" onclick="copyAdminDiagnostics()">
+                                <i data-lucide="clipboard-list"></i>
+                                העתקת נתוני אבחון
+                                <small>גרסה, דפדפן ומצב החיבור — להעברה לתמיכה</small>
+                            </button>
+                            <button type="button" onclick="window.location.reload()">
+                                <i data-lucide="rotate-cw"></i>
+                                טעינה מחדש
+                                <small>רענון מלא של לוח הניהול</small>
+                            </button>
+                        </div>
+                        <div id="adminDiagnostics" class="admin-empty">לחצו על "העתקת נתוני אבחון" כדי לראות ולהעתיק את הפרטים.</div>
+                    </div>
+                </div>
+            </section>
         </div>
     </main>
 
-    <!-- ADMIN CATEGORY WINDOW -->
-    <div id="adminCategoryModal" class="fixed inset-0 z-[104] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="adminCategoryTitle">
-        <div class="admin-task-window w-full h-full max-w-5xl mx-auto rounded-3xl overflow-hidden flex flex-col modal-animate-popup">
-            <div class="flex items-center justify-between gap-4 px-5 sm:px-7 py-4 border-b border-white/10">
-                <div class="flex items-center gap-3 min-w-0">
-                    <span id="adminCategoryIcon" class="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                        <i data-lucide="layout-grid" class="w-5 h-5"></i>
-                    </span>
-                    <div class="min-w-0">
-                        <h3 id="adminCategoryTitle" class="text-base sm:text-xl font-extrabold text-white truncate">נושא ניהול</h3>
-                        <p id="adminCategoryDescription" class="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate"></p>
-                    </div>
-                </div>
-                <button type="button" onclick="closeAdminCategoryWindow()" class="px-3.5 h-11 btn-secondary-dark rounded-xl flex items-center justify-center gap-2 shrink-0" aria-label="חזרה לתפריט הנושאים">
-                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                    <span class="text-xs font-bold">חזרה לתפריט</span>
-                </button>
-            </div>
-            <div class="flex-1 overflow-y-auto p-5 sm:p-7">
-                <div id="adminCategoryActions" class="grid sm:grid-cols-2 gap-3"></div>
-            </div>
-        </div>
-    </div>
-    <!-- ADMIN TASK WINDOW: existing management controls are moved here while open -->
-    <div id="adminTaskModal" class="fixed inset-0 z-[105] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="חלון ניהול">
-        <div class="admin-task-window w-full h-full max-w-5xl mx-auto rounded-3xl overflow-hidden flex flex-col modal-animate-popup">
-            <div class="flex items-center justify-between gap-4 px-5 sm:px-7 py-4 border-b border-white/10">
-                <div class="flex items-center gap-3 min-w-0">
-                    <span id="adminTaskIcon" class="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                        <i data-lucide="settings-2" class="w-5 h-5"></i>
-                    </span>
-                    <div class="min-w-0">
-                        <h3 id="adminTaskTitle" class="text-base sm:text-xl font-extrabold text-white truncate">פעולת ניהול</h3>
-                        <p id="adminTaskDescription" class="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate"></p>
-                    </div>
-                </div>
-                <button type="button" onclick="closeAdminTaskWindow()" class="px-3.5 h-11 btn-secondary-dark rounded-xl flex items-center justify-center gap-2 shrink-0" aria-label="חזרה ללוח הניהול">
-                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                    <span class="text-xs font-bold">חזרה לניהול</span>
-                </button>
-            </div>
-            <div id="adminTaskBody" class="admin-task-body flex-1 overflow-y-auto p-5 sm:p-7"></div>
-        </div>
-    </div>
-    <!-- NATIVE IN-APP SUPER ADMIN MESSAGE CENTER -->
-    <div id="adminMessagesCenterModal" class="fixed inset-0 z-[110] hidden admin-messages-overlay" role="dialog" aria-modal="true" aria-labelledby="adminMessagesCenterTitle">
-        <div class="admin-messages-window modal-animate-popup">
+    <!-- ======================= חלונות ======================= -->
+
+    <!-- מרכז ההודעות -->
+    <div id="adminMessagesCenterModal" class="fixed inset-0 z-[110] hidden admin-messages-overlay p-3 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="adminMessagesCenterTitle">
+        <div class="admin-messages-window">
             <header class="admin-messages-header">
                 <div class="admin-messages-brand">
-                    <span class="admin-messages-brand-icon"><i data-lucide="messages-square" class="w-6 h-6"></i></span>
-                    <div>
-                        <p>תקשורת עם משתמשי הגלריה</p>
+                    <span class="admin-messages-brand-icon"><i data-lucide="messages-square" class="w-5 h-5"></i></span>
+                    <div class="min-w-0">
+                        <small>תקשורת עם המשתמשים</small>
                         <h2 id="adminMessagesCenterTitle">מרכז ההודעות</h2>
                     </div>
                 </div>
-                <button type="button" onclick="closeModal('adminMessagesCenterModal')" class="admin-messages-close" aria-label="סגירת מרכז ההודעות">
-                    <i data-lucide="x" class="w-5 h-5"></i><span>סגירה</span>
-                </button>
+                <button type="button" onclick="closeModal('adminMessagesCenterModal')" class="admin-messages-close" aria-label="סגירת מרכז ההודעות"><i data-lucide="x" class="w-5 h-5"></i></button>
             </header>
 
-            <section class="admin-messages-stats" aria-label="מצב מרכז ההודעות">
-                <div><span class="is-cyan"><i data-lucide="mail-warning" class="w-4 h-4"></i></span><strong id="adminMessagesUnreadStat">0</strong><small>לא נקראו</small></div>
-                <div><span class="is-amber"><i data-lucide="message-circle" class="w-4 h-4"></i></span><strong id="adminMessagesOpenStat">0</strong><small>שיחות פתוחות</small></div>
-                <div><span class="is-green"><i data-lucide="circle-check-big" class="w-4 h-4"></i></span><strong id="adminMessagesResolvedStat">0</strong><small>שיחות שטופלו</small></div>
-                <div><span class="is-slate"><i data-lucide="users" class="w-4 h-4"></i></span><strong id="adminMessagesUsersStat">0</strong><small>משתמשים</small></div>
-                <div><span class="is-purple"><i data-lucide="user-check" class="w-4 h-4"></i></span><strong id="adminMessagesSelectedStat">0</strong><small>נבחרו לשליחה</small></div>
-            </section>
+            <div class="admin-messages-stats">
+                <div><span class="is-cyan"><i data-lucide="mail-warning" class="w-4 h-4"></i></span><div><strong id="adminMessagesUnreadStat">0</strong><small>לא נקראו</small></div></div>
+                <div><span class="is-amber"><i data-lucide="message-circle" class="w-4 h-4"></i></span><div><strong id="adminMessagesOpenStat">0</strong><small>שיחות פתוחות</small></div></div>
+                <div><span class="is-green"><i data-lucide="circle-check-big" class="w-4 h-4"></i></span><div><strong id="adminMessagesResolvedStat">0</strong><small>שיחות שטופלו</small></div></div>
+                <div><span class="is-slate"><i data-lucide="users" class="w-4 h-4"></i></span><div><strong id="adminMessagesUsersStat">0</strong><small>משתמשים</small></div></div>
+                <div><span class="is-purple"><i data-lucide="user-check" class="w-4 h-4"></i></span><div><strong id="adminMessagesSelectedStat">0</strong><small>נבחרו לשליחה</small></div></div>
+            </div>
 
             <div class="admin-messages-layout">
-                <section class="admin-conversations-pane" aria-label="שיחות עם משתמשים">
+                <section class="admin-conversations-pane" aria-label="פניות ממשתמשים">
                     <div class="admin-pane-heading">
-                        <div>
-                            <span>תיבת שיחות</span>
-                            <h3>פניות אחרונות</h3>
-                        </div>
+                        <h3><i data-lucide="inbox" class="w-4 h-4"></i> פניות שהתקבלו</h3>
                         <span id="adminMessageRepliesCount" class="admin-pane-count">0</span>
                     </div>
-                    <div class="admin-conversation-filters" aria-label="סינון שיחות">
-                        <button type="button" data-admin-conversation-filter="all" class="is-active" aria-pressed="true" onclick="setAdminConversationFilter('all')">הכול</button>
-                        <button type="button" data-admin-conversation-filter="unread" aria-pressed="false" onclick="setAdminConversationFilter('unread')">לא נקראו</button>
-                        <button type="button" data-admin-conversation-filter="open" aria-pressed="false" onclick="setAdminConversationFilter('open')">פתוחות</button>
-                        <button type="button" data-admin-conversation-filter="resolved" aria-pressed="false" onclick="setAdminConversationFilter('resolved')">טופלו</button>
+                    <div class="admin-conversation-filters" role="group" aria-label="סינון הפניות">
+                        <button type="button" data-admin-conversation-filter="all" onclick="setAdminConversationFilter('all')" class="is-active">הכול</button>
+                        <button type="button" data-admin-conversation-filter="unread" onclick="setAdminConversationFilter('unread')">לא נקראו</button>
+                        <button type="button" data-admin-conversation-filter="open" onclick="setAdminConversationFilter('open')">פתוחות</button>
+                        <button type="button" data-admin-conversation-filter="resolved" onclick="setAdminConversationFilter('resolved')">טופלו</button>
                     </div>
-                    <div id="adminMessageRepliesList" class="admin-conversation-list">
-                        <div class="admin-conversation-empty"><span>טוען שיחות…</span></div>
-                    </div>
+                    <div id="adminMessageRepliesList" class="admin-conversation-list"></div>
                 </section>
 
                 <section class="admin-recipients-pane" aria-label="בחירת נמענים">
                     <div class="admin-pane-heading">
-                        <div>
-                            <span>ספר משתמשים</span>
-                            <h3>בחירת נמענים</h3>
-                        </div>
+                        <h3><i data-lucide="users-round" class="w-4 h-4"></i> נמענים</h3>
                         <p id="adminMessageUsersSummary">טוען משתמשים…</p>
                     </div>
                     <div class="admin-recipient-controls">
-                        <label>
+                        <label class="admin-menu-search flex-1">
                             <i data-lucide="search" class="w-4 h-4"></i>
+                            <span class="sr-only">חיפוש משתמשים</span>
                             <input id="adminMessageUserSearch" type="search" autocomplete="off" oninput="renderAdminMessageUsers()" placeholder="חיפוש שם, מייל או דרגה…">
                         </label>
-                        <div>
-                            <button type="button" onclick="selectAllAdminMessageUsers()"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i>בחר הכול</button>
-                            <button type="button" onclick="clearAdminMessageUsers()"><i data-lucide="eraser" class="w-3.5 h-3.5"></i>נקה</button>
-                        </div>
+                        <button type="button" onclick="selectAllAdminMessageUsers()">בחירת הכול</button>
+                        <button type="button" onclick="clearAdminMessageUsers()">ניקוי</button>
                     </div>
                     <div id="adminMessageUsersList" class="admin-message-users-list"></div>
                 </section>
 
-                <aside class="admin-compose-pane" aria-label="כתיבת הודעה למשתמשים">
+                <section class="admin-compose-pane" aria-label="כתיבת הודעה">
                     <div class="admin-compose-heading">
-                        <span><i data-lucide="send" class="w-5 h-5"></i></span>
-                        <div><small>הודעה חדשה</small><h3>כתיבת הודעה</h3></div>
+                        <h3><i data-lucide="send" class="w-4 h-4"></i> הודעה חדשה</h3>
+                        <p id="adminMessageSelectionSummary" class="admin-compose-selection">לא נבחרו נמענים</p>
                     </div>
-                    <p id="adminMessageSelectionSummary" class="admin-compose-selection">לא נבחרו נמענים</p>
-                    <label class="admin-compose-field">
-                        <span>תוכן ההודעה</span>
-                        <textarea id="adminBulkMessageText" maxlength="1500" rows="10" oninput="updateAdminMessageCenterUI()" placeholder="כתוב כאן הודעה שתופיע באזור האישי של הנמענים…"></textarea>
+                    <label class="admin-compose-field block">
+                        <span class="field-label">תוכן ההודעה</span>
+                        <textarea id="adminBulkMessageText" maxlength="1500" rows="10" oninput="updateAdminMessageCenterUI()" placeholder="כתבו כאן הודעה שתופיע באזור האישי של הנמענים…"></textarea>
                     </label>
                     <div class="admin-compose-meta">
-                        <span><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> ההודעה נשמרת באזור האישי</span>
+                        <span>עד 1500 תווים</span>
                         <b id="adminBulkMessageCharacterCount">0/1500</b>
                     </div>
                     <button id="adminBulkMessageSendBtn" type="button" onclick="sendAdminBulkMessages()" disabled class="admin-compose-send">
-                        <i data-lucide="send-horizontal" class="w-5 h-5"></i>
-                        <span id="adminBulkMessageSendText">שלח הודעה</span>
+                        <i data-lucide="send-horizontal" class="w-4 h-4"></i>
+                        <span id="adminBulkMessageSendText">שליחת ההודעה</span>
                     </button>
                     <div id="adminBulkMessageProgress" class="hidden admin-compose-progress" aria-live="polite"></div>
-                    <div class="admin-compose-tip">
-                        <i data-lucide="lightbulb" class="w-4 h-4"></i>
-                        <p><strong>רוצה שיחה אישית?</strong><span>פתח שיחה מהרשימה משמאל ושלח גם קבצים ואימוג׳ים.</span></p>
-                    </div>
-                </aside>
-            </div>
-        </div>
-    </div>
-    <!-- BACKUP & RESTORE -->
-    <div id="backupRestoreModal" class="fixed inset-0 z-[120] hidden bg-black/80 backdrop-blur-md p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="backupRestoreTitle">
-        <div class="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-950 p-6 modal-animate-popup shadow-2xl">
-            <div class="flex items-center justify-between gap-4">
-                <div>
-                    <h3 id="backupRestoreTitle" class="text-xl font-black text-white">גיבוי ושחזור הגלריה</h3>
-                    <p class="mt-1 text-xs text-slate-400">הגיבוי כולל תיקיות, פרטי מדיה, משתמשים והגדרות. קובצי המדיה נשארים שמורים ב־R2.</p>
-                </div>
-                <button type="button" onclick="closeModal('backupRestoreModal')" class="w-10 h-10 btn-secondary-dark rounded-full flex items-center justify-center" aria-label="סגירה"><i data-lucide="x" class="w-5 h-5"></i></button>
-            </div>
-            <div class="mt-6 grid sm:grid-cols-2 gap-3">
-                <button type="button" onclick="exportGalleryBackup()" class="btn-primary-gold rounded-xl py-3 text-xs font-extrabold flex items-center justify-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> הורד קובץ גיבוי</button>
-                <label class="btn-secondary-dark rounded-xl py-3 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"><i data-lucide="file-up" class="w-4 h-4"></i> בחר קובץ לשחזור<input id="backupRestoreFile" type="file" accept="application/json,.json" class="sr-only" onchange="previewBackupFile(this)"></label>
-            </div>
-            <div id="backupRestoreStatus" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-400">טרם נבחר קובץ שחזור.</div>
-            <button id="backupRestoreSubmit" type="button" onclick="restoreGalleryBackup()" disabled class="mt-3 w-full btn-primary-gold rounded-xl py-3 text-xs font-extrabold disabled:opacity-40">שחזר את הנתונים</button>
-        </div>
-    </div>
-    <!-- ADVANCED ANALYTICS -->
-    <div id="advancedAnalyticsModal" class="fixed inset-0 z-[120] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="advancedAnalyticsTitle">
-        <div class="w-full h-full max-w-5xl mx-auto rounded-3xl border border-white/10 bg-slate-950 overflow-hidden flex flex-col modal-animate-popup">
-            <div class="p-5 border-b border-white/10 flex items-center justify-between">
-                <div><h3 id="advancedAnalyticsTitle" class="text-xl font-black text-white">נתוני הגלריה והצפיות</h3><p class="text-xs text-slate-400 mt-1">כאן אפשר לזהות בדיוק איזו תמונה או איזה סרטון קיבלו כל צפייה.</p></div>
-                <button type="button" onclick="closeModal('advancedAnalyticsModal')" class="w-10 h-10 btn-secondary-dark rounded-full flex items-center justify-center" aria-label="סגירה"><i data-lucide="x" class="w-5 h-5"></i></button>
-            </div>
-            <div class="flex-1 overflow-y-auto p-5">
-                <div id="advancedAnalyticsCards" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
-                <section class="analytics-media-section mt-6" aria-labelledby="analyticsMediaTitle">
-                    <div class="analytics-media-heading">
-                        <div>
-                            <h4 id="analyticsMediaTitle">תמונות וסרטונים לפי מספר צפיות</h4>
-                            <p>לחץ על כרטיס כדי לפתוח את הפריט בגודל מלא.</p>
-                        </div>
-                        <span id="advancedAnalyticsMediaCount" class="analytics-media-count">0 פריטים</span>
-                    </div>
-                    <div id="advancedAnalyticsTop" class="analytics-media-grid">טוען נתונים...</div>
+                    <p class="admin-compose-tip">ההודעה מופיעה בתיבת ההודעות של הנמענים באתר. אפשר לבחור נמען אחד, קבוצה או את כולם.</p>
                 </section>
             </div>
         </div>
     </div>
-    <!-- DIRECT EMAIL -->
-    <div id="directEmailModal" class="fixed inset-0 z-[125] hidden bg-black/80 backdrop-blur-md p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="directEmailTitle">
-        <form onsubmit="submitDirectEmail(event)" class="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-950 p-6 modal-animate-popup shadow-2xl space-y-4">
-            <div class="flex items-center justify-between"><h3 id="directEmailTitle" class="text-xl font-black text-white">שליחת דוא״ל</h3><button type="button" onclick="closeModal('directEmailModal')" class="w-10 h-10 btn-secondary-dark rounded-full flex items-center justify-center" aria-label="סגירה"><i data-lucide="x" class="w-5 h-5"></i></button></div>
-            <input id="directEmailTo" type="email" required readonly class="w-full rounded-xl px-3 py-2 text-sm" dir="ltr">
-            <input id="directEmailSubject" required maxlength="160" class="w-full rounded-xl px-3 py-2 text-sm" placeholder="נושא">
-            <textarea id="directEmailBody" required maxlength="5000" rows="8" class="w-full rounded-xl px-3 py-2 text-sm resize-y" placeholder="תוכן ההודעה"></textarea>
-            <button id="directEmailSubmit" type="submit" class="w-full btn-primary-gold rounded-xl py-3 text-xs font-extrabold flex items-center justify-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> שלח עכשיו</button>
+
+    <!-- שליחת דוא״ל ישיר -->
+    <div id="directEmailModal" class="fixed inset-0 z-[125] hidden p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="directEmailTitle">
+        <form class="modal-card modal-animate-popup max-w-lg" onsubmit="submitDirectEmail(event)">
+            <div class="modal-head">
+                <h3 id="directEmailTitle"><i data-lucide="mail" class="w-5 h-5"></i> שליחת דוא״ל</h3>
+                <button type="button" onclick="closeModal('directEmailModal')" class="modal-close" aria-label="סגירה"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body">
+                <label class="block"><span class="field-label">אל</span><input id="directEmailTo" type="email" required readonly dir="ltr"></label>
+                <label class="block"><span class="field-label">נושא</span><input id="directEmailSubject" required maxlength="160" placeholder="נושא ההודעה"></label>
+                <label class="block"><span class="field-label">תוכן</span><textarea id="directEmailBody" required maxlength="5000" rows="8" placeholder="תוכן ההודעה"></textarea></label>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('directEmailModal')" class="btn-secondary-dark">ביטול</button>
+                <button id="directEmailSubmit" type="submit" class="btn-primary-gold"><i data-lucide="send" class="w-4 h-4"></i> שליחה עכשיו</button>
+            </div>
         </form>
     </div>
-    <!-- חלונות משותפים שהניהול נשען עליהם: העלאה, שיחה, אישור והתראה -->
-    <!-- USER UPLOAD MODAL -->
+
+    <!-- העלאת מדיה -->
     <div id="userUploadModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-label="העלאת תמונות וסרטונים">
-        <div class="rounded-3xl w-full max-w-md overflow-hidden transform transition-all modal-animate-popup">
-            <div class="bg-gradient-to-r from-amber-500/20 to-transparent border-b border-amber-500/30 p-5 flex justify-between items-center text-white">
-                <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="cloud-upload" class="w-5 h-5"></i> העלאת תמונות וסרטונים</h3>
-                <button type="button" onclick="closeModal('userUploadModal')" class="hover:text-amber-400" aria-label="סגירת חלון ההעלאה"><i data-lucide="x" class="w-6 h-6"></i></button>
+        <div class="modal-card modal-animate-popup max-w-md max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3><i data-lucide="cloud-upload" class="w-5 h-5"></i> העלאת תמונות וסרטונים</h3>
+                <button type="button" onclick="closeModal('userUploadModal')" class="modal-close" aria-label="סגירת חלון ההעלאה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
-            <div class="p-6 space-y-5">
-                <p id="userUploadModeText" class="text-[11px] text-slate-400 leading-relaxed bg-white/5 p-3 rounded-xl border border-white/5">בחר תיקיית יעד ולאחר מכן תמונות, סרטוני MP4/WebM או תיקייה שלמה. גודל סרטון מרבי: 100MB.</p>
-                <div class="space-y-3">
-                    <label class="block">
-                        <span class="text-[10px] font-bold text-slate-300 mb-1 block">תיקיית יעד בגלריה:</span>
-                        <select id="userTargetFolderSelect" class="w-full text-xs rounded-xl py-2 px-3 focus:ring-amber-500"></select>
-                    </label>
-                    <label class="block">
-                        <span class="text-[10px] font-bold text-slate-300 mb-1 block">1. תמונות או סרטונים בודדים:</span>
-                        <input type="file" id="userMultiFiles" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')" class="w-full text-xs rounded-xl p-2 cursor-pointer text-slate-400 bg-white/5 border border-white/10">
-                    </label>
-                    <div class="relative py-1"><div class="absolute inset-0 flex items-center"><div class="w-full border-t border-white/10"></div></div><div class="relative flex justify-center"><span class="bg-slate-950 px-2 text-[10px] text-slate-500 font-bold">או</span></div></div>
-                    <label class="block">
-                        <span class="text-[10px] font-bold text-amber-400 mb-1 block">2. העלאת תיקייה שלמה (מומלץ):</span>
-                        <input type="file" id="userFolderUpload" webkitdirectory directory multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')" class="w-full text-xs rounded-xl p-2 cursor-pointer focus:ring-2 ring-amber-500 bg-white/5 border border-amber-500/20 text-slate-400">
-                    </label>
+            <div class="modal-body overflow-y-auto">
+                <p id="userUploadModeText" class="field-hint rounded-xl p-3 bg-white/5 border border-white/10">בחרו תיקיית יעד ולאחר מכן תמונות, סרטוני MP4/WebM או תיקייה שלמה. גודל סרטון מרבי: 100MB.</p>
+                <label class="block"><span class="field-label">תיקיית יעד בגלריה</span><select id="userTargetFolderSelect"></select></label>
+                <label class="block"><span class="field-label">קבצים בודדים</span>
+                    <input type="file" id="userMultiFiles" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
+                </label>
+                <div class="or-divider">או</div>
+                <label class="block"><span class="field-label">תיקייה שלמה (מומלץ)</span>
+                    <input type="file" id="userFolderUpload" webkitdirectory directory multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
+                </label>
+                <div id="userUploadQueue" class="hidden admin-list max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/10 p-2" aria-live="polite"></div>
+                <div id="userUploadProgress" class="hidden text-center rounded-xl p-3 border border-white/10 bg-white/5">
+                    <div class="spinner mx-auto mb-2"></div>
+                    <p class="text-[11px] font-bold text-amber-400" id="userUploadProgressText">מעלה קבצים לענן… נא להמתין</p>
                 </div>
-                <div id="userUploadQueue" class="hidden max-h-52 overflow-y-auto space-y-1.5 rounded-xl border border-white/10 bg-black/10 p-2" aria-live="polite"></div>
-                <div id="userUploadProgress" class="hidden text-center bg-white/5 rounded-xl p-3 border border-white/10 mt-2">
-                    <div class="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                    <p class="text-[10px] font-bold text-amber-400" id="userUploadProgressText">מעלה קבצים לענן... נא להמתין</p>
-                </div>
-                <div class="pt-4 flex justify-end gap-2 border-t border-white/10 mt-4">
-                    <button type="button" onclick="closeModal('userUploadModal')" class="px-5 py-2 btn-secondary-dark rounded-xl text-xs font-semibold">ביטול</button>
-                    <button type="button" id="userUploadPauseBtn" onclick="toggleUploadPause()" class="hidden px-4 py-2 btn-secondary-dark rounded-xl text-xs font-bold">השהה</button>
-                    <button type="button" id="userUploadRetryBtn" onclick="retryFailedUploads()" class="hidden px-4 py-2 btn-secondary-dark rounded-xl text-xs font-bold">נסה שוב קבצים שנכשלו</button>
-                    <button type="button" id="userUploadSubmitBtn" onclick="submitUserUpload()" class="px-5 py-2 btn-primary-gold rounded-xl text-xs font-bold">העלה לגלריה</button>
-                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('userUploadModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="userUploadPauseBtn" onclick="toggleUploadPause()" class="hidden btn-secondary-dark">השהיה</button>
+                <button type="button" id="userUploadRetryBtn" onclick="retryFailedUploads()" class="hidden btn-secondary-dark">ניסיון חוזר</button>
+                <button type="button" id="userUploadSubmitBtn" onclick="submitUserUpload()" class="btn-primary-gold">העלאה לגלריה</button>
             </div>
         </div>
     </div>
-    <!-- DUPLICATE MEDIA DECISION -->
-    <div id="duplicateMediaModal" class="fixed inset-0 z-[140] hidden bg-black/80 backdrop-blur-md p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="duplicateMediaTitle">
-        <div class="w-full max-w-lg rounded-3xl border border-amber-400/25 bg-slate-950 p-6 modal-animate-popup shadow-2xl">
-            <div class="w-14 h-14 rounded-2xl bg-amber-400/10 text-amber-300 flex items-center justify-center mb-4"><i data-lucide="copy-check" class="w-7 h-7"></i></div>
-            <h3 id="duplicateMediaTitle" class="text-xl font-black text-white">נמצאו קבצים כפולים</h3>
-            <p id="duplicateMediaMessage" class="text-sm text-slate-300 leading-6 mt-2"></p>
-            <div id="duplicateMediaList" class="mt-4 max-h-36 overflow-y-auto space-y-1.5"></div>
-            <div class="mt-6 grid sm:grid-cols-3 gap-2">
-                <button type="button" onclick="resolveDuplicateUpload('skip')" class="btn-primary-gold rounded-xl py-3 text-xs font-extrabold">דלג על הכפולים</button>
-                <button type="button" onclick="resolveDuplicateUpload('upload')" class="btn-secondary-dark rounded-xl py-3 text-xs font-bold">העלה בכל זאת</button>
-                <button type="button" onclick="resolveDuplicateUpload('cancel')" class="rounded-xl py-3 text-xs font-bold border border-white/10 text-slate-400">ביטול</button>
+
+    <!-- קבצים כפולים -->
+    <div id="duplicateMediaModal" class="fixed inset-0 z-[140] hidden p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="duplicateMediaTitle">
+        <div class="modal-card modal-animate-popup max-w-lg">
+            <div class="modal-head"><h3 id="duplicateMediaTitle"><i data-lucide="copy-check" class="w-5 h-5"></i> נמצאו קבצים כפולים</h3></div>
+            <div class="modal-body">
+                <p id="duplicateMediaMessage"></p>
+                <div id="duplicateMediaList" class="admin-list max-h-36 overflow-y-auto"></div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="resolveDuplicateUpload('cancel')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" onclick="resolveDuplicateUpload('upload')" class="btn-secondary-dark">העלאה בכל זאת</button>
+                <button type="button" onclick="resolveDuplicateUpload('skip')" class="btn-primary-gold">דילוג על הכפולים</button>
             </div>
         </div>
     </div>
-    <!-- UNIFIED USER / ADMIN CONVERSATION -->
-    <div id="conversationModal" class="fixed inset-0 z-[120] hidden bg-black/80 backdrop-blur-md p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="conversationTitle">
-        <div class="conversation-window w-full h-full max-w-4xl mx-auto rounded-3xl overflow-hidden flex flex-col modal-animate-popup">
-            <header class="px-4 sm:px-6 py-4 border-b border-white/10 flex items-center justify-between gap-3" aria-label="כותרת השיחה">
+
+    <!-- שיחה עם משתמש -->
+    <div id="conversationModal" class="fixed inset-0 z-[120] hidden p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="conversationTitle">
+        <div class="conversation-window w-full h-full max-w-4xl mx-auto flex flex-col modal-animate-popup">
+            <header class="conversation-header" aria-label="כותרת השיחה">
                 <div class="min-w-0 flex items-center gap-3">
-                    <span class="w-11 h-11 rounded-2xl bg-cyan-400/10 border border-cyan-400/20 text-cyan-300 flex items-center justify-center shrink-0">
-                        <i data-lucide="messages-square" class="w-5 h-5"></i>
-                    </span>
+                    <span class="conversation-emblem"><i data-lucide="messages-square" class="w-5 h-5"></i></span>
                     <div class="min-w-0">
-                        <h3 id="conversationTitle" class="text-base sm:text-lg font-extrabold text-white truncate">צ׳אט עם המנהל</h3>
-                        <p id="conversationSubtitle" class="text-[10px] sm:text-xs text-slate-400 truncate">כל ההודעות נשמרות בשיחה אחת</p>
+                        <h3 id="conversationTitle" class="text-base font-extrabold truncate">שיחה</h3>
+                        <p id="conversationSubtitle" class="text-[11px] text-slate-400 truncate">כל ההודעות נשמרות בשיחה אחת</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="conversationResolveButton" type="button" onclick="toggleConversationResolved()" class="hidden px-3 h-11 btn-secondary-dark rounded-xl items-center justify-center gap-2 text-[10px] font-bold" aria-label="שינוי מצב הפנייה">
-                        <i data-lucide="circle-check-big" class="w-4 h-4"></i>
-                        <span>סמן כטופל</span>
+                    <button id="conversationResolveButton" type="button" onclick="toggleConversationResolved()" class="hidden btn-secondary-dark px-3 h-10 text-[11px]" aria-label="שינוי מצב הפנייה">
+                        <i data-lucide="circle-check-big" class="w-4 h-4"></i><span>סימון כטופל</span>
                     </button>
-                    <button type="button" onclick="closeModal('conversationModal')" class="w-11 h-11 btn-secondary-dark rounded-xl flex items-center justify-center shrink-0" aria-label="סגירת הצ׳אט">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
+                    <button type="button" onclick="closeModal('conversationModal')" class="modal-close" aria-label="סגירת הצ׳אט"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
             </header>
-            <div id="conversationMessages" class="conversation-stream flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-3" aria-live="polite">
-                <div class="h-full flex items-center justify-center text-sm text-slate-500">טוען את השיחה…</div>
+            <div id="conversationMessages" class="conversation-stream flex-1 min-h-0" aria-live="polite">
+                <div class="empty-note">טוען את השיחה…</div>
             </div>
-            <footer class="conversation-footer p-3 sm:p-4 border-t border-white/10 bg-black/15">
+            <footer class="conversation-footer">
                 <div class="conversation-tools">
                     <button id="conversationAttachmentButton" type="button" onclick="document.getElementById('conversationAttachmentInput').click()" class="conversation-tool-button" aria-label="צירוף תמונה או קובץ" title="צירוף קובץ">
                         <i data-lucide="paperclip" class="w-4 h-4"></i><span>קובץ</span>
@@ -728,7 +732,7 @@ class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-emerald-600 hover:bg-emer
                 </div>
                 <div id="conversationEmojiPicker" class="conversation-emoji-picker hidden" aria-label="דף אימוג׳ים">
                     <div class="conversation-emoji-heading">
-                        <div><strong>אימוג׳ים</strong><small>בחר אימוג׳י להוספה להודעה</small></div>
+                        <div><strong>אימוג׳ים</strong><small>בחרו אימוג׳י להוספה להודעה</small></div>
                         <button type="button" onclick="toggleConversationEmojiPicker(false)" aria-label="סגירת דף האימוג׳ים"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
                     <div id="conversationEmojiTabs" class="conversation-emoji-tabs" role="tablist"></div>
@@ -745,13 +749,13 @@ class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-emerald-600 hover:bg-emer
                     <div id="conversationStickerTabs" class="conversation-sticker-tabs" role="tablist"></div>
                     <div id="conversationStickerGrid" class="conversation-sticker-grid"></div>
                 </div>
-                <div class="conversation-composer p-2.5" ondrop="handleConversationDrop(event)" ondragover="handleConversationDragOver(event)" ondragleave="handleConversationDragLeave(event)">
+                <div class="conversation-composer" ondrop="handleConversationDrop(event)" ondragover="handleConversationDragOver(event)" ondragleave="handleConversationDragLeave(event)">
                     <input id="conversationAttachmentInput" type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z" onchange="handleConversationAttachment(this)">
                     <div id="conversationAttachmentPreview" class="conversation-attachment-preview hidden"></div>
                     <div class="conversation-compose-row">
-                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתוב הודעה… אפשר גם לגרור לכאן קובץ" class="conversation-textarea" onkeydown="handleConversationKeydown(event)" oninput="updateConversationCharacterCount()"></textarea>
+                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתבו הודעה… אפשר גם לגרור לכאן קובץ" class="conversation-textarea" onkeydown="handleConversationKeydown(event)" oninput="updateConversationCharacterCount()"></textarea>
                         <button id="conversationSendButton" type="button" onclick="sendConversationMessage()" class="conversation-send-button" aria-label="שליחת ההודעה">
-                            <i data-lucide="send-horizontal" class="w-5 h-5"></i><span>שלח</span>
+                            <i data-lucide="send-horizontal" class="w-5 h-5"></i><span>שליחה</span>
                         </button>
                     </div>
                 </div>
@@ -762,7 +766,8 @@ class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-emerald-600 hover:bg-emer
             </footer>
         </div>
     </div>
-    <!-- CHAT ATTACHMENT PREVIEW -->
+
+    <!-- תצוגת קובץ מצורף -->
     <div id="conversationAttachmentViewer" class="conversation-attachment-viewer hidden" role="dialog" aria-modal="true" aria-labelledby="conversationAttachmentViewerTitle" onclick="if(event.target === this) closeConversationAttachmentPreview()">
         <div class="conversation-viewer-window">
             <header class="conversation-viewer-header">
@@ -778,25 +783,24 @@ class="flex-1 py-2 rounded-xl text-[10px] font-bold bg-emerald-600 hover:bg-emer
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
         </div>
     </div>
-    <!-- CUSTOM CONFIRMATION MODAL -->
-    <div id="confirmModal" class="fixed inset-0 z-[130] flex items-center justify-center p-4 hidden bg-black/70 backdrop-blur-sm pointer-events-auto" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
-        <div class="rounded-3xl w-full max-w-md overflow-hidden transform transition-all modal-animate-popup pointer-events-auto">
-            <div class="p-6 space-y-4">
-                <div class="flex items-center gap-3 text-red-400">
-                    <div class="bg-red-500/10 p-2 rounded-xl border border-red-500/20"><i data-lucide="alert-triangle" class="w-6 h-6"></i></div>
-                    <h3 class="font-bold text-lg" id="confirmTitle">אישור פעולה</h3>
-                </div>
-                <p class="text-sm text-slate-300 leading-relaxed" id="confirmMessage">האם אתה בטוח שברצונך לבצע פעולה זו?</p>
-                <div class="pt-4 flex justify-end gap-3">
-                    <button type="button" id="confirmCancelBtn" onclick="cancelConfirmAction()" class="px-5 py-2.5 btn-secondary-dark rounded-xl text-sm font-semibold pointer-events-auto">ביטול</button>
-                    <button type="button" id="confirmApproveBtn" onclick="approveConfirmAction()" class="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-all pointer-events-auto">אישור</button>
-                </div>
+
+    <!-- אישור פעולה -->
+    <div id="confirmModal" class="fixed inset-0 z-[130] flex items-center justify-center p-4 hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+        <div class="modal-card modal-animate-popup max-w-md">
+            <div class="modal-head">
+                <h3 id="confirmTitle"><span class="admin-stat-icon" data-tone="danger"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span> אישור פעולה</h3>
+            </div>
+            <div class="modal-body"><p id="confirmMessage">האם לבצע את הפעולה?</p></div>
+            <div class="modal-foot">
+                <button type="button" id="confirmCancelBtn" onclick="cancelConfirmAction()" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="confirmApproveBtn" onclick="approveConfirmAction()" class="btn-danger-soft">אישור</button>
             </div>
         </div>
     </div>
-    <!-- Alert Dialog -->
-    <div id="customAlert" class="fixed bottom-6 left-6 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-2.5 transform translate-y-20 opacity-0 transition-all duration-300 border border-white/10" role="status" aria-live="polite">
-        <span id="customAlertIcon" class="text-emerald-400"><i data-lucide="check-circle" class="w-5 h-5"></i></span>
+
+    <!-- הודעת מערכת -->
+    <div id="customAlert" role="status" aria-live="polite">
+        <span id="customAlertIcon"><i data-lucide="check-circle" class="w-5 h-5"></i></span>
         <span id="customAlertMessage" class="text-sm font-semibold">הפעולה בוצעה בהצלחה!</span>
     </div>
 

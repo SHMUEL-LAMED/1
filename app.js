@@ -271,8 +271,6 @@ window.openModal = openModal;
 
 // שדרוג: סגירת המצלמה בעת סגירת המודאל למניעת דליפת משאבי זיכרון של המצלמה
 function closeModal(id) {
-    // חלון המשימה קיים רק בדף הניהול; בדף הגלריה אין מה להחזיר למקומו.
-    if (id === 'adminTaskModal') window.restoreAdminTaskContent?.();
     const m = document.getElementById(id);
     if (m) {
         m.classList.add('hidden');

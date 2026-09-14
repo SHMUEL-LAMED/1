@@ -12,6 +12,13 @@
 import { collection, query, orderBy, limit } from "./cloudflare-client.js";
 import { onSnapshot, reportFirestoreError, getAuthInstance, dismissGoogleOneTap } from "./session-auth.js";
 
+// מצב חיבור ה-Drive. שלוש הוויברלים האלה נקראו ונכתבו בכל הקובץ בלי שהוצהרו
+// אי־פעם: מודול ES רץ תמיד ב-strict mode, ולכן כל קריאה אליהן זרקה
+// ReferenceError וכל מסך ה-Drive נשבר עוד לפני שהמשתמש לחץ על משהו.
+let driveAccessToken = null;
+let driveAccessTokenExpiresAt = 0;
+let driveRestoredForUid = '';
+
 function setDriveConnectionUI(email = '') {
     const connected = Boolean(driveAccessToken);
     window.driveConnectionActive = connected;
@@ -23,14 +30,15 @@ function setDriveConnectionUI(email = '') {
         status.textContent = connected
             ? `מחובר ל־Google Drive${email ? `: ${email}` : ''}`
             : 'Google Drive עדיין לא מחובר';
+        // הצבעים מגיעים מסולם האסימונים, ולכן הם נכונים בשני מצבי התצוגה.
         status.className = connected
-            ? 'rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-700'
-            : 'rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-500';
+            ? 'rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold text-emerald-400'
+            : 'rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold text-slate-400';
     }
     if (connectButton) {
         connectButton.innerHTML = connected
-            ? '<i data-lucide="refresh-cw" class="w-4 h-4"></i> החלף חשבון Drive'
-            : '<i data-lucide="cloud" class="w-4 h-4"></i> חבר Google Drive';
+            ? '<i data-lucide="refresh-cw" class="w-4 h-4"></i> החלפת חשבון Drive'
+            : '<i data-lucide="cloud" class="w-4 h-4"></i> חיבור Google Drive';
     }
     if (syncButton) syncButton.disabled = !connected;
     window.scheduleIconRefresh();
@@ -580,7 +588,7 @@ function ensureDriveFolderPickerModal() {
     modal.id = 'driveFolderPickerModal';
     // חלון בחירת התיקיות נפתח מתוך חלון משימת הניהול (z-index 105),
     // ולכן הוא חייב להופיע בשכבה גבוהה יותר ולא להסתתר מאחוריו.
-    modal.className = 'hidden fixed inset-0 z-[150] bg-slate-950/95 backdrop-blur-xl overflow-y-auto';
+    modal.className = 'hidden fixed inset-0 z-[150] bg-slate-950/95 backdrop-blur-xl overflow-y-auto text-slate-100';
     modal.style.zIndex = '150';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
@@ -590,7 +598,7 @@ function ensureDriveFolderPickerModal() {
     page.className = 'min-h-screen w-full max-w-6xl mx-auto px-4 py-6 sm:px-8 sm:py-10';
 
     const header = document.createElement('div');
-    header.className = 'sticky top-0 z-10 mb-6 rounded-2xl border border-white/10 bg-slate-950/90 p-4 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-4';
+    header.className = 'admin-panel sticky top-0 z-10 mb-6 p-4 flex items-center justify-between gap-4';
 
     const headingWrap = document.createElement('div');
     const title = document.createElement('h2');
@@ -605,7 +613,7 @@ function ensureDriveFolderPickerModal() {
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
-    closeButton.className = 'shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white hover:bg-white/10';
+    closeButton.className = 'btn-secondary-dark shrink-0 px-4 py-2 text-sm';
     closeButton.textContent = 'סגור';
     closeButton.addEventListener('click', window.closeDriveFolderPicker);
 
@@ -635,14 +643,14 @@ function renderDriveFolderPicker() {
 
     driveFolderPickerState.folders.forEach(function(folder, index) {
         const card = document.createElement('article');
-        card.className = 'rounded-2xl border border-white/10 bg-white/5 p-4 shadow-xl transition hover:border-amber-400/40';
+        card.className = 'admin-panel p-4 transition hover:border-amber-400/40';
         card.dataset.driveFolderId = folder.id;
 
         const top = document.createElement('div');
         top.className = 'flex items-start gap-3';
 
         const icon = document.createElement('div');
-        icon.className = 'grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-400/10 text-amber-400';
+        icon.className = 'admin-stat-icon h-11 w-11';
         icon.innerHTML = '<i data-lucide="folder" class="h-5 w-5"></i>';
 
         const text = document.createElement('div');
@@ -664,7 +672,7 @@ function renderDriveFolderPicker() {
         const button = document.createElement('button');
         button.type = 'button';
         button.id = 'drive-folder-sync-' + index;
-        button.className = 'mt-2 w-full rounded-xl bg-amber-400 px-4 py-3 text-xs font-black text-slate-950 hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60';
+        button.className = 'btn-primary-gold mt-2 w-full px-4 py-3 text-xs';
         button.textContent = 'סנכרן תיקייה';
         button.addEventListener('click', function() {
             window.syncDriveFolderById(folder.id);
@@ -827,7 +835,7 @@ function addDriveFolderRow(url = '', label = '', autoSync = true) {
   if (noMsg) noMsg.style.display = 'none';
 
   const row = document.createElement('div');
-  row.className = 'flex gap-1.5 items-center bg-white/5 rounded-xl px-2 py-1.5 border border-white/10';
+  row.className = 'admin-row gap-1.5 px-2 py-1.5';
   row.innerHTML = `
     <input type="text" value="${escapeHtml(url)}"
       placeholder="https://drive.google.com/drive/folders/..."

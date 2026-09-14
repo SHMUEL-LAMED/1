@@ -46,7 +46,11 @@ function updateAccessGate(hasGalleryAccess, approvalStatus) {
 
     document.body.classList.toggle('gallery-locked', !hasGalleryAccess);
     if (accessGate) accessGate.classList.toggle('hidden', hasGalleryAccess);
-    if (headerConnectionStatus) headerConnectionStatus.textContent = hasGalleryAccess ? 'גישה מאושרת' : 'נדרשת הרשאה';
+    if (headerConnectionStatus) {
+        headerConnectionStatus.textContent = hasGalleryAccess ? 'גישה מאושרת' : 'נדרשת הרשאה';
+        // הצבע נגזר מהמצב ב-CSS, ולכן אין כאן רשימת מחלקות שיש לתחזק פעמיים.
+        headerConnectionStatus.dataset.state = hasGalleryAccess ? 'online' : 'locked';
+    }
     if (hasGalleryAccess || !accessGateTitle || !accessGateText) return;
 
     const accessGateChip = document.getElementById('galleryAccessGateChip');
