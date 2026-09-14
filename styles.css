@@ -1190,8 +1190,9 @@ textarea { resize: vertical; min-height: 84px; }
     font-weight: 800;
 }
 
+/* ה-display מגיע מ-utility שבמרקאפ ולא מכאן: כלל ID גובר על .hidden,
+   וכך הרשת לא הייתה נסתרת כשאין פריטים להצגה. */
 #photosGrid {
-    display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: clamp(12px, 1.6vw, 20px);
 }
@@ -1642,6 +1643,8 @@ textarea { resize: vertical; min-height: 84px; }
     transition: border-color .18s var(--ease), transform .16s var(--ease);
 }
 .floating-profile-btn:hover { border-color: var(--gold-line); transform: scale(1.04); }
+/* גם כאן ה-display נשאר ב-utility, כדי ש-classList.add('hidden')
+   באמת יסתיר את התג. */
 #floatingWidgetBadge {
     position: absolute;
     top: -4px;
@@ -1654,7 +1657,6 @@ textarea { resize: vertical; min-height: 84px; }
     color: #fff;
     font-size: 10px;
     font-weight: 800;
-    display: flex;
     align-items: center;
     justify-content: center;
     border: 2px solid var(--bg);

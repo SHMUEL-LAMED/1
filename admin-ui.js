@@ -73,7 +73,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'users',
-        group: 'אנשים ותקשורת',
+        group: 'תקשורת ואנשים',
         title: 'משתמשים והרשאות',
         description: 'אישור בקשות הצטרפות, שינוי דרגות וחסימת חשבונות.',
         icon: 'users-round',
@@ -83,7 +83,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'messages',
-        group: 'אנשים ותקשורת',
+        group: 'תקשורת ואנשים',
         title: 'הודעות ופניות',
         description: 'קריאת פניות ממשתמשים ושליחת הודעות לכל מי שרשום באתר.',
         icon: 'messages-square',
@@ -92,7 +92,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'popup',
-        group: 'אנשים ותקשורת',
+        group: 'תקשורת ואנשים',
         title: 'הודעת פופ-אפ',
         description: 'תמונה שמוצגת למבקרי האתר, והיעד שאליו הלחיצה מפנה.',
         icon: 'megaphone',
@@ -101,7 +101,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'activity',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'מרכז פעילות',
         description: 'יומן הפעולות האחרונות ותמונת מצב ניהולית.',
         icon: 'activity',
@@ -110,7 +110,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'analytics',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'ניתוח נתונים',
         description: 'צפיות, נפח אחסון, סוגי מדיה והפריטים המובילים.',
         icon: 'chart-column-big',
@@ -119,7 +119,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'backup',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'גיבוי ושחזור',
         description: 'ייצוא נתוני הגלריה לקובץ, ושחזור מגיבוי קיים.',
         icon: 'database-backup',
@@ -128,7 +128,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'health',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'תקינות המערכת',
         description: 'בדיקת Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.',
         icon: 'shield-check',
@@ -136,7 +136,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'faceindex',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'אינדוקס פנים',
         description: 'סריקה חד־פעמית ששומרת טביעות פנים ומייתרת סריקה בכל חיפוש.',
         icon: 'scan-face',
@@ -144,7 +144,7 @@ const ADMIN_VIEWS = [
     },
     {
         id: 'tools',
-        group: 'מערכת',
+        group: 'כלי מערכת',
         title: 'תחזוקה ואבחון',
         description: 'ניקוי מטמון, נתוני אבחון וטעינה מחדש של הלוח.',
         icon: 'wrench',
@@ -152,7 +152,7 @@ const ADMIN_VIEWS = [
     }
 ];
 
-const VIEW_GROUPS = ['סקירה', 'תוכן הגלריה', 'אנשים ותקשורת', 'מערכת'];
+const VIEW_GROUPS = ['סקירה', 'תוכן הגלריה', 'תקשורת ואנשים', 'כלי מערכת'];
 
 function viewById(id) {
     return ADMIN_VIEWS.find(view => view.id === id);
@@ -386,7 +386,7 @@ window.clearAdminMenuSearch = function() {
 // ==========================================================================
 
 const QUICK_ACTIONS = [
-    { label: 'העלאת מדיה', hint: 'תמונות, סרטונים או תיקייה שלמה', icon: 'cloud-upload', run: () => openModal('userUploadModal') },
+    { label: 'העלאת מדיה', hint: 'תמונות וסרטונים חדשים', icon: 'cloud-upload', run: () => openModal('userUploadModal') },
     { label: 'אישור העלאות', hint: 'פריטים שממתינים לאישור', icon: 'image-plus', run: () => window.openAdminView('pending') },
     { label: 'סנכרון Drive', hint: 'משיכת תוכן חדש מהדרייב', icon: 'folder-sync', run: () => window.openAdminView('drive') },
     { label: 'תיקייה חדשה', hint: 'פתיחת אירוע חדש בארכיון', icon: 'folder-plus', run: () => window.openAdminView('folders') },
