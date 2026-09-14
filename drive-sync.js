@@ -12,7 +12,7 @@
 import { collection, query, orderBy, limit } from "./cloudflare-client.js";
 import { onSnapshot, reportFirestoreError, getAuthInstance, dismissGoogleOneTap } from "./session-auth.js";
 
-// מצב חיבור ה-Drive. שלוש הוויברלים האלה נקראו ונכתבו בכל הקובץ בלי שהוצהרו
+// מצב חיבור ה-Drive. שלושת המשתנים האלה נקראו ונכתבו בכל הקובץ בלי שהוצהרו
 // אי־פעם: מודול ES רץ תמיד ב-strict mode, ולכן כל קריאה אליהן זרקה
 // ReferenceError וכל מסך ה-Drive נשבר עוד לפני שהמשתמש לחץ על משהו.
 let driveAccessToken = null;
