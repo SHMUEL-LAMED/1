@@ -447,8 +447,16 @@ function renderArchiveEntryFacts(eventCount, mediaCount) {
     const eventCountEl = document.getElementById('heroEventCount');
     const mediaCountEl = document.getElementById('heroMediaCount');
     const updatedEl = document.getElementById('heroUpdatedAt');
-    if (eventCountEl) eventCountEl.textContent = eventCount.toLocaleString('he-IL');
-    if (mediaCountEl) mediaCountEl.textContent = mediaCount.toLocaleString('he-IL');
+    const formatCount = value => Number(value).toLocaleString('he-IL');
+    // המונים עולים בהדרגה אל הערך; בלי המודול המשותף הם פשוט נכתבים.
+    if (eventCountEl) {
+        if (window.animateCounter) window.animateCounter(eventCountEl, eventCount, formatCount);
+        else eventCountEl.textContent = formatCount(eventCount);
+    }
+    if (mediaCountEl) {
+        if (window.animateCounter) window.animateCounter(mediaCountEl, mediaCount, formatCount);
+        else mediaCountEl.textContent = formatCount(mediaCount);
+    }
     if (updatedEl) {
         const latest = (window.state.images || []).reduce(
             (newest, item) => Math.max(newest, Number(item?.createdAt) || 0),
@@ -456,6 +464,29 @@ function renderArchiveEntryFacts(eventCount, mediaCount) {
         );
         updatedEl.textContent = formatArchiveUpdate(latest);
     }
+}
+
+// פסיפס הרגעים האחרונים בפוסטר הכניסה: עד חמש תמונות מהחדשות ביותר.
+// מצויר מחדש רק כשהרשימה השתנתה, כדי שלא יהבהב בכל רינדור.
+const HERO_MOSAIC_LIMIT = 5;
+function renderHeroMosaic() {
+    const mosaic = document.getElementById('heroMosaic');
+    if (!mosaic) return;
+    const tiles = [...(window.state.images || [])]
+        .map(item => {
+            const isVideo = window.isVideoRecord(item);
+            const url = window.safeImageUrl(isVideo ? item?.thumbnailUrl : item?.url);
+            return url ? { id: window.safeRecordId(item.id), url, createdAt: Number(item?.createdAt) || 0 } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, HERO_MOSAIC_LIMIT);
+    const key = tiles.map(tile => tile.id).join('|');
+    if (mosaic.dataset.mosaicKey === key) return;
+    mosaic.dataset.mosaicKey = key;
+    mosaic.innerHTML = tiles.map((tile, index) =>
+        `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="lazy" decoding="async" onerror="this.parentElement.remove()"></span>`
+    ).join('');
 }
 
 // „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.
@@ -491,6 +522,7 @@ window._doRenderFolders = function() {
     if (folderTotalCount) folderTotalCount.textContent = String(eventCount);
     if (folderMediaCount) folderMediaCount.textContent = String(mediaCount);
     renderArchiveEntryFacts(eventCount, mediaCount);
+    renderHeroMosaic();
 
     folders.forEach(folder => {
         const folderId = window.safeRecordId(folder.id);
@@ -541,6 +573,7 @@ window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const grid = document.getElementById('photosGrid'); const emptyState = document.getElementById('emptyState');
     if (!grid || !emptyState) return; grid.innerHTML = '';
+    renderHeroMosaic();
     const filtered = getFilteredSortedImages();
     galleryPageItems = filtered;
     galleryRenderedCount = 0;
@@ -1324,6 +1357,15 @@ function updateLightbox() {
     const imageUrl = window.safeImageUrl(img.url);
     const isVideo = window.isVideoRecord(img);
     document.getElementById('lightboxImageFallback')?.remove();
+    // ההשתקפות ברקע: התמונה עצמה, או תמונת הפוסטר של סרטון. בלי אחת מהן
+    // הרקע נשאר כהה ואחיד.
+    const lbBackdrop = document.getElementById('lightboxBackdrop');
+    if (lbBackdrop) {
+        const backdropUrl = isVideo ? window.safeImageUrl(img.thumbnailUrl) : imageUrl;
+        lbBackdrop.hidden = !backdropUrl;
+        if (backdropUrl && lbBackdrop.src !== backdropUrl) lbBackdrop.src = backdropUrl;
+        lbBackdrop.onerror = () => { lbBackdrop.hidden = true; };
+    }
     if (isVideo) {
         if (lbImage) lbImage.hidden = true;
         if (lbVideo) {

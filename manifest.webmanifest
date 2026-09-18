@@ -9,8 +9,8 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#071f58",
-  "theme_color": "#071f58",
+  "background_color": "#05070d",
+  "theme_color": "#05070d",
   "categories": ["photo", "education"],
   "icons": [
     {
