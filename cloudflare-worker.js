@@ -444,6 +444,12 @@ async function ensureDatabaseSchema(env) {
         PRIMARY KEY (image_id, face_index)
       )`
     ).run();
+    await env.GALLERY_DB.prepare(`CREATE TABLE IF NOT EXISTS face_people (
+      image_id TEXT NOT NULL, face_index INTEGER NOT NULL,
+      model_version TEXT NOT NULL, descriptor_json TEXT NOT NULL,
+      person_id TEXT NOT NULL, PRIMARY KEY (image_id, face_index)
+    )`).run();
+    await env.GALLERY_DB.prepare("CREATE INDEX IF NOT EXISTS idx_face_people_person ON face_people(person_id)").run();
     // מצב האינדוקס לכל תמונה. תמונה ללא פנים נשמרת כאן עם face_count = 0,
     // כך שהיא לא תיסרק שוב, והאינדוקס יכול להימשך בדיוק מהמקום שנעצר.
     await env.GALLERY_DB.prepare(
@@ -1893,6 +1899,7 @@ function faceImageIdFromObjectKey(key) {
 async function deleteFaceIndexForImage(env, imageId) {
   const safeId = String(imageId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
   if (!safeId) return;
+  await env.GALLERY_DB.prepare("DELETE FROM face_people WHERE image_id = ?").bind(safeId).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE image_id = ?").bind(safeId).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE image_id = ?").bind(safeId).run();
 }
@@ -2138,11 +2145,13 @@ async function resetFaceIndex(request, env) {
   const payload = await request.json().catch(() => ({}));
   const clearEverything = payload?.scope === "all";
   if (clearEverything) {
+    await env.GALLERY_DB.prepare("DELETE FROM face_people").run();
     await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors").run();
     await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state").run();
     return json(request, { success: true, scope: "all" });
   }
   const modelVersion = faceModelVersion(payload?.modelVersion);
+  await env.GALLERY_DB.prepare("DELETE FROM face_people WHERE model_version = ?").bind(modelVersion).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE model_version = ?").bind(modelVersion).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE model_version = ?").bind(modelVersion).run();
   return json(request, { success: true, scope: "model", modelVersion });
@@ -2163,6 +2172,71 @@ async function filterExistingImageIds(env, imageIds) {
 }
 
 // ההשוואה כולה מתבצעת כאן. ללקוח חוזרים רק מזהי תמונות, מרחק ואחוז התאמה.
+const FACE_PERSON_JOIN = `LEFT JOIN face_people p ON p.image_id = f.image_id
+  AND p.face_index = f.face_index AND p.model_version = f.model_version
+  AND p.descriptor_json = f.descriptor_json`;
+
+async function manageFacePeople(request, env, url) {
+  const actor = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(env, `face-people:${actor.uid}`, 120, 60000,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.", "face_people_rate_limit");
+  if (request.method === "GET") {
+    const offset = Math.max(0, Math.min(1000000, Math.trunc(Number(url.searchParams.get("offset")) || 0)));
+    const person = String(url.searchParams.get("person") || "").slice(0, 80);
+    const result = await env.GALLERY_DB.prepare(`SELECT f.image_id AS imageId,
+      f.face_index AS faceIndex, f.updated_at AS updatedAt, p.person_id AS personId
+      FROM image_face_descriptors f ${FACE_PERSON_JOIN}
+      JOIN gallery_documents d ON d.collection_name = 'images' AND d.document_id = f.image_id
+      WHERE f.model_version = ? AND (? = '' OR p.person_id = ?)
+      ORDER BY f.image_id, f.face_index LIMIT 25 OFFSET ?`
+    ).bind(FACE_MODEL_VERSION, person, person, offset).all();
+    const faces = result.results || [];
+    return json(request, { faces: faces.slice(0, 24), hasMore: faces.length > 24 });
+  }
+  const payload = await request.json().catch(() => ({}));
+  const faces = payload.faces;
+  if (!Array.isArray(faces) || faces.length < (payload.action === "detach" ? 1 : 2) || faces.length > 24 ||
+      !["merge", "detach"].includes(payload.action) || (payload.action === "detach" && faces.length !== 1)) {
+    throw apiError("בחר בין שניים ל־24 פרצופים לאיחוד, או פרצוף אחד להפרדה.", 400, "invalid_faces");
+  }
+  const bindings = [];
+  const keys = new Set();
+  for (const face of faces) {
+    const id = safeImageId(face.imageId);
+    if (!Number.isInteger(face.faceIndex) || face.faceIndex < 0 || face.faceIndex >= FACE_INDEX_MAX_FACES_PER_IMAGE ||
+        !Number.isSafeInteger(face.updatedAt) || keys.has(`${id}:${face.faceIndex}`)) {
+      throw apiError("בחירת הפרצופים אינה תקינה.", 400, "invalid_faces");
+    }
+    keys.add(`${id}:${face.faceIndex}`);
+    bindings.push(id, face.faceIndex, face.updatedAt);
+  }
+  const selected = `WITH requested(image_id, face_index, updated_at) AS (
+      VALUES ${faces.map(() => "(?, ?, ?)").join(",")}), selected AS (
+      SELECT f.*, p.person_id FROM image_face_descriptors f ${FACE_PERSON_JOIN}
+      JOIN requested r ON r.image_id = f.image_id AND r.face_index = f.face_index AND r.updated_at = f.updated_at
+      JOIN gallery_documents d ON d.collection_name = 'images' AND d.document_id = f.image_id
+      WHERE f.model_version = ?)`;
+  // One statement: concurrent merges cannot leave half a group assigned.
+  const sql = payload.action === "detach"
+    ? `${selected} DELETE FROM face_people WHERE (image_id, face_index) IN
+       (SELECT image_id, face_index FROM selected) RETURNING image_id`
+    : `${selected} INSERT INTO face_people(image_id, face_index, model_version, descriptor_json, person_id)
+       SELECT f.image_id, f.face_index, f.model_version, f.descriptor_json, ?
+       FROM image_face_descriptors f ${FACE_PERSON_JOIN}
+       WHERE (SELECT COUNT(*) FROM selected) = ? AND (
+         (f.image_id, f.face_index) IN (SELECT image_id, face_index FROM selected)
+         OR p.person_id IN (SELECT person_id FROM selected WHERE person_id IS NOT NULL))
+       ON CONFLICT(image_id, face_index) DO UPDATE SET person_id = excluded.person_id,
+         model_version = excluded.model_version, descriptor_json = excluded.descriptor_json
+       RETURNING image_id`;
+  const args = [...bindings, FACE_MODEL_VERSION];
+  if (payload.action === "merge") args.push(crypto.randomUUID(), faces.length);
+  const result = await env.GALLERY_DB.prepare(sql).bind(...args).all();
+  if (!result.results?.length) throw apiError("הנתונים השתנו. רענן את הרשימה ונסה שוב.", 409, "stale_faces");
+  return json(request, { success: true });
+}
+
 async function faceSearch(request, env) {
   const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
   await ensureDatabaseSchema(env);
@@ -2182,13 +2256,15 @@ async function faceSearch(request, env) {
 
   const squaredThreshold = FACE_MATCH_THRESHOLD * FACE_MATCH_THRESHOLD;
   const bestSquaredDistances = new Map();
+  const personDistances = new Map();
+  const manuallyLinkedImages = new Set();
   let scannedFaces = 0;
 
   for (let offset = 0; offset < FACE_DESCRIPTOR_SCAN_LIMIT; offset += FACE_DESCRIPTOR_PAGE_SIZE) {
     const page = await env.GALLERY_DB.prepare(
-      `SELECT image_id, descriptor_json FROM image_face_descriptors
-       WHERE model_version = ?
-       ORDER BY image_id, face_index
+      `SELECT f.image_id, f.descriptor_json, p.person_id FROM image_face_descriptors f ${FACE_PERSON_JOIN}
+       WHERE f.model_version = ?
+       ORDER BY f.image_id, f.face_index
        LIMIT ? OFFSET ?`
     ).bind(modelVersion, FACE_DESCRIPTOR_PAGE_SIZE, offset).all();
     const rows = page.results || [];
@@ -2203,6 +2279,8 @@ async function faceSearch(request, env) {
         squaredDistance += difference * difference;
       }
       if (squaredDistance >= squaredThreshold) continue;
+      if (row.person_id) personDistances.set(row.person_id,
+        Math.min(personDistances.get(row.person_id) ?? Infinity, squaredDistance));
       const imageId = String(row.image_id);
       const previousBest = bestSquaredDistances.get(imageId);
       if (previousBest === undefined || squaredDistance < previousBest) {
@@ -2214,6 +2292,18 @@ async function faceSearch(request, env) {
     if (rows.length < FACE_DESCRIPTOR_PAGE_SIZE) break;
   }
 
+  // Manual identity links expand results without weakening the biometric threshold.
+  for (const [personId, distance] of personDistances) {
+    const linked = await env.GALLERY_DB.prepare(`SELECT f.image_id FROM image_face_descriptors f
+      ${FACE_PERSON_JOIN} WHERE p.person_id = ? AND f.model_version = ? LIMIT ?`
+    ).bind(personId, modelVersion, FACE_SEARCH_MAX_LIMIT).all();
+    for (const row of linked.results || []) {
+      if (!bestSquaredDistances.has(row.image_id)) {
+        bestSquaredDistances.set(row.image_id, distance);
+        manuallyLinkedImages.add(row.image_id);
+      }
+    }
+  }
   const ranked = [...bestSquaredDistances.entries()]
     .sort((left, right) => left[1] - right[1])
     .slice(0, resultLimit);
@@ -2226,8 +2316,9 @@ async function faceSearch(request, env) {
       return {
         imageId,
         distance: Math.round(distance * 10000) / 10000,
-        confidence: faceMatchConfidence(distance),
-        strength: distance < FACE_STRONG_MATCH_THRESHOLD ? "strong" : "possible"
+        confidence: manuallyLinkedImages.has(imageId) ? null : faceMatchConfidence(distance),
+        source: manuallyLinkedImages.has(imageId) ? "manual" : "biometric",
+        strength: manuallyLinkedImages.has(imageId) ? "manual" : distance < FACE_STRONG_MATCH_THRESHOLD ? "strong" : "possible"
       };
     });
 
@@ -2366,6 +2457,9 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/face/search") {
         return await faceSearch(request, env);
+      }
+      if (["GET", "POST"].includes(request.method) && url.pathname === "/face/people") {
+        return await manageFacePeople(request, env, url);
       }
       if (request.method === "POST" && url.pathname === "/face/index") {
         return await saveFaceIndexBatch(request, env);
