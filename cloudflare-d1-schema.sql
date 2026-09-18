@@ -43,3 +43,12 @@ CREATE TABLE IF NOT EXISTS image_face_index_state (
 
 CREATE INDEX IF NOT EXISTS idx_image_face_index_state_model
   ON image_face_index_state (model_version, status);
+CREATE TABLE IF NOT EXISTS face_people (
+  image_id TEXT NOT NULL,
+  face_index INTEGER NOT NULL,
+  model_version TEXT NOT NULL,
+  descriptor_json TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  PRIMARY KEY (image_id, face_index)
+);
+CREATE INDEX IF NOT EXISTS idx_face_people_person ON face_people(person_id);

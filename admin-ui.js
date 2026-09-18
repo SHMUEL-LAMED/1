@@ -137,8 +137,8 @@ const ADMIN_VIEWS = [
     {
         id: 'faceindex',
         group: 'כלי מערכת',
-        title: 'אינדוקס פנים',
-        description: 'סריקה חד־פעמית ששומרת טביעות פנים ומייתרת סריקה בכל חיפוש.',
+        title: 'פרצופים ואינדוקס',
+        description: 'הצגת הפרצופים שזוהו, איחוד אותו אדם בלוקים שונים והכנת חיפוש פנים.',
         icon: 'scan-face',
         keywords: 'פנים אינדוקס חיפוש ai'
     },
@@ -288,6 +288,8 @@ function runViewHook(viewId) {
             .catch(() => window.loadDriveFolders?.());
     }
     if (viewId === 'faceindex') {
+        import('./face-people.js').then(module => module.openFacePeople())
+            .catch(() => { document.getElementById('facePeopleStatus').textContent = 'לא ניתן לטעון את ניהול הפרצופים. רענן ונסה שוב.'; });
         // renderFaceIndexPanel ו-refreshFaceIndexSummary מוגדרות רק בתוך
         // face-index.js, והוא נטען עצלה. בלי ההמתנה לטעינה שתי הקריאות
         // היו no-op, והלוח היה נתקע על "טוען את מצב האינדוקס…".

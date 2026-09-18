@@ -113,7 +113,7 @@ test.after(() => { globalThis.fetch = originalFetch; });
 
 test.beforeEach(() => {
   deletedObjectKeys.length = 0;
-  for (const table of ["image_face_descriptors", "image_face_index_state", "gallery_documents", "request_rate_limits", "user_email_index"]) {
+  for (const table of ["face_people", "image_face_descriptors", "image_face_index_state", "gallery_documents", "request_rate_limits", "user_email_index"]) {
     try {
       database.database.exec(`DELETE FROM ${table}`);
     } catch {
@@ -349,7 +349,7 @@ test("descriptors אינם מוחזרים ללקוח באף תשובה", async (
     assert.equal(/descriptor/i.test(response.text), false, `נמצא descriptor בתשובה: ${response.text.slice(0, 200)}`);
     assert.equal(response.text.includes("0.18"), false);
   }
-  assert.deepEqual(Object.keys(search.payload.matches[0]).sort(), ["confidence", "distance", "imageId", "strength"]);
+  assert.deepEqual(Object.keys(search.payload.matches[0]).sort(), ["confidence", "distance", "imageId", "source", "strength"]);
 });
 
 test("מחיקת תמונה מוחקת גם את כל טביעות הפנים שלה", async () => {
@@ -474,4 +474,53 @@ test("סרטונים אינם נספרים כתמונות הממתינות לא�
   seedImage("video-1", { mediaType: "video" });
   const summary = await call(`/face/index/summary?modelVersion=${MODEL_VERSION}`, "GET", undefined, "admin-token");
   assert.equal(summary.payload.totalImages, 1);
+});
+
+test("רק מנהלים יכולים להציג או לאחד פרצופים", async () => {
+  for (const token of ["viewer-token", "pending-token", null]) {
+    for (const method of ["GET", "POST"]) {
+      const result = await call('/face/people', method, method === 'POST' ? { action: 'merge', faces: [] } : undefined, token);
+      assert.ok([401, 403].includes(result.status));
+    }
+  }
+});
+
+test("איחוד קבוצות, הרחבת חיפוש והפרדה עובדים במסד אמיתי", async () => {
+  for (const [id, distance] of [['a', 0], ['b', 0.8], ['c', 1.2]]) {
+    await seedIndexedImage(id, [descriptorAtDistance(distance)]);
+  }
+  const list = await call('/face/people');
+  assert.equal(list.status, 200, list.text);
+  assert.equal(list.payload.faces.length, 3);
+  assert.ok(!list.text.includes('descriptor'));
+  const [a, b, c] = list.payload.faces;
+  assert.equal((await call('/face/people', 'POST', {action: 'merge', faces: [a, b]})).status, 200);
+  assert.equal((await call('/face/people', 'POST', {action: 'merge', faces: [b, c]})).status, 200);
+  const groups = await call('/face/people');
+  assert.equal(new Set(groups.payload.faces.map(f => f.personId)).size, 1);
+  const search = await call('/face/search', 'POST', {descriptor: descriptorAtDistance(0)}, 'viewer-token');
+  assert.deepEqual(search.payload.matches.map(m => m.imageId).sort(), ['a', 'b', 'c']);
+  assert.equal((await call('/face/people', 'POST', {action: 'detach', faces: [c]})).status, 200);
+  const separated = await call('/face/search', 'POST', {descriptor: descriptorAtDistance(0)}, 'viewer-token');
+  assert.deepEqual(separated.payload.matches.map(m => m.imageId).sort(), ['a', 'b']);
+});
+
+test("איחוד דוחה בחירה ישנה ולא משנה חלק מהקבוצה", async () => {
+  await seedIndexedImage('a', [descriptorAtDistance(0)]);
+  await seedIndexedImage('b', [descriptorAtDistance(0.8)]);
+  const {payload} = await call('/face/people');
+  payload.faces[0].updatedAt -= 1;
+  const result = await call('/face/people', 'POST', {action: 'merge', faces: payload.faces});
+  assert.equal(result.status, 409, result.text);
+  assert.equal(database.database.prepare('SELECT COUNT(*) n FROM face_people').get().n, 0);
+});
+
+test("אינדוקס שונה אינו משייך פנים חדשות לאדם הישן", async () => {
+  await seedIndexedImage('a', [descriptorAtDistance(0)]);
+  await seedIndexedImage('b', [descriptorAtDistance(0.8)]);
+  const {payload} = await call('/face/people');
+  await call('/face/people', 'POST', {action: 'merge', faces: payload.faces});
+  await seedIndexedImage('b', [descriptorAtDistance(1.2)]);
+  const result = await call('/face/people');
+  assert.equal(result.payload.faces.find(f => f.imageId === 'b').personId, null);
 });

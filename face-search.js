@@ -152,7 +152,8 @@ function attachFaceMatchesToGallery(matches) {
                 ...image,
                 faceMatchDistance: distance,
                 faceMatchConfidence: Math.max(0, Math.min(100, Math.round(Number(match?.confidence) || 0))),
-                faceMatchStrength: 'strong'
+                faceMatchStrength: match?.source === 'manual' ? 'manual' : 'strong',
+                faceMatchSource: match?.source === 'manual' ? 'manual' : 'biometric'
             };
         })
         .filter(Boolean);

@@ -505,6 +505,16 @@
             <!-- ============ מסך: אינדוקס פנים ============ -->
             <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אינדוקס פנים">
                 <div class="admin-panel">
+                    <div class="admin-panel-head"><h3>ניהול פרצופים — זה אותו אדם</h3></div>
+                    <div class="admin-panel-body">
+                        <p>בחר פרצופים שמציגים את אותו אדם, גם בלוק שונה, ולחץ על איחוד. האיחוד יחבר את קבוצותיהם וישמש גם בחיפוש הפנים. אפשר לבחור פרצופים מעמודים שונים.</p>
+                        <div id="facePeopleToolbar"></div>
+                        <p id="facePeopleStatus" role="status" aria-live="polite"></p>
+                        <div id="facePeopleGrid" class="face-people-grid"></div>
+                        <div id="facePeoplePages"></div>
+                    </div>
+                </div>
+                <div class="admin-panel">
                     <div class="admin-panel-head"><h3><i data-lucide="scan-face"></i> הכן חיפוש פנים בענן</h3></div>
                     <div id="accFaceIndex" class="accordion-content admin-panel-body">
                         <p>סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
