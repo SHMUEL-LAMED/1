@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <meta name="theme-color" content="#06080e">
+    <meta name="theme-color" content="#05070d">
     <meta name="robots" content="noindex, nofollow">
     <meta name="description" content="לוח הניהול של גלריית שמחת התורה — אישור תוכן, משתמשים, סנכרון וכלי מערכת.">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
@@ -24,7 +24,7 @@
     </script>
 
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&family=Frank+Ruhl+Libre:wght@700;900&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="./tailwind.generated.css">
@@ -34,6 +34,17 @@
     <script type="module" src="./admin-app.js"></script>
 </head>
 <body class="app-shell admin-page min-h-screen flex flex-col">
+
+    <!-- אותו רקע חי כמו בדף הגלריה. -->
+    <div id="bg-container" aria-hidden="true">
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="bg-grid"></span>
+        <span class="bg-grain"></span>
+    </div>
+    <div class="scroll-progress" aria-hidden="true"></div>
 
     <header class="site-header" aria-label="כותרת לוח הניהול">
         <div class="site-header-inner">
@@ -816,6 +827,11 @@
             </div>
         </div>
     </div>
+
+    <!-- חזרה לראש הדף -->
+    <button type="button" id="backToTop" class="back-to-top" onclick="scrollToPageTop()" aria-label="חזרה לראש הדף" title="חזרה למעלה">
+        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+    </button>
 
     <!-- הודעת מערכת -->
     <div id="customAlert" role="status" aria-live="polite">

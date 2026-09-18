@@ -1073,7 +1073,7 @@ function updateThemeToggleUI(theme) {
 window.setSiteTheme = function(theme, persist = true) {
     const nextTheme = theme === 'light' ? 'light' : 'dark';
     document.documentElement.dataset.theme = nextTheme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'light' ? '#f8fafc' : '#090b10');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'light' ? '#f6f2ea' : '#05070d');
     if (persist) {
         try {
             localStorage.setItem('simchat-color-theme', nextTheme);
@@ -1093,11 +1093,122 @@ window.toggleSiteTheme = function() {
 // =================== END POPUP ANNOUNCEMENT ===================
 
 function initAmbientArchiveBackground() {
-    // הרקע נשאר סטטי לחלוטין: אין לולאת ציור ואין תגובה לתנועת העכבר.
+    // הקנבס נשאר כבוי: הרקע החי (האורורה) הוא CSS בלבד, מונפש ב-transform,
+    // ולכן אין כאן לולאת ציור ואין תגובה לתנועת העכבר.
     const canvas = document.getElementById('ambientCanvas');
     if (!canvas) return;
     canvas.hidden = true;
     canvas.setAttribute('aria-hidden', 'true');
+}
+
+// =================== חוויית הארכיון: תנועה, תאורה ומונים ===================
+// כל מה שכאן הוא קישוט שאינו נוגע בנתונים: אם רכיב חסר בדף, הפונקציה
+// יוצאת בשקט. כל אפקט תנועה מכבד את בקשת המשתמש לפחות תנועה.
+
+const REDUCED_MOTION_QUERY = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : { matches: false };
+const GALLERY_DENSITY_KEY = 'simchat-gallery-density';
+const GALLERY_DENSITIES = ['compact', 'comfortable', 'large'];
+
+// מונה שעולה בהדרגה אל הערך החדש. הפורמט מגיע מהקורא (למשל toLocaleString)
+// כדי שהמונה יציג בדיוק את מה שהיה מוצג בלעדיו.
+window.animateCounter = function(element, value, format = String) {
+    if (!element) return;
+    const target = Number(value) || 0;
+    const previous = Number(element.dataset.counterValue);
+    const start = Number.isFinite(previous) ? previous : 0;
+    element.dataset.counterValue = String(target);
+    if (REDUCED_MOTION_QUERY.matches || start === target || typeof requestAnimationFrame !== 'function') {
+        element.textContent = format(target);
+        return;
+    }
+    const duration = 900;
+    const startedAt = performance.now();
+    const step = now => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        element.textContent = format(Math.round(start + (target - start) * eased));
+        if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+};
+
+// צפיפות רשת הגלריה: צפוף / רגיל / גדול. הבחירה נשמרת בדפדפן.
+window.setGalleryDensity = function(density, persist = true) {
+    const next = GALLERY_DENSITIES.includes(density) ? density : 'comfortable';
+    const grid = document.getElementById('photosGrid');
+    if (grid) grid.dataset.density = next;
+    document.querySelectorAll('.density-toggle [data-density]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.density === next));
+    });
+    if (persist) {
+        try { localStorage.setItem(GALLERY_DENSITY_KEY, next); } catch (error) { /* מצב פרטי: אין שמירה */ }
+    }
+};
+
+window.scrollToPageTop = function() {
+    window.scrollTo({ top: 0, behavior: REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth' });
+};
+
+function initArchiveExperience() {
+    // צפיפות שמורה
+    let savedDensity = null;
+    try { savedDensity = localStorage.getItem(GALLERY_DENSITY_KEY); } catch (error) { savedDensity = null; }
+    window.setGalleryDensity(savedDensity, false);
+
+    // פס התקדמות הגלילה וכפתור החזרה למעלה — מאזין אחד, מסונכרן לפריים.
+    const root = document.documentElement;
+    const backToTop = document.getElementById('backToTop');
+    let scrollTicking = false;
+    const paintScroll = () => {
+        scrollTicking = false;
+        const max = Math.max(1, root.scrollHeight - window.innerHeight);
+        const ratio = Math.min(1, Math.max(0, window.scrollY / max));
+        root.style.setProperty('--scroll', ratio.toFixed(4));
+        backToTop?.classList.toggle('is-visible', window.scrollY > 480);
+    };
+    window.addEventListener('scroll', () => {
+        if (scrollTicking) return;
+        scrollTicking = true;
+        requestAnimationFrame(paintScroll);
+    }, { passive: true });
+    paintScroll();
+
+    // "/" מקפיץ לחיפוש הגלריה — כמו בלוח הניהול — כל עוד לא כותבים בשדה אחר.
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        document.addEventListener('keydown', event => {
+            if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+            const active = document.activeElement;
+            if (active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return;
+            if (document.querySelector('[role="dialog"]:not(.hidden)[aria-modal="true"]')) return;
+            event.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+        });
+    }
+
+    // ספוט־לייט שעוקב אחרי הסמן על כרטיסי הגלריה והמחוונים. רק לעכבר,
+    // ורק כשלא התבקשה פחות תנועה.
+    if (REDUCED_MOTION_QUERY.matches || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    let spotlightTicking = false;
+    let lastPointer = null;
+    document.addEventListener('pointermove', event => {
+        if (event.pointerType && event.pointerType !== 'mouse') return;
+        lastPointer = event;
+        if (spotlightTicking) return;
+        spotlightTicking = true;
+        requestAnimationFrame(() => {
+            spotlightTicking = false;
+            const target = lastPointer?.target;
+            const card = target instanceof Element ? target.closest('.gallery-card, .admin-stat') : null;
+            if (!card) return;
+            const rect = card.getBoundingClientRect();
+            card.style.setProperty('--mx', `${Math.round(lastPointer.clientX - rect.left)}px`);
+            card.style.setProperty('--my', `${Math.round(lastPointer.clientY - rect.top)}px`);
+        });
+    }, { passive: true });
 }
 
 
@@ -1124,6 +1235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         window.setSiteTheme(document.documentElement.dataset.theme, false);
         initAmbientArchiveBackground();
+        initArchiveExperience();
         scheduleIconRefresh();
         initSessionUI();
         initGallery();

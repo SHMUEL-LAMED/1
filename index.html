@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <meta name="theme-color" content="#06080e">
+    <meta name="theme-color" content="#05070d">
     <meta name="description" content="גלריית שמחת התורה — הארכיון הדיגיטלי של תמונות וסרטוני הישיבה, מסודר לפי אירועים.">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
     <link rel="apple-touch-icon" href="./icon-192.png">
@@ -25,7 +25,8 @@
     </script>
 
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Assistant לטקסט רץ, Frank Ruhl Libre לכותרות ולמספרים הגדולים. -->
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&family=Frank+Ruhl+Libre:wght@700;900&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="./styles.css">
     <!-- tailwind.generated.css חייב לבוא אחרי styles.css: כך ה-utilities
@@ -39,9 +40,18 @@
 </head>
 <body class="app-shell min-h-screen flex flex-col">
 
+    <!-- הרקע החי: ארבעה כתמי אורורה, סבכה עדינה וגרעין. הכול CSS בלבד,
+         מונפש ב-transform כדי שלא יכביד, ונעצר כשהמשתמש ביקש פחות תנועה. -->
     <div id="bg-container" aria-hidden="true">
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="aurora-orb"></span>
+        <span class="bg-grid"></span>
+        <span class="bg-grain"></span>
         <canvas id="ambientCanvas"></canvas>
     </div>
+    <div class="scroll-progress" aria-hidden="true"></div>
 
     <a href="#galleryStage" class="sr-only focus:not-sr-only">דילוג לתוכן</a>
 
@@ -98,11 +108,14 @@
                 <div><dt>פריטים</dt><dd id="heroMediaCount">—</dd></div>
                 <div><dt>עודכן</dt><dd id="heroUpdatedAt">—</dd></div>
             </dl>
+            <!-- פסיפס הרגעים האחרונים. gallery.js ממלא אותו מהתמונות החדשות;
+                 עד אז הוא מצייר את עצמו כמשטח דקורטיבי. -->
+            <div id="heroMosaic" class="hero-mosaic" aria-hidden="true"></div>
         </section>
 
         <!-- ---------- רשימת התיקיות ---------- -->
         <aside class="folder-rail" aria-label="תיקיות הגלריה">
-            <div class="folder-panel collections-panel">
+            <div class="folder-panel collections-panel collections-deck">
                 <header class="collections-header">
                     <div class="collections-heading">
                         <span class="collections-emblem" aria-hidden="true"><i data-lucide="library-big" class="w-6 h-6"></i></span>
@@ -163,9 +176,15 @@
                     <i data-lucide="search" class="w-4 h-4"></i>
                     <span class="sr-only">חיפוש בגלריה</span>
                     <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תאריך או תיקייה…" oninput="handleSearch(this.value)">
+                    <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
                 </label>
 
                 <div class="gallery-tools">
+                    <div class="density-toggle" role="group" aria-label="צפיפות התצוגה">
+                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="תצוגה צפופה" aria-label="תצוגה צפופה"><i data-lucide="grid-3x3"></i></button>
+                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="תצוגה רגילה" aria-label="תצוגה רגילה"><i data-lucide="layout-grid"></i></button>
+                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="תצוגה גדולה" aria-label="תצוגה גדולה"><i data-lucide="rectangle-horizontal"></i></button>
+                    </div>
                     <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="w-auto text-xs py-2">
                         <option value="newest">החדש ביותר</option>
                         <option value="oldest">הישן ביותר</option>
@@ -408,6 +427,8 @@
 
     <!-- תצוגה מלאה -->
     <div id="lightboxModal" class="fixed inset-0 z-50 flex flex-col justify-between p-4 hidden" role="dialog" aria-modal="true" aria-label="תצוגת מדיה מלאה">
+        <!-- השתקפות מטושטשת של הפריט הנוכחי; gallery.js מעדכן אותה עם כל מעבר. -->
+        <img id="lightboxBackdrop" class="lightbox-backdrop" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" aria-hidden="true" hidden>
         <div class="lightbox-bar flex justify-between items-center gap-3 p-3">
             <div class="min-w-0">
                 <h4 id="lightboxTitle" class="font-bold text-base truncate">שם התמונה</h4>
@@ -712,6 +733,11 @@
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
         </div>
     </div>
+
+    <!-- חזרה לראש הדף -->
+    <button type="button" id="backToTop" class="back-to-top" onclick="scrollToPageTop()" aria-label="חזרה לראש הדף" title="חזרה למעלה">
+        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+    </button>
 
     <!-- הודעת מערכת -->
     <div id="customAlert" role="status" aria-live="polite">
