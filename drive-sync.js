@@ -447,93 +447,24 @@ async function syncDriveMediaFiles(folder, mediaFiles) {
     return { addedOrUpdated, unchanged, failed, total };
 }
 
-async function reconcileDriveMirror(rootFolderId, seenDriveFileIds, seenDriveFolderIds) {
-    if (!window.state.isSuperAdmin) {
-        throw new Error('מחיקת פריטים שנעלמו מ־Drive דורשת חשבון מנהל־על.');
-    }
-
-    const staleImages = (window.state.images || []).filter(function(image) {
+// הגנה מפני מחיקה: בעל הדרייב שממנו מסנכרנים עלול למחוק בו קבצים ותיקיות.
+// הסנכרון הוא חד־כיווני ומוסיף בלבד — פריט שנעלם מ־Drive נשאר באתר, כי
+// הקבצים עצמם כבר הועתקו לאחסון של הגלריה ואינם תלויים יותר ב־Drive.
+// הפונקציה רק סופרת את הפריטים האלה כדי לדווח עליהם, ולעולם לא מוחקת.
+function countDriveItemsMissingFromDrive(rootFolderId, seenDriveFileIds, seenDriveFolderIds) {
+    const keptImages = (window.state.images || []).filter(function(image) {
         return image.syncedFromDrive === true
             && image.driveRootFolderId === rootFolderId
             && image.driveFileId
             && !seenDriveFileIds.has(image.driveFileId);
-    });
-    const staleFolders = (window.state.folders || []).filter(function(folder) {
+    }).length;
+    const keptFolders = (window.state.folders || []).filter(function(folder) {
         return folder.syncedFromDrive === true
             && folder.driveRootFolderId === rootFolderId
             && folder.driveFolderId
             && !seenDriveFolderIds.has(folder.driveFolderId);
-    }).sort(function(a, b) {
-        return (Number(b.driveDepth) || 0) - (Number(a.driveDepth) || 0);
-    });
-
-    for (const image of staleImages) {
-        await window.deleteImageCloud(image.id);
-    }
-    for (const folder of staleFolders) {
-        await window.deleteFolderCloud(folder.id);
-    }
-
-    if (staleImages.length) {
-        const removedImageIds = new Set(staleImages.map(image => window.safeRecordId(image.id)));
-        window.state.images = (window.state.images || []).filter(image => !removedImageIds.has(window.safeRecordId(image.id)));
-    }
-    if (staleFolders.length) {
-        const removedFolderIds = new Set(staleFolders.map(folder => window.safeRecordId(folder.id)));
-        window.state.folders = (window.state.folders || []).filter(folder => !removedFolderIds.has(window.safeRecordId(folder.id)));
-        if (removedFolderIds.has(window.safeRecordId(window.state.activeFolderId))) {
-            window.state.activeFolderId = 'all';
-        }
-    }
-    // Remove Drive-synced folders that are empty after a successful full scan.
-    // Work from the deepest folders upward so an empty parent is removed only
-    // after all of its empty descendants have been removed.
-    const removedFolderIds = new Set(staleFolders.map(folder => window.safeRecordId(folder.id)));
-    const remainingImageFolderIds = new Set(
-        (window.state.images || []).map(image => window.safeRecordId(image.folderId)).filter(Boolean)
-    );
-    const emptyDriveFolders = (window.state.folders || []).filter(function(folder) {
-        return folder.syncedFromDrive === true
-            && folder.driveRootFolderId === rootFolderId
-            && !removedFolderIds.has(window.safeRecordId(folder.id));
-    }).sort(function(a, b) {
-        return (Number(b.driveDepth) || 0) - (Number(a.driveDepth) || 0);
-    });
-    const additionallyDeletedFolderIds = new Set();
-
-    for (const folder of emptyDriveFolders) {
-        const folderId = window.safeRecordId(folder.id);
-        if (!folderId || remainingImageFolderIds.has(folderId)) continue;
-
-        const hasRemainingChild = (window.state.folders || []).some(function(child) {
-            const childId = window.safeRecordId(child.id);
-            return childId
-                && !removedFolderIds.has(childId)
-                && !additionallyDeletedFolderIds.has(childId)
-                && window.safeRecordId(child.parentFolderId) === folderId;
-        });
-        if (hasRemainingChild) continue;
-
-        await window.deleteFolderCloud(folderId);
-        additionallyDeletedFolderIds.add(folderId);
-    }
-
-    if (additionallyDeletedFolderIds.size) {
-        window.state.folders = (window.state.folders || []).filter(function(folder) {
-            return !additionallyDeletedFolderIds.has(window.safeRecordId(folder.id));
-        });
-        if (additionallyDeletedFolderIds.has(window.safeRecordId(window.state.activeFolderId))) {
-            window.state.activeFolderId = 'all';
-        }
-    }
-
-    window.renderFolders();
-    window.renderImages();
-    window.populateFolderSelects?.();
-    return {
-        deletedImages: staleImages.length,
-        deletedFolders: staleFolders.length + additionallyDeletedFolderIds.size
-    };
+    }).length;
+    return { keptImages, keptFolders };
 }
 
 async function syncDriveFolderTree(rootFolder) {
@@ -547,8 +478,8 @@ async function syncDriveFolderTree(rootFolder) {
     let unchanged = 0;
     let failed = 0;
     let total = 0;
-    let deletedImages = 0;
-    let deletedFolders = 0;
+    let keptImages = 0;
+    let keptFolders = 0;
     try {
         for (let index = 0; index < folders.length; index++) {
             setDriveSyncProgress(index, folders.length, 'יוצר מבנה תיקיות: ' + folders[index].path);
@@ -566,23 +497,20 @@ async function syncDriveFolderTree(rootFolder) {
             total += result.total || 0;
         }
 
-        if (failed === 0) {
-            setDriveSyncProgress(folders.length, folders.length, 'משווה מחיקות מול Google Drive…');
-            const cleanup = await reconcileDriveMirror(rootFolder.id, seenDriveFileIds, seenDriveFolderIds);
-            deletedImages = cleanup.deletedImages;
-            deletedFolders = cleanup.deletedFolders;
-        }
+        // מחיקות ב־Drive אינן מועברות לאתר — ראו countDriveItemsMissingFromDrive.
+        const kept = countDriveItemsMissingFromDrive(rootFolder.id, seenDriveFileIds, seenDriveFolderIds);
+        keptImages = kept.keptImages;
+        keptFolders = kept.keptFolders;
     } finally {
         driveFolderPickerState.rootFolderId = previousRootId;
     }
-    const deletionSummary = deletedImages || deletedFolders
-        ? ' נמחקו מהאתר ' + deletedImages + ' קבצים ו־' + deletedFolders + ' תיקיות שכבר אינם ב־Drive.'
+    const keptSummary = keptImages || keptFolders
+        ? ' ' + keptImages + ' קבצים ו־' + keptFolders + ' תיקיות נמחקו ב־Drive אך נשמרו באתר ולא נמחקו.'
         : '';
-    const skippedCleanup = failed ? ' ניקוי מחיקות דולג בגלל קבצים שלא הסתנכרנו.' : '';
     setDriveSyncProgress(folders.length, folders.length,
         'הסנכרון הושלם: ' + folders.length + ' תיקיות, ' + addedOrUpdated + ' קבצים נוספו או עודכנו.'
-            + deletionSummary + skippedCleanup);
-    return { addedOrUpdated, unchanged, failed, total, folders: folders.length, deletedImages, deletedFolders };
+            + keptSummary);
+    return { addedOrUpdated, unchanged, failed, total, folders: folders.length, deletedImages: 0, deletedFolders: 0, keptImages, keptFolders };
 }
 
 function ensureDriveFolderPickerModal() {
