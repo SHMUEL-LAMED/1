@@ -25,13 +25,16 @@ function googleToken(expiresInMs = HOUR_MS) {
   });
 }
 
-// אסימון ההתחברות של השרת: תקף שלושים יום.
-function serverSessionToken(expiresInMs = 30 * DAY_MS) {
+// אסימון ההתחברות של השרת: תקף שנה, ומחודש בכל ביקור. ברירת המחדל כאן
+// היא אסימון טרי — שהונפק לפני רגע — כדי שחידוש ברקע לא יפריע לבדיקות
+// שאינן עוסקות בו.
+function serverSessionToken(expiresInMs = 365 * DAY_MS, issuedAgoMs = 0) {
   return encodeToken("v1", {
     sub: "google-user-1",
     email: "user@example.com",
     email_verified: true,
     name: "Test User",
+    iat: Math.floor((Date.now() - issuedAgoMs) / 1000),
     exp: Math.floor((Date.now() + expiresInMs) / 1000)
   });
 }
@@ -138,6 +141,74 @@ test("אסימון Google שתוקפו עומד לפוג מוחלף באסימו
   assert.equal(client.getAuth().currentUser?.uid, "google-user-1");
 });
 
+test("ביקור יותר מיממה אחרי הנפקת האסימון מחדש אותו, גם כשנותרו חודשים לתוקפו", async () => {
+  // זה המצב של משתמש שחוזר לאתר אחרי כמה ימים: האסימון עדיין תקף, אבל
+  // בלי חידוש היה לו תאריך פקיעה קבוע, ומי שלא ביקר בשבוע האחרון לתוקפו
+  // נותק. החידוש בכל ביקור הופך את התוקף למתגלגל.
+  const storedToken = serverSessionToken(300 * DAY_MS, 3 * DAY_MS);
+  const local = new Map([[TOKEN_KEY, storedToken]]);
+  const renewedToken = serverSessionToken();
+  const requestedPaths = [];
+
+  const { client } = await loadClient({
+    local,
+    listeners: {},
+    fetchImpl: async (url, options = {}) => {
+      requestedPaths.push(new URL(String(url)).pathname);
+      assert.equal(options.method, "POST");
+      assert.equal(new Headers(options.headers).get("Authorization"), `Bearer ${storedToken}`);
+      return Response.json({ success: true, sessionToken: renewedToken, user: { uid: "google-user-1" } });
+    }
+  });
+
+  assert.deepEqual(requestedPaths, ["/auth/session"]);
+  assert.equal(local.get(TOKEN_KEY), renewedToken, "the visit must push the expiry a full year ahead");
+  assert.equal(client.getAuth().currentUser?.uid, "google-user-1");
+});
+
+test("אסימון שהונפק לפני פחות מיממה אינו מחודש שוב", async () => {
+  // חידוש בכל טעינת דף היה מטריד את השרת לחינם. פעם ביממה מספיקה.
+  const local = new Map([[TOKEN_KEY, serverSessionToken(365 * DAY_MS, 2 * HOUR_MS)]]);
+  const requestedPaths = [];
+
+  const { client } = await loadClient({
+    local,
+    listeners: {},
+    fetchImpl: async url => {
+      requestedPaths.push(new URL(String(url)).pathname);
+      return Response.json({ success: true });
+    }
+  });
+
+  assert.deepEqual(requestedPaths, []);
+  assert.equal(client.getAuth().currentUser?.uid, "google-user-1");
+});
+
+test("אסימון מגרסה קודמת, בלי זמן הנפקה, מתחדש מיד ומקבל את התוקף המתגלגל", async () => {
+  const legacyToken = encodeToken("v1", {
+    sub: "google-user-1",
+    email: "user@example.com",
+    email_verified: true,
+    name: "Test User",
+    exp: Math.floor((Date.now() + 20 * DAY_MS) / 1000)
+  });
+  const local = new Map([[TOKEN_KEY, legacyToken]]);
+  const renewedToken = serverSessionToken();
+  const requestedPaths = [];
+
+  await loadClient({
+    local,
+    listeners: {},
+    fetchImpl: async url => {
+      requestedPaths.push(new URL(String(url)).pathname);
+      return Response.json({ success: true, sessionToken: renewedToken });
+    }
+  });
+
+  assert.deepEqual(requestedPaths, ["/auth/session"]);
+  assert.equal(local.get(TOKEN_KEY), renewedToken);
+});
+
 test("אסימון שפג תוקפו מתחדש בבקשה הבאה במקום לנתק את המשתמש", async () => {
   const local = new Map();
   const renewedToken = serverSessionToken();
@@ -228,7 +299,7 @@ test("חידוש שקט של האסימון אינו מדווח כהתחברות
   await settle();
 
   // אותו משתמש, אסימון חדש: הגלריה והמאזינים לא אמורים להיטען מחדש.
-  await client.setGoogleIdToken(serverSessionToken(29 * DAY_MS));
+  await client.setGoogleIdToken(serverSessionToken(364 * DAY_MS));
   await settle();
 
   assert.deepEqual(seen, ["google-user-1"]);

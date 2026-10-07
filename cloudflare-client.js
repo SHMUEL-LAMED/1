@@ -5,8 +5,14 @@ const GOOGLE_WEB_CLIENT_ID = "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps
 // ✅ FIX: הגדלת buffer מ-60 שניות ל-5 דקות למניעת בקשות כושלות ברגע האחרון
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
-// אסימון ההתחברות של השרת תקף שלושים יום, והוא מחודש הרבה לפני שתוקפו פג
-// כדי שהמשתמש לא ינותק באמצע השימוש.
+// אסימון ההתחברות של השרת תקף שנה, והתוקף מתגלגל: כל ביקור שחל יותר
+// מיממה אחרי הנפקת האסימון מחדש אותו ברקע, וכך תאריך הפקיעה מתרחק שוב
+// בשנה. בלי זה היה לאסימון תאריך פקיעה קבוע, ומי שלא ביקר בדיוק בשבוע
+// שלפניו נותק ונדרש להתחבר מחדש — "האתר לא זוכר משתמשים".
+// הרשת לא נטרדת: חידוש נעשה לכל היותר פעם ביממה לכל דפדפן.
+const SESSION_RENEW_AFTER_MS = 24 * 60 * 60 * 1000;
+// רשת ביטחון: אסימון שתוקפו עומד לפוג מתחדש בכל מקרה, גם אם הונפק
+// לפני פחות מיממה (למשל אסימון Google קצר־טווח שעדיין לא הוחלף).
 const SESSION_RENEW_BEFORE_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_RENEW_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const SESSION_RENEW_RETRY_DELAY_MS = 10 * 60 * 1000;
@@ -44,7 +50,11 @@ function tokenIsUsable(token) {
 function tokenNeedsRenewal(token) {
   const payload = decodeJwtPayload(token);
   if (!payload?.sub) return false;
-  return Number(payload.exp || 0) * 1000 - Date.now() < SESSION_RENEW_BEFORE_MS;
+  if (Number(payload.exp || 0) * 1000 - Date.now() < SESSION_RENEW_BEFORE_MS) return true;
+  // אסימון בלי זמן הנפקה (iat) הוא אסימון מגרסה ישנה: מחדשים אותו מיד
+  // כדי שיקבל את התוקף המתגלגל.
+  const issuedAt = Number(payload.iat || 0) * 1000;
+  return !issuedAt || Date.now() - issuedAt >= SESSION_RENEW_AFTER_MS;
 }
 
 // ההתחברות נשמרת ב־localStorage ולא ב־sessionStorage: sessionStorage נמחק
