@@ -390,6 +390,7 @@ async function executeFaceSearch() {
         }
     } catch (err) {
         console.error('Face recognition engine failed:', err);
+        window.reportClientError?.(err, 'face-search');
         const technicalMessage = String(err?.message || '').trim();
         const userMessage = err?.status === 404
             ? 'חיפוש הפנים בענן עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'

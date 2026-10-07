@@ -1046,6 +1046,7 @@ async function handleAddPhotoAdmin(event, confirmed = false) {
                 failedUploadRecords.push({ record: imageRecord, queueId: 'adminUploadQueue', uploadQueueIndex, mode: 'direct' });
                 updateUploadQueueItem('adminUploadQueue', uploadQueueIndex, 'error', 'נכשל — נסה שוב');
                 console.warn('Single admin upload failed:', error);
+                window.reportClientError?.(error, 'upload');
             }
         }
         if (!uploadedCount) throw new Error('העלאת הקבצים נכשלה. ניתן לנסות שוב.');
@@ -1055,6 +1056,7 @@ async function handleAddPhotoAdmin(event, confirmed = false) {
         window.showNotification(`הועלו ${uploadedCount} קבצים לגלריה${failedCount ? `; ${failedCount} נכשלו וניתן לנסות שוב` : ''}.`);
     } catch (error) {
         console.error('Admin upload failed:', error);
+        window.reportClientError?.(error, 'upload');
         window.showNotification(error.message || 'העלאת התמונות נכשלה. נסה שוב.', false);
     } finally {
         if(progressContainer) progressContainer.classList.add('hidden');
@@ -1128,6 +1130,7 @@ async function submitUserUpload(confirmed = false) {
                 failedUploadRecords.push({ record: imageRecord, queueId: 'userUploadQueue', uploadQueueIndex, mode: canUploadDirectly ? 'direct' : 'pending' });
                 updateUploadQueueItem('userUploadQueue', uploadQueueIndex, 'error', 'נכשל — נסה שוב');
                 console.warn('Single user upload failed:', error);
+                window.reportClientError?.(error, 'upload');
             }
         }
         if (!uploadedCount) throw new Error('העלאת הקבצים נכשלה. ניתן לנסות שוב.');
@@ -1141,6 +1144,7 @@ async function submitUserUpload(confirmed = false) {
         if (!failedCount) window.closeModal('userUploadModal');
     } catch (error) {
         console.error('User upload failed:', error);
+        window.reportClientError?.(error, 'upload');
         window.showNotification(error.message || 'העלאת התמונות נכשלה. נסה שוב.', false);
     } finally {
         if(progressContainer) progressContainer.classList.add('hidden');
@@ -1636,6 +1640,7 @@ window.executeAiImageSearch = async function() {
         );
     } catch (error) {
         console.error('AI image search failed:', error);
+        window.reportClientError?.(error, 'ai-search');
         if (status) status.textContent = error.message || 'חיפוש ה־AI נכשל. נסה שוב.';
         window.showNotification(error.message || 'חיפוש ה־AI נכשל.', false);
     } finally {

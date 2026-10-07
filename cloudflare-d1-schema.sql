@@ -52,3 +52,21 @@ CREATE TABLE IF NOT EXISTS face_people (
   PRIMARY KEY (image_id, face_index)
 );
 CREATE INDEX IF NOT EXISTS idx_face_people_person ON face_people(person_id);
+
+-- שגיאות מהאתר ומה-Worker, מקובצות לפי טביעת אצבע: שורה אחת לכל סוג
+-- תקלה עם מונה מופעים. resolved_at ריק = השגיאה עדיין פתוחה.
+CREATE TABLE IF NOT EXISTS client_errors (
+  fingerprint TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  message TEXT NOT NULL,
+  stack TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  last_uid TEXT NOT NULL DEFAULT '',
+  count INTEGER NOT NULL DEFAULT 1,
+  first_seen INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL,
+  resolved_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_client_errors_resolved_seen
+  ON client_errors (resolved_at, last_seen DESC);

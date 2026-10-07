@@ -762,6 +762,7 @@ async function handleOfficialGoogleCredential(response) {
     return user;
   } catch (error) {
     console.error("Google sign-in failed:", error);
+    window.reportClientError?.(error, "sign-in");
     // אסימון שנדחה בשרת לא נשאר בדפדפן.
     if (["invalid_token", "account_unavailable", "email_not_verified", "account_blocked"].includes(error?.code)) {
       await setGoogleIdToken("");

@@ -135,6 +135,16 @@ const ADMIN_VIEWS = [
         keywords: 'בדיקה תקינות שרת חיבור'
     },
     {
+        id: 'errors',
+        group: 'כלי מערכת',
+        title: 'שגיאות ותקלות',
+        description: 'שגיאות שנרשמו באתר ובשרת, מקובצות לפי סוג, לטיפול ולמעקב.',
+        icon: 'bug',
+        // המונה הוא נתון ניהולי שמגיע מהשרת: נכתב רק למי שמורשה, אפס לכל אחד אחר.
+        badge: () => (window.canViewAdminData?.() ? Number(window.state.clientErrorsSummary?.last24h) || 0 : 0),
+        keywords: 'שגיאות תקלות באגים ניטור יומן שגיאה'
+    },
+    {
         id: 'faceindex',
         group: 'כלי מערכת',
         title: 'פרצופים ואינדוקס',
@@ -260,6 +270,13 @@ window.openAdminView = function(viewId) {
     scheduleIconRefresh();
 };
 
+// מסך השגיאות חי במודול נפרד, שנטען בפעם הראשונה שצריך אותו: בפתיחת
+// המסך, או כשהלוח מרענן את מונה השגיאות שבתפריט.
+let adminErrorsModulePromise = null;
+function ensureAdminErrorsModule() {
+    return (adminErrorsModulePromise ||= import('./admin-errors.js'));
+}
+
 // כל מסך טוען את הנתונים שלו ברגע שנפתח, ולא בטעינת הדף. כך הלוח נפתח מיד
 // ואינו מושך מידע שאיש אינו מסתכל עליו.
 function runViewHook(viewId) {
@@ -280,6 +297,11 @@ function runViewHook(viewId) {
     if (viewId === 'activity') window.renderActivityLogs?.();
     if (viewId === 'analytics') window.loadAdvancedAnalytics?.();
     if (viewId === 'health') window.runSystemHealthCheck?.();
+    if (viewId === 'errors') {
+        ensureAdminErrorsModule()
+            .then(() => window.loadClientErrors?.())
+            .catch(error => console.error('Errors module failed to load:', error));
+    }
     if (viewId === 'messages') window.renderAdminMessageReplies?.();
     if (viewId === 'popup') window.renderPopupAnnouncementAdmin?.();
     if (viewId === 'drive') {
@@ -453,6 +475,13 @@ window.renderAdminAttention = function() {
             hint: 'פניות ממשתמשים שממתינות למענה',
             icon: 'mail-warning',
             view: 'messages'
+        },
+        {
+            count: Number(window.state.clientErrorsSummary?.last24h) || 0,
+            label: 'שגיאות ביממה האחרונה',
+            hint: 'תקלות שנרשמו באתר או בשרת וממתינות לטיפול',
+            icon: 'bug',
+            view: 'errors'
         }
     ].filter(Boolean).filter(item => item.count > 0);
 
@@ -503,6 +532,12 @@ window.updateAdminOverviewExtras = function() {
     }
     if (members) members.textContent = String(canViewSuperAdminData() ? (window.state.allUsers || []).length : 0);
     refreshAdminNavBadges();
+    // מונה השגיאות שבתפריט מגיע מהשרת; המודול מרענן אותו לכל היותר פעם בדקה.
+    if (window.canViewAdminData?.()) {
+        ensureAdminErrorsModule()
+            .then(() => window.refreshClientErrorsSummary?.())
+            .catch(error => console.warn('Errors module failed to load:', error));
+    }
 };
 
 window.refreshAdminData = async function() {
