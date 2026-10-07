@@ -8,6 +8,7 @@ import { initSession } from './session-auth.js';
 import { initGallery } from './gallery.js';
 import { initSessionUI } from './session-ui.js';
 import './popup-announcement.js';
+import { resolveApiBaseUrl, resolveApiEnvironment } from './api-environment.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -577,8 +578,12 @@ function dataUrlToBlob(dataUrl) {
 }
 
 // --- אחסון תמונות ב-Cloudflare R2 דרך ה-Worker ---
-// עדכן לכתובת ה-Worker שלך, למשל: https://simchas-gallery-api.<subdomain>.workers.dev
-const R2_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
+// הכתובת נקבעת ב-api-environment.js, מאותו מקום שממנו cloudflare-client.js
+// לוקח אותה: הייצור כברירת מחדל, וה-Worker של סביבת הניסוי ב-*.pages.dev.
+const API_ENVIRONMENT = resolveApiEnvironment();
+const R2_WORKER_BASE_URL = resolveApiBaseUrl();
+// הסימון על html מציג את רצועת "סביבת ניסוי" שבכותרת (ראה styles.css).
+document.documentElement.dataset.apiEnvironment = API_ENVIRONMENT;
 
 async function r2Request(path, options = {}) {
     const token = await window.getFirebaseIdToken();
@@ -1226,6 +1231,7 @@ window.dataUrlToBlob = dataUrlToBlob;
 window.formatBytes = formatBytes;
 window.r2Request = r2Request;
 window.R2_WORKER_BASE_URL = R2_WORKER_BASE_URL;
+window.API_ENVIRONMENT = API_ENVIRONMENT;
 
 // אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחילה
 // שכבת ההתחברות. סנכרון Drive עצמו נטען רק בדף הניהול.
