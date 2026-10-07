@@ -256,9 +256,16 @@ test("signing in returns a long lived session token instead of the hour long Goo
   assert.match(payload.sessionToken, /^v1\.[\w-]+\.[\w-]+$/);
 
   // אסימון Google תקף כשעה. אסימון ההתחברות חייב להחזיק הרבה מעבר לכך,
-  // אחרת המשתמש ינותק בזמן השימוש ויידרש להתחבר שוב.
+  // אחרת המשתמש ינותק בזמן השימוש ויידרש להתחבר שוב. התוקף הוא שנה ומתגלגל
+  // בכל ביקור, כדי שגם מי שנכנס לאתר רק סביב החגים יישאר מחובר.
   const remainingDays = (payload.sessionExpiresAt - Date.now()) / (24 * 60 * 60 * 1000);
-  assert.ok(remainingDays > 29, `session should last about a month, got ${remainingDays} days`);
+  assert.ok(remainingDays > 364, `session should last about a year, got ${remainingDays} days`);
+
+  // זמן ההנפקה נמצא באסימון עצמו: הדפדפן נשען עליו כדי להחליט מתי לחדש.
+  const [, encodedPayload] = payload.sessionToken.split(".");
+  const tokenPayload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+  assert.equal(typeof tokenPayload.iat, "number");
+  assert.ok(Math.abs(tokenPayload.iat * 1000 - Date.now()) < 60 * 1000);
 });
 
 test("a session token authenticates later requests without asking Google again", async () => {
