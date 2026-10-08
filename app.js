@@ -398,29 +398,29 @@ function showNotification(msg, isSuccess = true, tone = null) {
     }
 
     if (impactDesc) {
-        msgEl.innerHTML = `<div class="flex flex-col gap-1 text-right">
-            <span class="font-black text-xs tracking-wide text-white">${escapeHtml(msg)}</span>
-            <span class="text-[9px] text-amber-300 font-semibold leading-normal opacity-90">${escapeHtml(impactDesc)}</span>
-        </div>`;
+        msgEl.innerHTML = `<span class="toast-copy">
+            <span class="toast-title">${escapeHtml(msg)}</span>
+            <span class="toast-impact">${escapeHtml(impactDesc)}</span>
+        </span>`;
     } else {
         msgEl.textContent = msg;
     }
 
-    if (tone === 'warning') {
-        iconEl.innerHTML = `<i data-lucide="triangle-alert" class="w-6 h-6 text-amber-300"></i>`;
-        alertEl.className = "fixed bottom-6 left-6 bg-slate-900/95 backdrop-blur-xl text-white px-5 py-4 rounded-2xl shadow-2xl z-50 flex items-center gap-3.5 transform translate-y-0 opacity-100 transition-all duration-300 border border-amber-400/30 max-w-[340px]";
-    } else if (isSuccess) {
-        iconEl.innerHTML = `<i data-lucide="check-circle" class="w-6 h-6 text-emerald-400"></i>`;
-        alertEl.className = "fixed bottom-6 left-6 bg-slate-900/95 backdrop-blur-xl text-white px-5 py-4 rounded-2xl shadow-2xl z-50 flex items-center gap-3.5 transform translate-y-0 opacity-100 transition-all duration-300 border border-emerald-500/20 max-w-[340px]";
-    } else {
-        iconEl.innerHTML = `<i data-lucide="alert-circle" class="w-6 h-6 text-red-400"></i>`;
-        alertEl.className = "fixed bottom-6 left-6 bg-slate-900/95 backdrop-blur-xl text-white px-5 py-4 rounded-2xl shadow-2xl z-50 flex items-center gap-3.5 transform translate-y-0 opacity-100 transition-all duration-300 border border-red-500/20 max-w-[340px]";
-    }
+    // הגוון והמצב נקבעים במחלקות ובמאפיין data-tone; כל הצבעים מגיעים
+    // מאסימוני styles.css ולכן נכונים גם במצב "לילה" וגם במצב "קלף".
+    const resolvedTone = tone === 'warning' ? 'warning' : (isSuccess ? 'success' : 'danger');
+    const iconName = { warning: 'triangle-alert', success: 'check-circle', danger: 'alert-circle' }[resolvedTone];
+    iconEl.innerHTML = `<i data-lucide="${iconName}" class="w-5 h-5"></i>`;
+    alertEl.dataset.tone = resolvedTone;
+    // הפעלה מחדש של אנימציית הכניסה גם כשהודעה מחליפה הודעה שעוד מוצגת.
+    alertEl.classList.remove('is-visible');
+    void alertEl.offsetWidth;
+    alertEl.classList.add('is-visible');
     scheduleIconRefresh();
 
     if (notificationTimer) clearTimeout(notificationTimer);
     notificationTimer = setTimeout(() => {
-        alertEl.className = "fixed bottom-6 left-6 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-2.5 transform translate-y-20 opacity-0 transition-all duration-300 border border-white/10";
+        alertEl.classList.remove('is-visible');
     }, 5500);
 }
 window.showNotification = showNotification;
