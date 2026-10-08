@@ -21,7 +21,7 @@ window.PAGE_MODE = PAGE_MODE;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v45';
+const SITE_VERSION = 'v49';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -1189,6 +1189,8 @@ function initArchiveExperience() {
         const max = Math.max(1, root.scrollHeight - window.innerHeight);
         const ratio = Math.min(1, Math.max(0, window.scrollY / max));
         root.style.setProperty('--scroll', ratio.toFixed(4));
+        // הכותרת הצפה מתעבה ומקבלת צל כשיש תוכן שגולל מתחתיה (ראו styles.css).
+        root.toggleAttribute('data-scrolled', window.scrollY > 12);
         backToTop?.classList.toggle('is-visible', window.scrollY > 480);
     };
     window.addEventListener('scroll', () => {
