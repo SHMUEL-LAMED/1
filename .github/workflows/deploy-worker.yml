@@ -1,25 +1,42 @@
 name: Deploy Cloudflare Worker
-# Supports push, merged PRs, and manual production verification.
+# פריסה לשני ה-Workers מאותו קובץ, לפי הענף:
+#   main    → simchas-gallery-api          (ייצור)
+#   staging → simchas-gallery-api-staging  (סביבת הניסוי)
+# בהפעלה ידנית היעד נבחר בשדה target; יעד production מותר מ-main בלבד, ויעד
+# staging מותר מכל ענף (כך אפשר לנסות ענף פיצ'ר על ה-Worker של הניסוי).
+# ה-Action לעולם אינו יוצר מסד או דלי: הוא יורש את ה-bindings שכבר מוגדרים
+# ב-Worker היעד (bindings_inherit=strict) ונכשל אם GALLERY_DB או GALLERY_BUCKET חסרים.
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - cloudflare-worker.js
       - .github/workflows/deploy-worker.yml
   pull_request:
-    branches: [main]
+    branches: [main, staging]
     types: [closed]
     paths:
       - cloudflare-worker.js
       - .github/workflows/deploy-worker.yml
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Target Worker: production (simchas-gallery-api, from main only) or staging (simchas-gallery-api-staging)"
+        type: choice
+        required: true
+        default: production
+        options:
+          - production
+          - staging
 
 permissions:
   contents: read
 
+# היעד נגזר מהאירוע: הבחירה הידנית, ואחרת הענף (staging → ניסוי, כל השאר → ייצור).
+# אותו ביטוי מופיע גם ב-env של ה-job, כי concurrency אינו יכול לקרוא env.
 concurrency:
-  group: cloudflare-worker-production
+  group: cloudflare-worker-${{ inputs.target || ((github.ref_name == 'staging' || github.event.pull_request.base.ref == 'staging') && 'staging' || 'production') }}
   cancel-in-progress: false
 
 jobs:
@@ -29,8 +46,34 @@ jobs:
     timeout-minutes: 15
     env:
       CLOUDFLARE_ACCOUNT_ID: 3298021f3289a8f22f48693678cc6e73
-      CLOUDFLARE_WORKER_NAME: simchas-gallery-api
+      DEPLOY_TARGET: ${{ inputs.target || ((github.ref_name == 'staging' || github.event.pull_request.base.ref == 'staging') && 'staging' || 'production') }}
     steps:
+      - name: Resolve target Worker
+        run: |
+          case "$DEPLOY_TARGET" in
+            production)
+              worker_name="simchas-gallery-api"
+              health_url="https://simchas-gallery-api.0534169095.workers.dev/health"
+              ;;
+            staging)
+              worker_name="simchas-gallery-api-staging"
+              health_url="https://simchas-gallery-api-staging.0534169095.workers.dev/health"
+              ;;
+            *)
+              echo "::error::Unknown deploy target: $DEPLOY_TARGET"
+              exit 1
+              ;;
+          esac
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DEPLOY_TARGET" = "production" ] && [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::Production deploys run from main only (requested ref: $GITHUB_REF_NAME). Choose target=staging to try this branch."
+            exit 1
+          fi
+          {
+            echo "CLOUDFLARE_WORKER_NAME=$worker_name"
+            echo "HEALTH_URL=$health_url"
+          } >> "$GITHUB_ENV"
+          echo "Deploying $GITHUB_SHA ($GITHUB_REF_NAME) to $worker_name [$DEPLOY_TARGET]."
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -57,37 +100,40 @@ jobs:
             exit 1
           fi
 
-      - name: Inherit all production bindings
+      - name: Inherit all bindings of the target Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           node --input-type=module <<'NODE'
           import { writeFileSync } from "node:fs";
 
-          const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${process.env.CLOUDFLARE_WORKER_NAME}`;
+          const workerName = process.env.CLOUDFLARE_WORKER_NAME;
+          const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}`;
           const response = await fetch(`${apiBase}/bindings`, {
             headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` }
           });
           const payload = await response.json();
           if (!response.ok || payload?.success !== true || !Array.isArray(payload.result)) {
-            throw new Error(`Unable to read existing Worker bindings (${response.status}).`);
+            throw new Error(`Unable to read the existing bindings of Worker "${workerName}" (${response.status}). The Worker must already exist in the Cloudflare dashboard; this workflow never creates it.`);
           }
 
           const bindingNames = [...new Set(payload.result.map(item => String(item?.name || "").trim()).filter(Boolean))];
           for (const required of ["GALLERY_DB", "GALLERY_BUCKET"]) {
-            if (!bindingNames.includes(required)) throw new Error(`Required production binding is missing: ${required}`);
+            if (!bindingNames.includes(required)) {
+              throw new Error(`Required binding is missing on Worker "${workerName}": ${required}. Add it in the dashboard first; this workflow never creates databases or buckets.`);
+            }
           }
 
           writeFileSync("worker-metadata.json", JSON.stringify({
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
             bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: "latest" })),
-            annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA}` }
+            annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
-          console.log(`Preserving ${bindingNames.length} existing Worker bindings.`);
+          console.log(`Preserving ${bindingNames.length} existing bindings of ${workerName}.`);
           NODE
 
-      - name: Deploy production Worker
+      - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -101,22 +147,28 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const payload = JSON.parse(readFileSync("deploy-response.json", "utf8"));
-            if (payload?.success !== true) throw new Error("Cloudflare rejected the Worker deployment.");
-            console.log("Cloudflare Worker deployed successfully.");
+            if (payload?.success !== true) throw new Error(`Cloudflare rejected the deployment of ${process.env.CLOUDFLARE_WORKER_NAME}.`);
+            console.log(`Cloudflare Worker ${process.env.CLOUDFLARE_WORKER_NAME} deployed successfully.`);
           '
 
-      - name: Verify production health
+      - name: Verify Worker health
         run: |
           curl --fail --silent --show-error \
             --retry 5 --retry-delay 2 --retry-all-errors \
-            "https://simchas-gallery-api.0534169095.workers.dev/health" \
+            "$HEALTH_URL" \
             --output health-response.json
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
+            const target = process.env.DEPLOY_TARGET;
             const health = JSON.parse(readFileSync("health-response.json", "utf8"));
             if (health?.success !== true || health?.databaseConnected !== true || health?.bucketConnected !== true) {
-              throw new Error("Production health check did not confirm D1 and R2.");
+              throw new Error(`${target} health check did not confirm D1 and R2.`);
             }
-            console.log("Production health check passed: D1 and R2 are connected.");
+            // ה-Worker חייב לדעת באיזו סביבה הוא רץ: Worker ניסוי בלי ENVIRONMENT=staging
+            // (או Worker ייצור שסומן בטעות כניסוי) נכשל כאן.
+            if (health?.environment !== target) {
+              throw new Error(`${target} Worker reports environment "${health?.environment}". Set the ENVIRONMENT variable on the Worker to "${target}".`);
+            }
+            // דלי ריק תקין (objectsFound 0): סביבת הניסוי מתחילה בלי מדיה.
+            console.log(`${target} health check passed: D1 and R2 are connected, environment "${health.environment}", ${Number(health?.objectsFound) || 0} object(s) sampled.`);
           '
-

@@ -33,6 +33,22 @@ const UPLOAD_RATE_LIMIT = 60;
 const UPLOAD_RATE_WINDOW_MS = 10 * 60 * 1000;
 const EMAIL_RATE_LIMIT = 30;
 const EMAIL_RATE_WINDOW_MS = 60 * 60 * 1000;
+// ניטור שגיאות: דיווחים מהאתר ומה-Worker נשמרים מקובצים לפי טביעת אצבע,
+// שורה אחת לכל סוג תקלה עם מונה — ולא יומן שגדל בלי גבול.
+const CLIENT_ERROR_RATE_LIMIT = 30;
+const CLIENT_ERROR_RATE_WINDOW_MS = 60 * 60 * 1000;
+const CLIENT_ERROR_MESSAGE_MAX_LENGTH = 500;
+const CLIENT_ERROR_STACK_MAX_LENGTH = 4000;
+const CLIENT_ERROR_URL_MAX_LENGTH = 500;
+const CLIENT_ERROR_USER_AGENT_MAX_LENGTH = 300;
+const CLIENT_ERROR_CONTEXT_MAX_LENGTH = 600;
+const CLIENT_ERROR_SCOPE_MAX_LENGTH = 60;
+const CLIENT_ERROR_LIST_DEFAULT_LIMIT = 100;
+const CLIENT_ERROR_LIST_MAX_LIMIT = 500;
+const CLIENT_ERROR_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CLIENT_ERROR_RESOLVED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const CLIENT_ERROR_ADMIN_RATE_LIMIT = 120;
+const CLIENT_ERROR_ADMIN_RATE_WINDOW_MS = 60 * 1000;
 
 // --- טביעות פנים בענן ---
 // כל תמונה מעובדת פעם אחת בלבד בדפדפן של המנהל, והטביעות המספריות נשמרות
@@ -78,12 +94,124 @@ const FACE_ASSETS = new Map([
   ["model/face_recognition_model.bin", { upstreamPath: "model/face_recognition_model.bin", contentType: "application/octet-stream" }]
 ]);
 
+// מקורות הייצור הקבועים. מקורות אתר הניסוי (*.pages.dev) ו-localhost אינם
+// רשומים כאן אלא נבדקים ב-isAllowedOrigin, כי הם תלויים במשתני הסביבה.
 const ALLOWED_ORIGINS = new Set([
   "https://shmuel-lamed.github.io",
   "https://0534169095-star.github.io",
   "https://xn--4dbjbascrao3i.com",
   "https://www.xn--4dbjbascrao3i.com"
 ]);
+
+// --- סביבת ההרצה: ייצור או ניסוי ---
+// שני Workers רצים מאותו קוד: simchas-gallery-api (ייצור) ו-simchas-gallery-api-staging
+// (ניסוי), לכל אחד D1 ו-R2 משלו. משתנה הטקסט ENVIRONMENT מבדיל ביניהם; כשהוא
+// חסר זה הייצור, כך שה-Worker הקיים אינו דורש הגדרה חדשה. הערך מוחזר ב-/health.
+const ENVIRONMENT_PRODUCTION = "production";
+const ENVIRONMENT_STAGING = "staging";
+// שם פרויקט Cloudflare Pages של אתר הניסוי (משתנה STAGING_PAGES_PROJECT). המקור
+// https://<project>.pages.dev ופריסות התצוגה המקדימה https://<hash>.<project>.pages.dev
+// מורשים ב-CORS. ערך שאינו שם פרויקט תקין של Pages מתעלמים ממנו.
+const DEFAULT_STAGING_PAGES_PROJECT = "simchas-gallery-staging";
+const PAGES_PROJECT_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$/;
+const LOCAL_DEVELOPMENT_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);
+// ה-env של ה-Worker, כדי ש-corsHeaders — שנקראת גם מ-json() בלי env — תדע
+// באיזו סביבה היא רצה. אותו אובייקט bindings משותף לכל הבקשות של ה-Worker.
+let runtimeEnv = null;
+
+function workerEnvironment(env = runtimeEnv) {
+  return String(env?.ENVIRONMENT || "").trim().toLowerCase() === ENVIRONMENT_STAGING
+    ? ENVIRONMENT_STAGING
+    : ENVIRONMENT_PRODUCTION;
+}
+
+function stagingPagesProject(env = runtimeEnv) {
+  const configured = String(env?.STAGING_PAGES_PROJECT || "").trim().toLowerCase();
+  return PAGES_PROJECT_NAME_PATTERN.test(configured) ? configured : DEFAULT_STAGING_PAGES_PROJECT;
+}
+
+// בדיקת המקור ל-CORS. המקור מפורק כ-URL ומושווה ל-origin שלו, ולא נבדק כמחרוזת:
+// "https://evil.com/?x=.pages.dev" אינו מקור כלל (מקור הוא סכמה, מארח ופורט
+// בלבד) ולכן נדחה עוד לפני בדיקת הסיומת. הסיומת נבדקת עם הנקודה המפרידה, כך
+// ש-"evilsimchas-gallery-staging.pages.dev" או "….pages.dev.evil.com" נדחים.
+export function isAllowedOrigin(origin, env = runtimeEnv) {
+  const value = String(origin || "").trim();
+  if (!value) return false;
+  if (ALLOWED_ORIGINS.has(value)) return true;
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.origin !== value) return false;
+
+  if (url.protocol === "https:") {
+    const project = stagingPagesProject(env);
+    if (url.hostname === `${project}.pages.dev` || url.hostname.endsWith(`.${project}.pages.dev`)) return true;
+  }
+  // פיתוח מקומי מורשה מול ה-Worker של הניסוי בלבד, בכל פורט וגם ב-http.
+  if (workerEnvironment(env) === ENVIRONMENT_STAGING && LOCAL_DEVELOPMENT_HOSTNAMES.has(url.hostname)) {
+    return url.protocol === "https:" || url.protocol === "http:";
+  }
+  return false;
+}
+
+// --- נעילת המסד לסביבה ---
+// ל-binding של D1 אין שם, ולכן ה-Worker אינו יכול לדעת ישירות אם חובר אליו
+// המסד של הייצור. במקום זה כל מסד נושא שורת סימון אחת: ה-Worker הראשון שרץ
+// מולו כותב בה את שם הסביבה שלו, וכל Worker שרץ אחריו משווה. Worker של
+// הניסוי שמוצא "production" (או להפך) מסרב לשרת כל בקשה — אתר ניסוי מושבת
+// עדיף על ניסוי שכותב לנתוני הייצור. הבדיקה רצה פעם אחת לכל binding ב-isolate.
+// מסד שהועתק במלואו מהייצור (ייצוא/ייבוא D1) נושא את הסימון של הייצור; אז יש
+// לעדכן את השורה ידנית: UPDATE gallery_environment SET environment = 'staging'.
+const databaseEnvironmentChecks = new WeakMap();
+
+function assertDatabaseEnvironment(env) {
+  const database = env?.GALLERY_DB;
+  if (!database || typeof database !== "object") return Promise.resolve();
+  let check = databaseEnvironmentChecks.get(database);
+  if (!check) {
+    check = verifyDatabaseEnvironment(database, workerEnvironment(env)).catch(error => {
+      // כישלון אינו ננעל במטמון: תיקון ה-binding נכנס לתוקף בלי פריסה מחדש.
+      databaseEnvironmentChecks.delete(database);
+      throw error;
+    });
+    databaseEnvironmentChecks.set(database, check);
+  }
+  return check;
+}
+
+async function verifyDatabaseEnvironment(database, expected) {
+  const readMarker = async () => String((await database.prepare(
+    "SELECT environment FROM gallery_environment WHERE marker_key = 'environment'"
+  ).first())?.environment || "").trim().toLowerCase();
+
+  await database.prepare(
+    `CREATE TABLE IF NOT EXISTS gallery_environment (
+      marker_key TEXT PRIMARY KEY,
+      environment TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`
+  ).run();
+  let marker = await readMarker();
+  if (!marker) {
+    await database.prepare(
+      `INSERT INTO gallery_environment (marker_key, environment, created_at)
+       VALUES ('environment', ?, ?)
+       ON CONFLICT(marker_key) DO NOTHING`
+    ).bind(expected, Date.now()).run();
+    marker = await readMarker();
+  }
+  if (marker && marker !== expected) {
+    throw apiError(
+      `ה-Worker רץ בסביבת ${expected}, אך מסד הנתונים המחובר אליו מסומן כ-${marker}. בדוק את ה-binding של GALLERY_DB.`,
+      500,
+      "environment_database_mismatch"
+    );
+  }
+}
 
 const ALLOWED_IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
@@ -134,10 +262,10 @@ const ALLOWED_MEDIA_EXTENSIONS = new Set([
   ...ALLOWED_CHAT_EXTENSIONS
 ]);
 
-function corsHeaders(request) {
+function corsHeaders(request, env = runtimeEnv) {
   const origin = request.headers.get("Origin");
   return {
-    ...(origin && ALLOWED_ORIGINS.has(origin)
+    ...(origin && isAllowedOrigin(origin, env)
       ? { "Access-Control-Allow-Origin": origin }
       : {}),
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -466,6 +594,26 @@ async function ensureDatabaseSchema(env) {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )`
+    ).run();
+    // שגיאות מהאתר ומה-Worker, מקובצות לפי טביעת אצבע: שורה אחת לכל סוג
+    // תקלה עם מונה מופעים. resolved_at ריק = השגיאה עדיין פתוחה.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS client_errors (
+        fingerprint TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        stack TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        user_agent TEXT NOT NULL DEFAULT '',
+        last_uid TEXT NOT NULL DEFAULT '',
+        count INTEGER NOT NULL DEFAULT 1,
+        first_seen INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL,
+        resolved_at INTEGER
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_client_errors_resolved_seen ON client_errors (resolved_at, last_seen DESC)"
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_image_face_descriptors_model ON image_face_descriptors (model_version, image_id, face_index)"
@@ -2391,20 +2539,279 @@ async function serveFaceAsset(request, env, pathname) {
   });
 }
 
+// --- ניטור שגיאות ---
+// האתר שולח שגיאות ל-POST /telemetry/errors, וה-Worker רושם לאותה טבלה
+// גם את הכשלונות הפנימיים שלו. כל דיווח מנוקה מאסימונים ומכתובות דוא״ל,
+// נחתך לגודל קבוע ומקובץ לפי טביעת אצבע, כך שלוח הניהול מציג שורה אחת
+// לכל סוג תקלה עם מונה מופעים.
+
+// מסיר כל מה שנראה כאסימון התחברות או ככתובת דוא״ל, גם כשהודעת שגיאה
+// מצטטת כותרת, כתובת או גוף בקשה.
+function scrubSensitiveText(value, maxLength) {
+  return String(value ?? "")
+    .replace(/\0/g, "")
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [הוסר]")
+    .replace(/\bv1\.[\w-]{6,}\.[\w-]{6,}/g, "[אסימון הוסר]")
+    .replace(/\bey[\w-]{6,}\.[\w-]{6,}\.[\w-]{6,}/g, "[אסימון הוסר]")
+    .replace(/\bya29\.[\w.-]+/g, "[אסימון הוסר]")
+    .replace(/([?&#](?:access_token|id_token|token|credential|code|key|state|session)=)[^&#\s]+/gi, "$1[הוסר]")
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[דוא״ל הוסר]")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeFingerprintPart(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// השורה הראשונה במחסנית שמצביעה על קוד: "at fn (url:1:2)" בכרום,
+// "fn@url:1:2" בפיירפוקס ובספארי. מספרי השורה והעמודה מוסרים, כדי שפריסה
+// שמזיזה שורות לא תפצל תקלה אחת לכמה שורות בלוח.
+function firstStackFrame(stack) {
+  const lines = String(stack || "").split("\n").map(line => line.trim()).filter(Boolean);
+  const frame = lines.find(line => /^at\s+\S/.test(line) || /\S@\S+:\d+/.test(line)) || "";
+  return frame.replace(/\?[^\s:)]*/g, "").replace(/:\d+(?::\d+)?\)?$/, "");
+}
+
+async function clientErrorFingerprint(source, message, stack) {
+  return sha256(
+    `${source}|${normalizeFingerprintPart(message)}|${normalizeFingerprintPart(firstStackFrame(stack))}`,
+    { normalize: false }
+  );
+}
+
+function safeErrorContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const context = {};
+  for (const [key, raw] of Object.entries(value).slice(0, 12)) {
+    const safeKey = String(key).replace(/[^\w-]/g, "").slice(0, 40);
+    if (!safeKey || raw === undefined || raw === null) continue;
+    context[safeKey] = typeof raw === "object" ? JSON.stringify(raw).slice(0, 200) : String(raw).slice(0, 200);
+  }
+  return context;
+}
+
+// מנרמל דיווח — מהדפדפן או מה-Worker — לרשומה מוכנה לשמירה. ההקשר
+// (גרסת האתר, קוד השגיאה וכדומה) מצורף לסוף המחסנית, וה-scope פותח את
+// ההודעה כדי שתקלות מאותו סוג במסלולים שונים יקבלו שורות נפרדות.
+function buildErrorRecord({ source, message, stack, url, userAgent, context }) {
+  const safeContext = safeErrorContext(context);
+  const scope = String(safeContext.scope || "")
+    .replace(/[^\w\u0590-\u05FF .:/-]/g, "")
+    .trim()
+    .slice(0, CLIENT_ERROR_SCOPE_MAX_LENGTH);
+  delete safeContext.scope;
+  const baseMessage = scrubSensitiveText(message, CLIENT_ERROR_MESSAGE_MAX_LENGTH);
+  const contextBlock = Object.keys(safeContext).length
+    ? `\n--- הקשר ---\n${scrubSensitiveText(JSON.stringify(safeContext), CLIENT_ERROR_CONTEXT_MAX_LENGTH)}`
+    : "";
+  const stackText = scrubSensitiveText(stack, CLIENT_ERROR_STACK_MAX_LENGTH - contextBlock.length);
+  return {
+    source: source === "worker" ? "worker" : "site",
+    message: scrubSensitiveText(scope ? `${scope}: ${baseMessage}` : baseMessage, CLIENT_ERROR_MESSAGE_MAX_LENGTH),
+    stack: `${stackText}${contextBlock}`.slice(0, CLIENT_ERROR_STACK_MAX_LENGTH),
+    url: scrubSensitiveText(url, CLIENT_ERROR_URL_MAX_LENGTH),
+    userAgent: scrubSensitiveText(userAgent, CLIENT_ERROR_USER_AGENT_MAX_LENGTH)
+  };
+}
+
+// שורה אחת לכל טביעת אצבע: דיווח חוזר מגדיל את המונה ומעדכן את המופע
+// האחרון. שגיאה שסומנה כטופלה ונרשמה שוב חוזרת להיות פתוחה — זה בדיוק
+// האות שהתיקון לא הספיק.
+async function upsertClientError(env, record, { uid = "", now = Date.now() } = {}) {
+  await ensureDatabaseSchema(env);
+  const fingerprint = await clientErrorFingerprint(record.source, record.message, record.stack);
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO client_errors (fingerprint, source, message, stack, url, user_agent, last_uid, count, first_seen, last_seen, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL)
+     ON CONFLICT(fingerprint) DO UPDATE SET
+       count = client_errors.count + 1,
+       last_seen = excluded.last_seen,
+       stack = CASE WHEN excluded.stack = '' THEN client_errors.stack ELSE excluded.stack END,
+       url = CASE WHEN excluded.url = '' THEN client_errors.url ELSE excluded.url END,
+       user_agent = CASE WHEN excluded.user_agent = '' THEN client_errors.user_agent ELSE excluded.user_agent END,
+       last_uid = CASE WHEN excluded.last_uid = '' THEN client_errors.last_uid ELSE excluded.last_uid END,
+       resolved_at = NULL`
+  ).bind(
+    fingerprint, record.source, record.message, record.stack, record.url, record.userAgent,
+    String(uid || ""), now, now
+  ).run();
+  return fingerprint;
+}
+
+function reportingClientBucket(request) {
+  const forwarded = String(request.headers.get("X-Forwarded-For") || "").split(",")[0].trim();
+  return request.headers.get("CF-Connecting-IP") || forwarded || "unknown";
+}
+
+// המדווח מזוהה רק אם שלח אסימון תקף. דיווח בלי אסימון — או עם אסימון
+// שפג — מתקבל בכל זאת, כי שגיאות קורות גם לפני ההתחברות.
+async function reportingUid(request, env) {
+  if (!request.headers.get("Authorization")) return "";
+  try {
+    const { account } = await resolveAccount(request, env);
+    return String(account?.localId || "");
+  } catch {
+    return "";
+  }
+}
+
+async function receiveClientErrorReport(request, env) {
+  try {
+    await consumeRateLimit(
+      env,
+      `client-error:${reportingClientBucket(request)}`,
+      CLIENT_ERROR_RATE_LIMIT,
+      CLIENT_ERROR_RATE_WINDOW_MS,
+      "נשלחו יותר מדי דיווחי שגיאה. נסה שוב מאוחר יותר.",
+      "client_error_rate_limit"
+    );
+    // sendBeacon שולח Blob, ולכן הגוף נקרא כטקסט בלי להסתמך על Content-Type.
+    let payload = null;
+    try {
+      payload = JSON.parse(await request.text());
+    } catch {
+      payload = null;
+    }
+    const record = buildErrorRecord({
+      source: "site",
+      message: payload?.message,
+      stack: payload?.stack,
+      url: payload?.url,
+      userAgent: payload?.userAgent || request.headers.get("User-Agent") || "",
+      context: payload?.extra
+    });
+    if (!payload || typeof payload !== "object" || !record.message) {
+      return json(request, { success: false, code: "invalid_error_report", message: "דיווח השגיאה אינו תקין." }, 400);
+    }
+    const uid = await reportingUid(request, env);
+    await upsertClientError(env, record, { uid });
+    return json(request, { success: true });
+  } catch (error) {
+    if (Number(error?.status) === 429) {
+      return json(request, { success: false, code: error.code, message: error.message }, 429);
+    }
+    // יומן השגיאות לעולם אינו מפיל את הדפדפן שדיווח; הכישלון נרשם רק בלוג.
+    console.error("Client error report could not be stored", error);
+    return json(request, { success: true, stored: false });
+  }
+}
+
+// כשלון פנימי (5xx) של ה-Worker נרשם לאותה טבלה, כדי שהלוח יציג גם תקלות
+// שרת. הרישום רץ אחרי שהתשובה כבר יצאה ולעולם אינו משנה אותה.
+async function storeWorkerFailure(request, env, error, status) {
+  const url = new URL(request.url);
+  const record = buildErrorRecord({
+    source: "worker",
+    message: `${request.method} ${url.pathname}: ${error?.message || error?.name || "internal_error"}`,
+    stack: error?.stack || "",
+    url: `${url.origin}${url.pathname}`,
+    userAgent: request.headers.get("User-Agent") || "",
+    context: { status, code: error?.code || "internal_error" }
+  });
+  await upsertClientError(env, record);
+}
+
+function recordWorkerFailure(request, env, ctx, error, status) {
+  try {
+    const task = storeWorkerFailure(request, env, error, status)
+      .catch(loggingError => console.error("Worker failure could not be recorded", loggingError));
+    if (typeof ctx?.waitUntil === "function") ctx.waitUntil(task);
+  } catch (loggingError) {
+    console.error("Worker failure could not be recorded", loggingError);
+  }
+}
+
+async function requireErrorsReader(request, env) {
+  const actor = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env,
+    `client-errors-admin:${actor.uid}`,
+    CLIENT_ERROR_ADMIN_RATE_LIMIT,
+    CLIENT_ERROR_ADMIN_RATE_WINDOW_MS,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.",
+    "client_errors_rate_limit"
+  );
+  return actor;
+}
+
+async function listClientErrors(request, env, url) {
+  await requireErrorsReader(request, env);
+  const status = url.searchParams.get("status") === "resolved" ? "resolved" : "open";
+  const requestedLimit = Math.trunc(Number(url.searchParams.get("limit")) || CLIENT_ERROR_LIST_DEFAULT_LIMIT);
+  const limit = Math.max(1, Math.min(CLIENT_ERROR_LIST_MAX_LIMIT, requestedLimit));
+  const result = await env.GALLERY_DB.prepare(
+    `SELECT fingerprint, source, message, stack, url, user_agent AS userAgent, last_uid AS lastUid,
+            count, first_seen AS firstSeen, last_seen AS lastSeen, resolved_at AS resolvedAt
+     FROM client_errors
+     WHERE ${status === "resolved" ? "resolved_at IS NOT NULL" : "resolved_at IS NULL"}
+     ORDER BY last_seen DESC
+     LIMIT ?`
+  ).bind(limit).all();
+  return json(request, { success: true, status, errors: result.results || [] });
+}
+
+// מונה לתג שבתפריט הניהול: שגיאות פתוחות, ומתוכן אלו שנראו ביממה האחרונה.
+async function clientErrorsSummary(request, env) {
+  await requireErrorsReader(request, env);
+  const row = await env.GALLERY_DB.prepare(
+    `SELECT COUNT(*) AS open,
+            SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END) AS recent
+     FROM client_errors
+     WHERE resolved_at IS NULL`
+  ).bind(Date.now() - CLIENT_ERROR_RECENT_WINDOW_MS).first();
+  return json(request, { success: true, open: Number(row?.open) || 0, last24h: Number(row?.recent) || 0 });
+}
+
+function safeFingerprint(value) {
+  const fingerprint = String(value || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) throw apiError("מזהה השגיאה אינו תקין.", 400, "invalid_fingerprint");
+  return fingerprint;
+}
+
+async function updateClientErrorStatus(request, env, action) {
+  await requireUser(request, env, ["super_admin"]);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const fingerprint = safeFingerprint(payload?.fingerprint);
+  const row = action === "resolve"
+    ? await env.GALLERY_DB.prepare(
+      "UPDATE client_errors SET resolved_at = ? WHERE fingerprint = ? AND resolved_at IS NULL RETURNING fingerprint"
+    ).bind(Date.now(), fingerprint).first()
+    : await env.GALLERY_DB.prepare(
+      "UPDATE client_errors SET resolved_at = NULL WHERE fingerprint = ? AND resolved_at IS NOT NULL RETURNING fingerprint"
+    ).bind(fingerprint).first();
+  if (!row) throw apiError("השגיאה לא נמצאה, או שמצבה כבר עודכן.", 404, "error_not_found");
+  return json(request, { success: true, fingerprint, resolved: action === "resolve" });
+}
+
+async function clearResolvedClientErrors(request, env) {
+  await requireUser(request, env, ["super_admin"]);
+  await ensureDatabaseSchema(env);
+  const result = await env.GALLERY_DB.prepare(
+    "DELETE FROM client_errors WHERE resolved_at IS NOT NULL AND resolved_at < ? RETURNING fingerprint"
+  ).bind(Date.now() - CLIENT_ERROR_RESOLVED_RETENTION_MS).all();
+  return json(request, { success: true, deleted: (result.results || []).length });
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    runtimeEnv = env;
     if (request.method === "OPTIONS") {
       const origin = request.headers.get("Origin");
-      if (origin && !ALLOWED_ORIGINS.has(origin)) {
+      if (origin && !isAllowedOrigin(origin, env)) {
         return new Response(null, { status: 403 });
       }
-      return new Response(null, { status: 204, headers: corsHeaders(request) });
+      return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
     try {
       if (!env.GALLERY_BUCKET) {
         throw apiError("החיבור לדלי R2 אינו מוגדר.", 500, "bucket_binding_missing");
       }
+      // Worker שחובר למסד של הסביבה האחרת אינו מגיש שום נתיב, כולל /health.
+      await assertDatabaseEnvironment(env);
 
       const url = new URL(request.url);
       if (url.pathname.startsWith("/data/")) {
@@ -2420,6 +2827,7 @@ export default {
         return json(request, {
           success: true,
           service: "simchas-gallery-api",
+          environment: workerEnvironment(env),
           version: "2026-08-13-cloudflare-d1-face-index",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
@@ -2485,14 +2893,35 @@ export default {
       if (request.method === "DELETE" && url.pathname.startsWith("/media/")) {
         return await deleteImage(request, env, url.pathname);
       }
+      if (request.method === "POST" && url.pathname === "/telemetry/errors") {
+        return await receiveClientErrorReport(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/telemetry/errors") {
+        return await listClientErrors(request, env, url);
+      }
+      if (request.method === "GET" && url.pathname === "/telemetry/errors/summary") {
+        return await clientErrorsSummary(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/telemetry/errors/resolve") {
+        return await updateClientErrorStatus(request, env, "resolve");
+      }
+      if (request.method === "POST" && url.pathname === "/telemetry/errors/reopen") {
+        return await updateClientErrorStatus(request, env, "reopen");
+      }
+      if (request.method === "POST" && url.pathname === "/telemetry/errors/clear") {
+        return await clearResolvedClientErrors(request, env);
+      }
       return json(request, { success: false, message: "הנתיב המבוקש אינו קיים." }, 404);
     } catch (error) {
       console.error("Worker request failed", error);
+      const status = Number(error?.status) || 500;
+      // רק כשלונות פנימיים נרשמים ליומן השגיאות; 4xx הן תשובות צפויות.
+      if (status >= 500) recordWorkerFailure(request, env, ctx, error, status);
       return json(request, {
         success: false,
         code: error?.code || "internal_error",
         message: error?.message || "אירעה שגיאה פנימית."
-      }, Number(error?.status) || 500);
+      }, status);
     }
   }
 };
