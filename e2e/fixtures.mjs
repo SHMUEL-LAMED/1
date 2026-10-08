@@ -131,6 +131,18 @@ export function variantUrl(id, name, extension = 'webp') {
     return `${API_ORIGIN}/media/variants/${id}/${name}.${extension}`;
 }
 
+export function variantAvifUrl(id, name) {
+    return variantUrl(id, name, 'avif');
+}
+
+// מוסיף לכל תצוגה עותק AVIF, כפי שה-Worker רושם אותו כשהדפדפן שלח כזה.
+export function withAvif(variants, id) {
+    return Object.fromEntries(Object.entries(variants).map(([name, entry]) => [name, {
+        ...entry,
+        avif: { key: `variants/${id}/${name}.avif`, url: variantAvifUrl(id, name), type: 'image/avif' }
+    }]));
+}
+
 // שדה variants של רשומה שכבר יש לה תצוגות, כפי שהעלאה או ריצת ההשלמה רושמות אותו.
 export function variantEntries(id, names = ['thumb', 'medium'], extension = 'webp') {
     const dimensions = { thumb: [480, 320], medium: [1280, 853], poster: [1280, 720] };
@@ -442,14 +454,28 @@ export class FakeWorker {
             const extension = VARIANT_TYPES.get(String(part.type || '').toLowerCase());
             if (!extension) throw apiError('תצוגה מקדימה חייבת להיות WebP או JPEG.', 415, 'unsupported_variant_type');
             if (!part.size || part.size > MAX_VARIANT_BYTES) throw apiError('גודל תצוגה מקדימה חייב להיות עד 2MB.', 413, 'variant_too_large');
+            const avifPart = form.get(`variant_${name}_avif`);
+            let avif = null;
+            if (avifPart !== null && avifPart !== '') {
+                if (String(avifPart.type || '').toLowerCase() !== 'image/avif') throw apiError('עותק AVIF של תצוגה חייב להיות image/avif.', 415, 'unsupported_variant_type');
+                if (!avifPart.size || avifPart.size > MAX_VARIANT_BYTES) throw apiError('גודל תצוגה מקדימה חייב להיות עד 2MB.', 413, 'variant_too_large');
+                avif = Buffer.from(await avifPart.arrayBuffer());
+            }
             parts.push({
                 name,
                 type: String(part.type).toLowerCase(),
                 extension,
                 bytes: Buffer.from(await part.arrayBuffer()),
                 width: Number(meta?.[name]?.width) || 0,
-                height: Number(meta?.[name]?.height) || 0
+                height: Number(meta?.[name]?.height) || 0,
+                avif
             });
+        }
+        for (const name of VARIANT_NAMES) {
+            const orphan = form.get(`variant_${name}_avif`);
+            if (orphan !== null && orphan !== '' && !parts.some(part => part.name === name)) {
+                throw apiError(`עותק ה-AVIF של ${name} נשלח בלי התצוגה הרגילה.`, 400, 'avif_without_variant');
+            }
         }
         return parts;
     }
@@ -460,6 +486,13 @@ export class FakeWorker {
             const key = `variants/${imageId}/${part.name}.${part.extension}`;
             this.objects.set(key, { bytes: part.bytes, contentType: part.type, metadata: { imageId, variant: part.name, ownerUid, state } });
             variants[part.name] = { key, url: `${API_ORIGIN}/media/${key}`, width: part.width, height: part.height, type: part.type };
+            const avifKey = `variants/${imageId}/${part.name}.avif`;
+            if (part.avif) {
+                this.objects.set(avifKey, { bytes: part.avif, contentType: 'image/avif', metadata: { imageId, variant: part.name, ownerUid, state } });
+                variants[part.name].avif = { key: avifKey, url: `${API_ORIGIN}/media/${avifKey}`, type: 'image/avif' };
+            } else {
+                this.objects.delete(avifKey);
+            }
         }
         return variants;
     }
@@ -529,6 +562,27 @@ export class FakeWorker {
         return { success: true, imageId, variants: attached.variants, variantsVersion: MEDIA_VARIANTS_VERSION, updated: attached.updated };
     }
 
+    // GET /media/variants/stats — כמו ב-Worker: סיכום הקבצים שנשמרו, לפי פורמט.
+    variantStats(request) {
+        const actor = this.actor(request);
+        if (!['admin', 'super_admin'].includes(actor.role)) throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        const byFormat = {};
+        const images = new Set();
+        let files = 0;
+        let bytes = 0;
+        for (const [key, stored] of this.objects) {
+            if (!key.startsWith('variants/')) continue;
+            const format = key.slice(key.lastIndexOf('.') + 1);
+            byFormat[format] ||= { files: 0, bytes: 0 };
+            byFormat[format].files += 1;
+            byFormat[format].bytes += stored.bytes.length;
+            images.add(key.split('/')[1]);
+            files += 1;
+            bytes += stored.bytes.length;
+        }
+        return { success: true, files, bytes, images: images.size, byFormat, variantsVersion: MEDIA_VARIANTS_VERSION };
+    }
+
     async handle(route) {
         const request = route.request();
         const url = new URL(request.url());
@@ -559,6 +613,7 @@ export class FakeWorker {
         if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
 
         try {
+            if (method === 'GET' && url.pathname === '/media/variants/stats') return json(this.variantStats(request));
             if (method === 'GET' && url.pathname.startsWith('/media/')) {
                 // קובץ שהועלה בבדיקה מוגש כפי שנשמר; כל כתובת אחרת מקבלת את תמונת הבסיס.
                 const key = decodeURIComponent(url.pathname.slice('/media/'.length));

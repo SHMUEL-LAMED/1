@@ -9,6 +9,7 @@ import {
     pickLightboxSource,
     pickPosterSource,
     pickBackdropSource,
+    CARD_IMAGE_SIZES,
     selectVariantCandidates,
     runVariantBackfill
 } from "./media-variants.js";
@@ -24,6 +25,15 @@ function variants(imageId, names = ["thumb", "medium"]) {
         height: dims[name][1],
         type: "image/webp"
     }]));
+}
+
+// אותן תצוגות, וכל אחת עם עותק AVIF כפי שה-Worker רושם אותו.
+function variantsWithAvif(imageId, names = ["thumb", "medium"], avifNames = names) {
+    const entries = variants(imageId, names);
+    for (const name of avifNames) {
+        entries[name].avif = { key: `variants/${imageId}/${name}.avif`, url: `${API}/variants/${imageId}/${name}.avif`, type: "image/avif" };
+    }
+    return entries;
 }
 
 function image(id, extra = {}) {
@@ -77,7 +87,7 @@ test("כרטיס של סרטון: thumb, ואם אין poster, ואם אין ה�
 
 test("תצוגה מלאה: medium עם srcset של thumb ו-medium, והמקור נשאר להורדה", () => {
     const plain = pickLightboxSource(image("a"));
-    assert.deepEqual(plain, { url: `${API}/approved/u/a.jpg`, srcset: "", sizes: "", original: `${API}/approved/u/a.jpg`, fallbackUrl: "" });
+    assert.deepEqual(plain, { url: `${API}/approved/u/a.jpg`, srcset: "", avifSrcset: "", sizes: "", original: `${API}/approved/u/a.jpg`, fallbackUrl: "" });
 
     const full = pickLightboxSource(image("b", { variants: variants("b") }));
     assert.equal(full.url, `${API}/variants/b/medium.webp`);
@@ -188,4 +198,53 @@ test("הלולאה מכבדת את המקביליות, ממשיכה אחרי כ�
     assert.equal(stopped.stopped, true);
     assert.equal(stopped.processed, 1);
     assert.equal(stopped.remaining, 6);
+});
+
+test("כרטיס: srcset של thumb ו-medium עם sizes לפי רוחב העמודה", () => {
+    const card = pickCardSource(image("s", { variants: variants("s") }));
+    assert.equal(card.url, `${API}/variants/s/thumb.webp`);
+    assert.equal(card.srcset, `${API}/variants/s/thumb.webp 480w, ${API}/variants/s/medium.webp 1280w`);
+    assert.equal(card.sizes, CARD_IMAGE_SIZES);
+    assert.equal(card.avifSrcset, "");
+
+    // תצוגה אחת בלבד: אין מה לבחור, ולכן אין srcset.
+    const single = pickCardSource(image("t", { variants: variants("t", ["thumb"]) }));
+    assert.equal(single.srcset, "");
+    assert.equal(single.sizes, "");
+
+    // תמונה בלי תצוגות ממשיכה בדיוק כמו קודם.
+    const plain = pickCardSource(image("u"));
+    assert.equal(plain.srcset, "");
+    assert.equal(plain.sizes, "");
+});
+
+test("AVIF: מוצע כ-srcset נפרד רק כשלכל התצוגות שברשימה יש עותק כזה", () => {
+    const full = pickCardSource(image("a", { variants: variantsWithAvif("a") }));
+    assert.equal(full.avifSrcset, `${API}/variants/a/thumb.avif 480w, ${API}/variants/a/medium.avif 1280w`);
+    assert.equal(full.srcset, `${API}/variants/a/thumb.webp 480w, ${API}/variants/a/medium.webp 1280w`);
+    assert.equal(full.url, `${API}/variants/a/thumb.webp`);
+
+    // עותק AVIF רק ל-thumb: רשימה חלקית הייתה מטעה את הדפדפן — אין AVIF.
+    const partial = pickCardSource(image("b", { variants: variantsWithAvif("b", ["thumb", "medium"], ["thumb"]) }));
+    assert.equal(partial.avifSrcset, "");
+
+    // תצוגה יחידה עם AVIF: כתובת אחת בלי מתאר רוחב.
+    const single = pickCardSource(image("c", { variants: variantsWithAvif("c", ["thumb"]) }));
+    assert.equal(single.avifSrcset, `${API}/variants/c/thumb.avif`);
+
+    const lightbox = pickLightboxSource(image("a", { variants: variantsWithAvif("a") }));
+    assert.equal(lightbox.avifSrcset, `${API}/variants/a/thumb.avif 480w, ${API}/variants/a/medium.avif 1280w`);
+    assert.equal(lightbox.url, `${API}/variants/a/medium.webp`);
+    assert.equal(lightbox.fallbackUrl, `${API}/approved/u/a.jpg`);
+
+    // כתובת AVIF שאינה https נזרקת, והתצוגה הרגילה נשארת.
+    const insecure = variants("d");
+    insecure.thumb.avif = { url: "http://evil.example/thumb.avif" };
+    insecure.medium.avif = { url: "javascript:alert(1)" };
+    const guarded = pickCardSource(image("d", { variants: insecure }));
+    assert.equal(guarded.avifSrcset, "");
+    assert.equal(guarded.url, `${API}/variants/d/thumb.webp`);
+
+    // סרטון: אין AVIF בכרטיס; הפוסטר נשאר WebP/JPEG.
+    assert.equal(pickCardSource(video("v", { variants: variantsWithAvif("v", ["poster", "thumb"]) })).avifSrcset, "");
 });

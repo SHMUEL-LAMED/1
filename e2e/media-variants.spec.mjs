@@ -4,9 +4,10 @@
 // מהמאגר, JPEG מסובב ב-EXIF, סרטון שמוקלט בדפדפן); וריצת ההשלמה בלוח
 // הניהול משלימה תצוגות לפריטים ישנים בלי לחזור על מה שכבר נשמר.
 import { readFileSync } from 'node:fs';
+import { CARD_IMAGE_SIZES } from '../media-variants.js';
 import {
     test, expect, seedSession, imageRecord, mediaUrl, variantEntries, variantUrl,
-    MEDIA_SIZE, DEFAULT_USER, API_ORIGIN
+    MEDIA_SIZE, DEFAULT_USER, API_ORIGIN, variantAvifUrl, withAvif
 } from './fixtures.mjs';
 
 const ICON_PNG = readFileSync(new URL('../icon-512.png', import.meta.url));
@@ -57,14 +58,20 @@ test('הכרטיס מציג את התצוגה הקטנה, התצוגה המלא�
     const plain = cards.nth(0).locator('img.gallery-card-img');
     await expect(plain).toHaveAttribute('src', mediaUrl('img_e2e_2'));
     expect(await plain.getAttribute('data-fallback-src')).toBeNull();
+    expect(await plain.getAttribute('srcset')).toBeNull();
 
     // התמונה עם התצוגות: thumb בכרטיס, עם נפילה אל המקור, וטעינה עצלה.
     const card = cards.nth(1).locator('img.gallery-card-img');
     await expect(card).toHaveAttribute('src', variantUrl('img_e2e_1', 'thumb'));
     await expect(card).toHaveAttribute('data-fallback-src', mediaUrl('img_e2e_1'));
+    await expect(card).toHaveAttribute('srcset', `${variantUrl('img_e2e_1', 'thumb')} 480w, ${variantUrl('img_e2e_1', 'medium')} 1280w`);
+    await expect(card).toHaveAttribute('sizes', CARD_IMAGE_SIZES);
+    // בלי עותקי AVIF אין <picture>: התמונה היא ילד ישיר של הכרטיס.
+    await expect(cards.nth(1).locator('picture')).toHaveCount(0);
     await expect(card).toHaveAttribute('loading', 'lazy');
     await expect(card).toHaveAttribute('decoding', 'async');
-    await expect.poll(() => card.evaluate(element => element.complete && element.naturalWidth)).toBe(MEDIA_SIZE);
+    // מסך רגיל (1x) ברוחב 1280: לפי sizes הכרטיס ברוחב 360px, ולכן נבחרת thumb.
+    await expect.poll(() => card.evaluate(element => element.complete && element.naturalWidth > 0 && element.currentSrc)).toBe(variantUrl('img_e2e_1', 'thumb'));
     expect(worker.requestsTo('GET', '/media/variants/img_e2e_1/thumb.webp').length).toBeGreaterThan(0);
     const originalsBefore = originalRequests(worker, 'img_e2e_1');
 
@@ -85,11 +92,13 @@ test('הכרטיס מציג את התצוגה הקטנה, התצוגה המלא�
     expect(download.suggestedFilename()).toContain('תמונה 1');
     expect(originalRequests(worker, 'img_e2e_1')).toBe(originalsBefore + 1);
 
-    // מעבר לתמונה בלי תצוגות מנקה את srcset ואת הנפילה.
+    // מעבר לתמונה בלי תצוגות מחליף את srcset במקור עצמו ב-1x ומנקה את הנפילה.
     await page.locator('#lightboxModal button[aria-label="התמונה הבאה"]').click();
     await expect(image).toHaveAttribute('src', mediaUrl('img_e2e_2'));
-    expect(await image.getAttribute('srcset')).toBeNull();
+    await expect(image).toHaveAttribute('srcset', `${mediaUrl('img_e2e_2')} 1x`);
+    expect(await image.getAttribute('sizes')).toBeNull();
     expect(await image.getAttribute('data-fallback-src')).toBeNull();
+    await expect.poll(() => image.evaluate(element => element.complete && element.naturalWidth)).toBe(MEDIA_SIZE);
 });
 
 test('סרטון מקבל את הפוסטר שלו, ותצוגה שנמחקה נופלת אל המקור', async ({ page, worker }) => {
@@ -227,7 +236,8 @@ test('העלאת סרטון מייצרת פוסטר ותצוגה קטנה מפר
         if (!blob.size) return { unsupported: true };
         return { size: blob.size, stored: await window.uploadMediaToR2(blob, 'vid_upload', 'סרטון שהועלה') };
     });
-    test.skip(Boolean(result.unsupported), 'הדפדפן אינו מקליט WebM');
+    // Chromium מקליט VP8 תמיד; אם לא — זו תקלה בסביבה, ולא סיבה לדלג.
+    expect(result.unsupported, 'הדפדפן אינו מקליט WebM').toBeFalsy();
 
     expect(result.stored).toMatchObject({ mediaType: 'video', variantsVersion: 1 });
     expect(worker.objects.get(`approved/${DEFAULT_USER.uid}/vid_upload.webm`).bytes.length).toBe(result.size);
@@ -270,4 +280,90 @@ test('ריצת "תצוגות מקדימות" בלוח הניהול משלימה 
     await page.locator('#variantsStartBtn').click();
     await expect(page.locator('#variantsStatusText')).toHaveText('לכל פריטי המדיה שניתן לעבד כבר יש תצוגות מקדימות.');
     expect(worker.requestsTo('POST', '/media/variants')).toHaveLength(2);
+});
+
+test('עותקי AVIF מוצעים ב-<picture> בכרטיס ובתצוגה המלאה, ותצוגה שנמחקה נופלת אל המקור גם משם', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([
+        imageRecord(1, { variants: withAvif(variantEntries('img_e2e_1'), 'img_e2e_1'), variantsVersion: 1 }),
+        imageRecord(2, { variants: withAvif(variantEntries('img_e2e_2'), 'img_e2e_2'), variantsVersion: 1 }),
+        imageRecord(3)
+    ]);
+    // ה-AVIF של התמונה האמצעית נמחק: Chromium מפענח AVIF ולכן בוחר אותו —
+    // והנפילה חייבת לוותר גם על ה-<source> כדי להגיע אל המקור.
+    worker.missingMedia.add('variants/img_e2e_2/thumb.avif');
+    worker.missingMedia.add('variants/img_e2e_2/medium.avif');
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const cards = page.locator('#photosGrid .gallery-card');
+    await expect(cards).toHaveCount(3);
+
+    const avifSrcset = id => `${variantAvifUrl(id, 'thumb')} 480w, ${variantAvifUrl(id, 'medium')} 1280w`;
+    const source = cards.nth(2).locator('picture.media-picture > source[type="image/avif"]');
+    await expect(source).toHaveAttribute('srcset', avifSrcset('img_e2e_1'));
+    await expect(source).toHaveAttribute('sizes', CARD_IMAGE_SIZES);
+    const card = cards.nth(2).locator('picture.media-picture > img.gallery-card-img');
+    await expect(card).toHaveAttribute('src', variantUrl('img_e2e_1', 'thumb'));
+    // ה-<picture> אינו משנה את הפריסה: התמונה ממלאת את הכרטיס כמו קודם.
+    const sizes = await cards.nth(2).evaluate(element => {
+        const media = element.querySelector('.gallery-media').getBoundingClientRect();
+        const image = element.querySelector('img.gallery-card-img').getBoundingClientRect();
+        return { media: [Math.round(media.width), Math.round(media.height)], image: [Math.round(image.width), Math.round(image.height)] };
+    });
+    expect(sizes.image).toEqual(sizes.media);
+
+    const fallen = cards.nth(1).locator('img.gallery-card-img');
+    await expect(fallen).toHaveAttribute('src', mediaUrl('img_e2e_2'));
+    await expect.poll(() => fallen.evaluate(element => element.complete && element.naturalWidth)).toBe(MEDIA_SIZE);
+    expect(await cards.nth(1).locator('source').getAttribute('srcset')).toBeNull();
+    await expect(fallen).toHaveAttribute('srcset', `${mediaUrl('img_e2e_2')} 1x`);
+
+    // התצוגה המלאה: מקור AVIF ב-<picture> שסביב #lightboxImage.
+    await cards.nth(2).locator('.gallery-media').click();
+    const lightboxSource = page.locator('#lightboxImageAvif');
+    await expect(lightboxSource).toHaveAttribute('srcset', avifSrcset('img_e2e_1'));
+    await expect(lightboxSource).toHaveAttribute('sizes', '100vw');
+    await expect(page.locator('#lightboxImage')).toHaveAttribute('src', variantUrl('img_e2e_1', 'medium'));
+
+    // מעבר לתמונה בלי תצוגות: גם מקור ה-AVIF מתנקה, ומוצג המקור.
+    await page.locator('#lightboxModal button[aria-label="התמונה הבאה"]').click();
+    await expect(page.locator('#lightboxImage')).toHaveAttribute('src', mediaUrl('img_e2e_3'));
+    expect(await lightboxSource.getAttribute('srcset')).toBeNull();
+});
+
+test('דפדפן שיודע לקודד AVIF שולח עותק AVIF לצד כל תצוגה, ומסך הניהול מציג את הנפח שנשמר', async ({ page, worker }) => {
+    worker.seedGallery();
+    // Chromium מפענח AVIF אך אינו מקודד אותו ב-Canvas. כאן מדמים דפדפן שכן:
+    // בקשת image/avif מחזירה קובץ קטן מה-WebP עם סוג AVIF.
+    await page.addInitScript(() => {
+        const original = HTMLCanvasElement.prototype.toBlob;
+        HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+            if (type !== 'image/avif') return original.call(this, callback, type, quality);
+            return original.call(this, blob => {
+                callback(blob ? new Blob([blob.slice(0, Math.max(1, Math.floor(blob.size / 2)))], { type: 'image/avif' }) : null);
+            }, 'image/webp', quality);
+        };
+    });
+    await seedSession(page, { worker, role: 'admin', name: 'מנהל הגלריה' });
+    await page.goto('/');
+    await page.waitForFunction(() => typeof window.uploadMediaToR2 === 'function' && Boolean(window.state?.currentUser?.uid));
+
+    const stored = await page.evaluate(async base64 => {
+        const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+        return window.uploadMediaToR2(new File([bytes], 'icon.png', { type: 'image/png' }), 'img_avif', 'עם AVIF');
+    }, ICON_PNG.toString('base64'));
+
+    for (const name of ['thumb', 'medium']) {
+        const key = `variants/img_avif/${name}.avif`;
+        expect(stored.variants[name].avif).toEqual({ key, url: variantAvifUrl('img_avif', name), type: 'image/avif' });
+        const avifFile = worker.objects.get(key);
+        expect(avifFile.contentType).toBe('image/avif');
+        expect(avifFile.bytes.length).toBeLessThan(worker.objects.get(`variants/img_avif/${name}.webp`).bytes.length);
+    }
+
+    await page.goto('/admin.html#variants');
+    await expect(page.locator('#variantsStorage')).toBeVisible();
+    await expect(page.locator('#variantsStorage')).toContainText('נשמרו 4 קובצי תצוגה');
+    await expect(page.locator('#variantsStorage')).toContainText('WebP: 2');
+    await expect(page.locator('#variantsStorage')).toContainText('AVIF: 2');
 });

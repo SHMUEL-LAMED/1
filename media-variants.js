@@ -4,6 +4,10 @@
 // לתמונה — thumb (צלע ארוכה 480px) ו-medium (1280px); לסרטון — poster (פריים
 // מתוך הסרטון, 1280px) ו-thumb מאותו פריים. הן נשמרות ב-R2 תחת
 // variants/<imageId>/<שם>.<webp|jpg>, והרשומה מקבלת שדה `variants`.
+// דפדפן שיודע לקודד AVIF מוסיף לכל תצוגה גם עותק AVIF (קטן יותר), שנשמר
+// ב-variants/<imageId>/<שם>.avif ונרשם בתוך התצוגה כ-`avif: { key, url }`.
+// הגלריה מציעה אותו ב-<picture> עם <source type="image/avif">, כך שדפדפן
+// שאינו מפענח AVIF מקבל את ה-WebP/JPEG כרגיל.
 // המקור נשמר תמיד: הורדה וזום משתמשים בו, והתצוגות רק מאיצות את הגלריה.
 //
 // הקובץ הזה מחזיק רק את מה שאפשר לבדוק ב-Node: בחירת המקור להצגה ובחירת
@@ -18,6 +22,10 @@ export const MEDIA_VARIANT_SPECS = Object.freeze({
     medium: Object.freeze({ maxSide: 1280, quality: 0.85 }),
     poster: Object.freeze({ maxSide: 1280, quality: 0.85 })
 });
+// רוחב הכרטיס בגלריה, בקירוב לעמודות של #photosGrid (styles.css): בטלפון
+// שתי עמודות, ובמסך רחב עמודות של 250px ומעלה. בצפיפות פיקסלים כפולה
+// מסך רחב מקבל את medium, ומסך רגיל וטלפון את thumb.
+export const CARD_IMAGE_SIZES = '(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 360px';
 export const IMAGE_VARIANT_NAMES = Object.freeze(['thumb', 'medium']);
 export const VIDEO_VARIANT_NAMES = Object.freeze(['poster', 'thumb']);
 
@@ -44,13 +52,28 @@ export function variantEntry(record, name) {
     const entry = record?.variants?.[name];
     const url = secureUrl(entry?.url);
     if (!url) return null;
+    const avifUrl = secureUrl(entry?.avif?.url);
     return {
         url,
         key: String(entry.key || ''),
         type: String(entry.type || ''),
         width: Math.max(0, Math.trunc(Number(entry.width)) || 0),
-        height: Math.max(0, Math.trunc(Number(entry.height)) || 0)
+        height: Math.max(0, Math.trunc(Number(entry.height)) || 0),
+        avifUrl
     };
+}
+
+// srcset לפי רוחב מתוך כמה תצוגות; format='avif' בונה את אותה רשימה מעותקי
+// ה-AVIF, ורק אם לכל התצוגות שברשימה יש עותק כזה — אחרת דפדפן שתומך ב-AVIF
+// היה מקבל רשימה חלקית ובוחר תצוגה קטנה מדי.
+function widthSrcset(entries, format = '') {
+    const usable = entries.filter(entry => entry && entry.width > 0);
+    if (!usable.length) return '';
+    if (format === 'avif') {
+        if (!usable.every(entry => entry.avifUrl)) return '';
+        return usable.map(entry => `${entry.avifUrl} ${entry.width}w`).join(', ');
+    }
+    return usable.map(entry => `${entry.url} ${entry.width}w`).join(', ');
 }
 
 export function requiredVariantNames(record) {
@@ -66,17 +89,32 @@ export function needsMediaVariants(record) {
     return requiredVariantNames(record).some(name => !variantEntry(record, name));
 }
 
-// כרטיס בגלריה: תמונה — thumb, ואם אין medium, ואם אין המקור.
+// כרטיס בגלריה: תמונה — thumb, ואם אין medium, ואם אין המקור. כשיש גם
+// thumb וגם medium הכרטיס מקבל srcset של שתיהן עם sizes לפי רוחב העמודה,
+// כך שמסך צפוף פיקסלים או עמודה רחבה מקבלים את הבינונית במקום להימתח.
 // סרטון — thumb או poster כתמונת הפוסטר, ואם אין התמונה המקדימה הישנה.
 export function pickCardSource(record, sanitize = secureUrl) {
     const original = sanitize(record?.url);
     if (isVideoLikeRecord(record)) {
         const entry = variantEntry(record, 'thumb') || variantEntry(record, 'poster');
-        return { url: entry?.url || sanitize(record?.thumbnailUrl), original, fallbackUrl: '', isVariant: Boolean(entry) };
+        return { url: entry?.url || sanitize(record?.thumbnailUrl), srcset: '', avifSrcset: '', sizes: '', original, fallbackUrl: '', isVariant: Boolean(entry) };
     }
-    const entry = variantEntry(record, 'thumb') || variantEntry(record, 'medium');
+    const thumb = variantEntry(record, 'thumb');
+    const medium = variantEntry(record, 'medium');
+    const entry = thumb || medium;
     const url = entry?.url || original;
-    return { url, original, fallbackUrl: entry && original && original !== url ? original : '', isVariant: Boolean(entry) };
+    const entries = [thumb, medium].filter(Boolean);
+    const srcset = entries.length > 1 ? widthSrcset(entries) : '';
+    const avifSrcset = entries.length > 1 ? widthSrcset(entries, 'avif') : (entry?.avifUrl || '');
+    return {
+        url,
+        srcset,
+        avifSrcset,
+        sizes: srcset ? CARD_IMAGE_SIZES : '',
+        original,
+        fallbackUrl: entry && original && original !== url ? original : '',
+        isVariant: Boolean(entry)
+    };
 }
 
 // התצוגה המלאה: medium עם srcset של thumb ו-medium, כך שהדפדפן בוחר לפי
@@ -84,15 +122,14 @@ export function pickCardSource(record, sanitize = secureUrl) {
 export function pickLightboxSource(record, sanitize = secureUrl) {
     const original = sanitize(record?.url);
     const medium = isVideoLikeRecord(record) ? null : variantEntry(record, 'medium');
-    if (!medium) return { url: original, srcset: '', sizes: '', original, fallbackUrl: '' };
+    if (!medium) return { url: original, srcset: '', avifSrcset: '', sizes: '', original, fallbackUrl: '' };
     const thumb = variantEntry(record, 'thumb');
-    const srcset = [thumb, medium]
-        .filter(entry => entry && entry.width > 0)
-        .map(entry => `${entry.url} ${entry.width}w`)
-        .join(', ');
+    const srcset = widthSrcset([thumb, medium]);
+    const avifSrcset = srcset ? widthSrcset([thumb, medium], 'avif') : (medium.avifUrl || '');
     return {
         url: medium.url,
         srcset,
+        avifSrcset,
         sizes: srcset ? '100vw' : '',
         original,
         fallbackUrl: original && original !== medium.url ? original : ''

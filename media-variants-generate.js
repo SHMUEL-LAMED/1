@@ -4,6 +4,8 @@
 // WebP (ובדפדפן שאינו יודע לקודד WebP — JPEG). לסרטון נשלף פריים אחד בסביבות
 // השנייה הראשונה, או הפריים הראשון שניתן לפענח, והוא הופך לפוסטר ולתצוגה
 // קטנה. שום תצוגה אינה גדולה מהמקור: קובץ קטן נשאר בגודלו ורק מקודד מחדש.
+// דפדפן שיודע לקודד AVIF ב-Canvas מוסיף לכל תצוגה גם עותק AVIF, אבל רק אם
+// הוא באמת קטן מה-WebP/JPEG; אחרת אין בו טעם והוא אינו נשלח.
 //
 // המודול נטען עצלה: בהעלאה (uploadMediaToR2 שב-app.js) ובריצת ההשלמה של
 // לוח הניהול. כישלון בו לעולם אינו עוצר העלאה — הקובץ עולה בלי תצוגות
@@ -22,6 +24,7 @@ const VIDEO_LOAD_TIMEOUT_MS = 20000;
 const VIDEO_SEEK_TIMEOUT_MS = 8000;
 
 let webpSupportPromise = null;
+let avifSupportPromise = null;
 
 // Safari ישן מחזיר PNG כשמבקשים ממנו WebP; הבדיקה נעשית פעם אחת לכל דף.
 export function canEncodeWebp() {
@@ -38,6 +41,38 @@ export function canEncodeWebp() {
         });
     }
     return webpSupportPromise;
+}
+
+// רוב הדפדפנים מפענחים AVIF אך אינם יודעים לקודד אותו ב-Canvas: הם מחזירים
+// PNG במקום. לכן AVIF הוא תוספת אופציונלית בלבד, שנבדקת פעם אחת לכל דף.
+export function canEncodeAvif() {
+    if (!avifSupportPromise) {
+        avifSupportPromise = new Promise(resolve => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 2;
+                canvas.height = 2;
+                canvas.toBlob(blob => resolve(Boolean(blob && blob.type === 'image/avif')), 'image/avif', 0.6);
+            } catch {
+                resolve(false);
+            }
+        });
+    }
+    return avifSupportPromise;
+}
+
+// עותק AVIF לתצוגה שכבר קודדה, או null כשאינו נתמך, נכשל או אינו קטן יותר.
+async function encodeAvifCopy(canvas, quality, primaryBlob) {
+    if (!(await canEncodeAvif())) return null;
+    try {
+        const blob = await canvasToBlob(canvas, 'image/avif', Math.max(0.4, quality - 0.25));
+        if (blob.type !== 'image/avif' || blob.size <= 0) return null;
+        if (blob.size >= primaryBlob.size || blob.size > MEDIA_VARIANT_MAX_BYTES) return null;
+        return { blob, type: 'image/avif', extension: 'avif' };
+    } catch (error) {
+        console.warn('קידוד AVIF נכשל; התצוגה תישמר בלעדיו:', error);
+        return null;
+    }
 }
 
 // לעולם לא מגדילים: קובץ קטן מהגבול נשאר בממדיו.
@@ -124,7 +159,8 @@ async function variantsFromSource(source, width, height, names) {
         const canvas = drawScaled(source, width, height, spec.maxSide);
         try {
             const encoded = await encodeCanvas(canvas, spec.quality);
-            parts[name] = { ...encoded, width: canvas.width, height: canvas.height };
+            const avif = await encodeAvifCopy(canvas, spec.quality, encoded.blob);
+            parts[name] = { ...encoded, width: canvas.width, height: canvas.height, ...(avif ? { avif } : {}) };
         } catch (error) {
             console.warn(`תצוגת ${name} לא נוצרה:`, error);
         } finally {
@@ -247,13 +283,15 @@ export async function generateMediaVariants(source, options = {}) {
 }
 
 // מצרף את התצוגות לטופס ההעלאה בשמות שה-Worker מצפה להם:
-// variant_thumb / variant_medium / variant_poster, ו-variantsMeta עם הממדים.
+// variant_thumb / variant_medium / variant_poster, עותק ה-AVIF של כל אחת
+// כ-variant_<שם>_avif, ו-variantsMeta עם הממדים.
 export function appendVariantParts(form, generated) {
     const meta = {};
     let count = 0;
     for (const [name, part] of Object.entries(generated?.parts || {})) {
         if (!(part?.blob instanceof Blob)) continue;
         form.append(`variant_${name}`, part.blob, `${name}.${part.extension}`);
+        if (part.avif?.blob instanceof Blob) form.append(`variant_${name}_avif`, part.avif.blob, `${name}.avif`);
         meta[name] = { width: part.width, height: part.height };
         count += 1;
     }

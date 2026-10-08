@@ -148,7 +148,7 @@ test.after(() => { globalThis.fetch = originalFetch; });
 
 test.beforeEach(() => {
   bucket.objects.clear();
-  for (const table of ["gallery_documents", "request_rate_limits", "user_email_index", "face_people", "image_face_descriptors", "image_face_index_state"]) {
+  for (const table of ["gallery_documents", "request_rate_limits", "user_email_index", "face_people", "image_face_descriptors", "image_face_index_state", "media_variant_files"]) {
     database.database.exec(`DELETE FROM ${table}`);
   }
   seedProfile("google-viewer", "viewer@example.com", "viewer");
@@ -218,6 +218,17 @@ function webp(name = "thumb.webp", size = 1200) {
 
 function jpeg(name = "original.jpg", size = 5000) {
   return new File([bytes(size, 7)], name, { type: "image/jpeg" });
+}
+
+function avif(name = "thumb.avif", size = 600) {
+  return new File([bytes(size, 3)], name, { type: "image/avif" });
+}
+
+function ledgerRows(imageId) {
+  return database.database
+    .prepare("SELECT object_key, variant_name, format, content_type, width, height, size_bytes FROM media_variant_files WHERE image_id = ? ORDER BY object_key")
+    .all(imageId)
+    .map(row => ({ ...row }));
 }
 
 const META = JSON.stringify({ thumb: { width: 480, height: 320 }, medium: { width: 1280, height: 853 }, poster: { width: 1280, height: 720 } });
@@ -507,4 +518,104 @@ test("כתיבת רשומה מעותק ישן בלי variants אינה מוחק�
   assert.equal(stored.title, "חדש");
   assert.deepEqual(stored.variants, variants);
   assert.equal(stored.variantsVersion, 1);
+});
+
+test("עותק AVIF נשמר לצד התצוגה, נרשם בתוכה, ומוגש עם סוג התוכן הנכון", async () => {
+  const upload = await uploadWithVariants("img-avif", "admin-token", { variant_thumb_avif: avif(), variant_medium_avif: avif("medium.avif", 9000) });
+  assert.equal(upload.status, 201, upload.text);
+  const { thumb, medium } = upload.payload.variants;
+  assert.deepEqual(thumb.avif, {
+    key: "variants/img-avif/thumb.avif",
+    url: `${API}/media/variants/img-avif/thumb.avif`,
+    type: "image/avif"
+  });
+  assert.equal(medium.avif.key, "variants/img-avif/medium.avif");
+  assert.equal(thumb.type, "image/webp");
+  assert.deepEqual(bucket.keys(), [
+    "approved/google-admin/img-avif.jpg",
+    "variants/img-avif/medium.avif",
+    "variants/img-avif/medium.webp",
+    "variants/img-avif/thumb.avif",
+    "variants/img-avif/thumb.webp"
+  ]);
+
+  putDocument("images", "img-avif", { id: "img-avif", uploadedBy: "google-admin", variants: upload.payload.variants });
+  const served = await worker.fetch(new Request(`${API}/media/variants/img-avif/thumb.avif`, { headers: { Origin: ORIGIN } }), environment);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers.get("Content-Type"), "image/avif");
+  assert.equal(served.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
+  assert.equal((await served.arrayBuffer()).byteLength, 600);
+});
+
+test("AVIF בלי תצוגה רגילה, או בסוג אחר, נדחה לפני שנשמר דבר", async () => {
+  putDocument("images", "img-av2", { id: "img-av2", uploadedBy: "google-admin" });
+  const attach = fields => call(multipartRequest("/media/variants", { imageId: "img-av2", variantsMeta: META, ...fields }, "admin-token"));
+
+  const orphan = await attach({ variant_thumb: webp(), variant_medium_avif: avif("medium.avif") });
+  assert.equal(orphan.status, 400);
+  assert.equal(orphan.payload.code, "avif_without_variant");
+
+  const wrongType = await attach({ variant_thumb: webp(), variant_thumb_avif: webp("thumb.avif") });
+  assert.equal(wrongType.status, 415);
+  assert.equal(wrongType.payload.code, "unsupported_variant_type");
+
+  const huge = await attach({ variant_thumb: webp(), variant_thumb_avif: avif("thumb.avif", 2 * 1024 * 1024 + 1) });
+  assert.equal(huge.status, 413);
+
+  assert.deepEqual(bucket.keys(), []);
+  assert.deepEqual(ledgerRows("img-av2"), []);
+});
+
+test("תצוגה חדשה בלי AVIF מוחקת את עותק ה-AVIF הישן שאינו תואם לה", async () => {
+  putDocument("images", "img-av3", { id: "img-av3", uploadedBy: "google-admin" });
+  const first = await call(multipartRequest("/media/variants", {
+    imageId: "img-av3", variantsMeta: META, variant_thumb: webp(), variant_thumb_avif: avif()
+  }, "admin-token"));
+  assert.equal(first.status, 200, first.text);
+  assert.ok(bucket.objects.has("variants/img-av3/thumb.avif"));
+
+  const second = await call(multipartRequest("/media/variants", {
+    imageId: "img-av3", variantsMeta: META, variant_thumb: new File([bytes(900)], "thumb.jpg", { type: "image/jpeg" })
+  }, "admin-token"));
+  assert.equal(second.status, 200, second.text);
+  assert.deepEqual(bucket.keys(), ["variants/img-av3/thumb.jpg"]);
+  assert.equal(readDocument("images", "img-av3").variants.thumb.avif, undefined);
+  assert.deepEqual(ledgerRows("img-av3").map(row => row.object_key), ["variants/img-av3/thumb.jpg"]);
+});
+
+test("טבלת media_variant_files רושמת כל קובץ, ומתנקה במחיקת הפריט", async () => {
+  const upload = await uploadWithVariants("img-led", "admin-token", { variant_thumb_avif: avif() });
+  assert.equal(upload.status, 201, upload.text);
+  assert.deepEqual(ledgerRows("img-led"), [
+    { object_key: "variants/img-led/medium.webp", variant_name: "medium", format: "webp", content_type: "image/webp", width: 1280, height: 853, size_bytes: 20000 },
+    { object_key: "variants/img-led/thumb.avif", variant_name: "thumb", format: "avif", content_type: "image/avif", width: 480, height: 320, size_bytes: 600 },
+    { object_key: "variants/img-led/thumb.webp", variant_name: "thumb", format: "webp", content_type: "image/webp", width: 480, height: 320, size_bytes: 1200 }
+  ]);
+
+  const single = await call(jsonRequest("/media/variants/img-led/thumb.avif", "DELETE", undefined, "super-token"));
+  assert.equal(single.status, 200, single.text);
+  assert.deepEqual(ledgerRows("img-led").map(row => row.object_key), ["variants/img-led/medium.webp", "variants/img-led/thumb.webp"]);
+
+  const removed = await call(jsonRequest("/media/approved/google-admin/img-led.jpg", "DELETE", undefined, "super-token"));
+  assert.equal(removed.status, 200, removed.text);
+  assert.deepEqual(bucket.keys(), []);
+  assert.deepEqual(ledgerRows("img-led"), []);
+});
+
+test("GET /media/variants/stats — סיכום לפי פורמט, למנהלים בלבד", async () => {
+  await uploadWithVariants("img-s1", "admin-token", { variant_thumb_avif: avif() });
+  await uploadWithVariants("img-s2", "admin-token");
+
+  const denied = await call(jsonRequest("/media/variants/stats", "GET", undefined, "viewer-token"));
+  assert.equal(denied.status, 403);
+
+  const stats = await call(jsonRequest("/media/variants/stats", "GET", undefined, "admin-token"));
+  assert.equal(stats.status, 200, stats.text);
+  assert.equal(stats.payload.files, 5);
+  assert.equal(stats.payload.images, 2);
+  assert.equal(stats.payload.bytes, 2 * (1200 + 20000) + 600);
+  assert.deepEqual(stats.payload.byFormat, {
+    avif: { files: 1, bytes: 600 },
+    webp: { files: 4, bytes: 42400 }
+  });
 });

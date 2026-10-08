@@ -32,6 +32,9 @@ const variantsRun = {
 
 let variantsSummaryCache = null;
 let variantsSummaryError = null;
+// נפח הקבצים שב-R2, מ-GET /media/variants/stats. null = לא ידוע (למשל Worker
+// ישן שעדיין לא נפרס), ואז השורה פשוט אינה מוצגת.
+let variantsStorageCache = null;
 
 function variantsDelay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -92,6 +95,7 @@ function renderMediaVariantsPanel() {
     const startBtn = document.getElementById('variantsStartBtn');
     const stopBtn = document.getElementById('variantsStopBtn');
     const failuresEl = document.getElementById('variantsFailures');
+    const storageEl = document.getElementById('variantsStorage');
 
     const summary = variantsSummaryCache;
     if (summaryEl) {
@@ -104,6 +108,12 @@ function renderMediaVariantsPanel() {
                 ? 'לא ניתן לקרוא את רשימת המדיה כרגע. נסה שוב בעוד רגע.'
                 : 'בודק אילו פריטים חסרים תצוגות מקדימות…';
         }
+    }
+
+    if (storageEl) {
+        const text = describeVariantsStorage(variantsStorageCache);
+        storageEl.hidden = !text;
+        storageEl.textContent = text;
     }
 
     if (statusEl) {
@@ -142,6 +152,26 @@ function renderMediaVariantsPanel() {
 }
 window.renderMediaVariantsPanel = renderMediaVariantsPanel;
 
+// "נשמרו 12 קבצים (3.4 MB) · WebP: 8 · AVIF: 4" — או מחרוזת ריקה כשאין נתונים.
+export function describeVariantsStorage(stats) {
+    if (!stats || !Number(stats.files)) return '';
+    const formatSize = typeof window.formatBytes === 'function' ? window.formatBytes : bytes => `${bytes} B`;
+    const labels = { webp: 'WebP', jpg: 'JPEG', avif: 'AVIF' };
+    const formats = Object.entries(stats.byFormat || {})
+        .filter(([, entry]) => Number(entry?.files) > 0)
+        .map(([format, entry]) => `${labels[format] || format}: ${Number(entry.files)}`);
+    return [`נשמרו ${Number(stats.files)} קובצי תצוגה (${formatSize(Number(stats.bytes) || 0)}) ל-${Number(stats.images) || 0} פריטים`, ...formats].join(' · ');
+}
+
+async function refreshVariantsStorage() {
+    try {
+        variantsStorageCache = await window.r2Request('/media/variants/stats', { method: 'GET' });
+    } catch (error) {
+        variantsStorageCache = null;
+        console.warn('קריאת נפח התצוגות המקדימות נכשלה:', error);
+    }
+}
+
 async function refreshMediaVariantsSummary() {
     try {
         variantsSummaryCache = summarizeRecords(await fetchMediaRecords());
@@ -150,6 +180,7 @@ async function refreshMediaVariantsSummary() {
         variantsSummaryError = error;
         console.warn('קריאת מצב התצוגות המקדימות נכשלה:', error);
     }
+    await refreshVariantsStorage();
     renderMediaVariantsPanel();
     return variantsSummaryCache;
 }

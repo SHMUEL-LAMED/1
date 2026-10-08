@@ -27,7 +27,7 @@ const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DEFAULT_DRIVE_SITE_URL = "https://shmuel-lamed.github.io/1/";
 const DRIVE_STATE_TTL_MS = 10 * 60 * 1000;
 const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
-const DATABASE_SCHEMA_VERSION = 4;
+const DATABASE_SCHEMA_VERSION = 5;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -239,6 +239,11 @@ const ALLOWED_VARIANT_TYPES = new Map([
   ["image/webp", "webp"],
   ["image/jpeg", "jpg"]
 ]);
+// לצד כל תצוגה יכול להישמר עותק AVIF (חלק variant_<שם>_avif בטופס). הוא
+// תמיד תוספת: אין AVIF בלי תצוגה רגילה באותה בקשה, כי דפדפן שאינו מפענח AVIF
+// חייב לקבל את ה-WebP/JPEG.
+const VARIANT_AVIF_TYPE = "image/avif";
+const VARIANT_AVIF_EXTENSION = "avif";
 
 const ALLOWED_CHAT_FILE_TYPES = new Map([
   ["application/pdf", "pdf"],
@@ -628,6 +633,25 @@ async function ensureDatabaseSchema(env) {
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_client_errors_resolved_seen ON client_errors (resolved_at, last_seen DESC)"
+    ).run();
+    // רישום קובצי התצוגות המקדימות שב-R2: שורה לכל קובץ, כדי שמסך הניהול
+    // יידע כמה קבצים ונפח הן תופסות בלי לסרוק את הדלי.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS media_variant_files (
+        object_key TEXT PRIMARY KEY,
+        image_id TEXT NOT NULL,
+        variant_name TEXT NOT NULL,
+        format TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        width INTEGER NOT NULL DEFAULT 0,
+        height INTEGER NOT NULL DEFAULT 0,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        variants_version INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_media_variant_files_image ON media_variant_files (image_id)"
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_image_face_descriptors_model ON image_face_descriptors (model_version, image_id, face_index)"
@@ -1287,14 +1311,14 @@ function validateObjectKey(value, requiredState = "") {
   const key = String(value || "");
   const galleryMatch = key.match(/^(approved|pending)\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
   const chatMatch = key.match(/^chat\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
-  // תצוגות מקדימות: variants/<imageId>/<thumb|medium|poster>.<webp|jpg>.
-  const variantMatch = key.match(/^variants\/([a-zA-Z0-9_-]{1,120})\/(thumb|medium|poster)\.(webp|jpg)$/);
+  // תצוגות מקדימות: variants/<imageId>/<thumb|medium|poster>.<webp|jpg|avif>.
+  const variantMatch = key.match(/^variants\/([a-zA-Z0-9_-]{1,120})\/(thumb|medium|poster)\.(webp|jpg|avif)$/);
   const extension = galleryMatch?.[4] || chatMatch?.[4] || variantMatch?.[3] || "";
   const state = galleryMatch?.[1] || (chatMatch ? "chat" : (variantMatch ? "variants" : ""));
   if (
     (!galleryMatch && !chatMatch && !variantMatch) ||
     (requiredState && state !== requiredState) ||
-    !ALLOWED_MEDIA_EXTENSIONS.has(extension)
+    !(ALLOWED_MEDIA_EXTENSIONS.has(extension) || (variantMatch && extension === VARIANT_AVIF_EXTENSION))
   ) {
     throw apiError("מזהה הקובץ אינו תקין.", 400, "invalid_object_key");
   }
@@ -1801,6 +1825,7 @@ async function deleteImage(request, env, pathname) {
     await deleteFaceIndexForDeletedMedia(env, key);
     await deleteMediaVariantsForDeletedMedia(env, key);
   }
+  if (key.startsWith("variants/")) await forgetVariantFiles(env, [key]);
   return json(request, { success: true, key });
 }
 
@@ -1845,25 +1870,67 @@ function readVariantParts(form) {
     if (!Number.isFinite(part.size) || part.size <= 0 || part.size > MAX_VARIANT_BYTES) {
       throw apiError("גודל תצוגה מקדימה חייב להיות עד 2MB.", 413, "variant_too_large");
     }
-    parts.push({
-      name,
-      part,
-      type,
-      extension,
-      width: variantDimension(meta[name]?.width),
-      height: variantDimension(meta[name]?.height)
-    });
+    const width = variantDimension(meta[name]?.width);
+    const height = variantDimension(meta[name]?.height);
+    parts.push({ name, part, type, extension, width, height, avif: readAvifVariantPart(form, name) });
+  }
+  // עותק AVIF בלי תצוגה רגילה באותה בקשה נדחה: לא היה לו גיבוי לדפדפן שאינו מפענח AVIF.
+  for (const name of MEDIA_VARIANT_NAMES) {
+    const orphan = form.get(`variant_${name}_avif`);
+    if (orphan !== null && orphan !== undefined && orphan !== "" && !parts.some(entry => entry.name === name)) {
+      throw apiError(`עותק ה-AVIF של ${name} נשלח בלי התצוגה הרגילה.`, 400, "avif_without_variant");
+    }
   }
   return parts;
+}
+
+function readAvifVariantPart(form, name) {
+  const part = form.get(`variant_${name}_avif`);
+  if (part === null || part === undefined || part === "") return null;
+  if (typeof part.arrayBuffer !== "function") {
+    throw apiError(`עותק ה-AVIF של ${name} אינו קובץ.`, 400, "invalid_variant");
+  }
+  if (String(part.type || "").toLowerCase() !== VARIANT_AVIF_TYPE) {
+    throw apiError("עותק AVIF של תצוגה חייב להיות image/avif.", 415, "unsupported_variant_type");
+  }
+  if (!Number.isFinite(part.size) || part.size <= 0 || part.size > MAX_VARIANT_BYTES) {
+    throw apiError("גודל תצוגה מקדימה חייב להיות עד 2MB.", 413, "variant_too_large");
+  }
+  return part;
+}
+
+// רישום הקובץ בטבלת התצוגות. כשל כאן אינו מכשיל את השמירה: הקובץ כבר ב-R2
+// והרשומה מצביעה עליו, והרישום משמש רק לסטטיסטיקה במסך הניהול.
+async function recordVariantFile(env, row) {
+  try {
+    await env.GALLERY_DB.prepare(
+      `INSERT OR REPLACE INTO media_variant_files
+        (object_key, image_id, variant_name, format, content_type, width, height, size_bytes, variants_version, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(row.key, row.imageId, row.name, row.format, row.type, row.width, row.height, row.size, MEDIA_VARIANTS_VERSION, Date.now()).run();
+  } catch (error) {
+    console.warn("Variant ledger write failed", error);
+  }
+}
+
+async function forgetVariantFiles(env, keys) {
+  if (!keys.length) return;
+  try {
+    for (const key of keys) {
+      await env.GALLERY_DB.prepare("DELETE FROM media_variant_files WHERE object_key = ?").bind(key).run();
+    }
+  } catch (error) {
+    console.warn("Variant ledger delete failed", error);
+  }
 }
 
 async function storeMediaVariants(request, env, imageId, parts, { ownerUid, state }) {
   const variants = {};
   const createdAt = new Date().toISOString();
-  for (const entry of parts) {
-    const key = variantObjectKey(imageId, entry.name, entry.extension);
-    await env.GALLERY_BUCKET.put(key, await entry.part.arrayBuffer(), {
-      httpMetadata: { contentType: entry.type },
+  const putVariant = async (key, part, type, entry) => {
+    const bytes = await part.arrayBuffer();
+    await env.GALLERY_BUCKET.put(key, bytes, {
+      httpMetadata: { contentType: type },
       customMetadata: {
         imageId,
         variant: entry.name,
@@ -1875,19 +1942,42 @@ async function storeMediaVariants(request, env, imageId, parts, { ownerUid, stat
         createdAt
       }
     });
-    // אותה תצוגה בסיומת האחרת (JPEG מול WebP) אינה נשארת כקובץ יתום.
-    for (const otherExtension of ALLOWED_VARIANT_TYPES.values()) {
-      if (otherExtension !== entry.extension) {
-        await env.GALLERY_BUCKET.delete(variantObjectKey(imageId, entry.name, otherExtension));
-      }
-    }
-    variants[entry.name] = {
+    await recordVariantFile(env, {
+      key,
+      imageId,
+      name: entry.name,
+      format: key.slice(key.lastIndexOf(".") + 1),
+      type,
+      width: entry.width,
+      height: entry.height,
+      size: bytes.byteLength
+    });
+  };
+  for (const entry of parts) {
+    const key = variantObjectKey(imageId, entry.name, entry.extension);
+    await putVariant(key, entry.part, entry.type, entry);
+    const variant = {
       key,
       url: mediaUrl(request, key, env),
       width: entry.width,
       height: entry.height,
       type: entry.type
     };
+    // אותה תצוגה בסיומת האחרת (JPEG מול WebP) אינה נשארת כקובץ יתום, וגם לא
+    // עותק AVIF ישן כשהתצוגה החדשה נשלחה בלעדיו: הוא כבר אינו תואם לה.
+    const staleKeys = [...ALLOWED_VARIANT_TYPES.values()]
+      .filter(otherExtension => otherExtension !== entry.extension)
+      .map(otherExtension => variantObjectKey(imageId, entry.name, otherExtension));
+    if (entry.avif) {
+      const avifKey = variantObjectKey(imageId, entry.name, VARIANT_AVIF_EXTENSION);
+      await putVariant(avifKey, entry.avif, VARIANT_AVIF_TYPE, entry);
+      variant.avif = { key: avifKey, url: mediaUrl(request, avifKey, env), type: VARIANT_AVIF_TYPE };
+    } else {
+      staleKeys.push(variantObjectKey(imageId, entry.name, VARIANT_AVIF_EXTENSION));
+    }
+    for (const staleKey of staleKeys) await env.GALLERY_BUCKET.delete(staleKey);
+    await forgetVariantFiles(env, staleKeys);
+    variants[entry.name] = variant;
   }
   return variants;
 }
@@ -1926,9 +2016,12 @@ async function listMediaVariantObjects(env, imageId) {
 }
 
 async function deleteMediaVariantsForImage(env, imageId) {
+  const keys = [];
   for (const object of await listMediaVariantObjects(env, imageId)) {
     await env.GALLERY_BUCKET.delete(object.key);
+    keys.push(object.key);
   }
+  await forgetVariantFiles(env, keys);
 }
 
 async function deleteMediaVariantsForDeletedMedia(env, key) {
@@ -2004,6 +2097,31 @@ async function attachMediaVariants(request, env) {
     variants: attached.variants,
     variantsVersion: MEDIA_VARIANTS_VERSION,
     updated: attached.updated
+  });
+}
+
+// GET /media/variants/stats — כמה קובצי תצוגות נשמרו ומה הנפח שלהם, לפי
+// פורמט. מנהלים בלבד; הנתונים מטבלת media_variant_files ולא מסריקת R2.
+async function mediaVariantsStats(request, env) {
+  await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const totals = await env.GALLERY_DB.prepare(
+    "SELECT COUNT(*) AS files, COALESCE(SUM(size_bytes), 0) AS bytes, COUNT(DISTINCT image_id) AS images FROM media_variant_files"
+  ).first();
+  const formats = await env.GALLERY_DB.prepare(
+    "SELECT format, COUNT(*) AS files, COALESCE(SUM(size_bytes), 0) AS bytes FROM media_variant_files GROUP BY format ORDER BY format"
+  ).all();
+  const byFormat = {};
+  for (const row of formats.results || []) {
+    byFormat[String(row.format)] = { files: Number(row.files) || 0, bytes: Number(row.bytes) || 0 };
+  }
+  return json(request, {
+    success: true,
+    files: Number(totals?.files) || 0,
+    bytes: Number(totals?.bytes) || 0,
+    images: Number(totals?.images) || 0,
+    byFormat,
+    variantsVersion: MEDIA_VARIANTS_VERSION
   });
 }
 
@@ -3151,6 +3269,9 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/media/variants") {
         return await attachMediaVariants(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/media/variants/stats") {
+        return await mediaVariantsStats(request, env);
       }
       if (request.method === "GET" && url.pathname.startsWith("/media/")) {
         return await serveImage(request, env, url.pathname);

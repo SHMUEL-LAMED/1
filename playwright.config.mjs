@@ -5,6 +5,14 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.E2E_PORT) || 8080;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
+// בלי locale של UTF-8 (למשל בקונטיינר שבו LANG ריק) Chromium מחליף שם קובץ
+// עברי בהורדה ב-"download". הבדיקות מוודאות את שמות הקבצים, ולכן הדפדפן
+// מקבל locale של UTF-8 כשהסביבה אינה מספקת אחד.
+const hasUtf8Locale = /utf-?8/i.test(process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || '');
+const browserEnv = process.platform === 'linux' && !hasUtf8Locale
+    ? { ...process.env, LC_ALL: 'C.UTF-8' }
+    : undefined;
+
 export default defineConfig({
     testDir: 'e2e',
     testMatch: /.*\.spec\.mjs$/,
@@ -22,7 +30,8 @@ export default defineConfig({
         locale: 'he-IL',
         timezoneId: 'Asia/Jerusalem',
         trace: 'retain-on-failure',
-        screenshot: 'only-on-failure'
+        screenshot: 'only-on-failure',
+        ...(browserEnv ? { launchOptions: { env: browserEnv } } : {})
     },
     projects: [
         { name: 'chromium', use: { ...devices['Desktop Chrome'] } }

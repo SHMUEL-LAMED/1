@@ -173,8 +173,14 @@ function handleImageError(imgElement) {
     const fallbackSrc = imgElement.dataset?.fallbackSrc;
     if (fallbackSrc && imgElement.src !== fallbackSrc) {
         delete imgElement.dataset.fallbackSrc;
-        imgElement.removeAttribute('srcset');
         imgElement.removeAttribute('sizes');
+        // srcset מפורש של המקור ב-1x ולא הסרה בלבד: Chromium שומר אחרת את
+        // צפיפות הפיקסלים של התצוגה הקודמת, והמקור היה מוצג בממדים שגויים.
+        imgElement.srcset = `${fallbackSrc} 1x`;
+        // מקור AVIF שב-<picture> גובר על src, ולכן גם ממנו מוותרים.
+        if (imgElement.parentElement?.tagName === 'PICTURE') {
+            imgElement.parentElement.querySelectorAll('source').forEach(source => source.removeAttribute('srcset'));
+        }
         imgElement.src = fallbackSrc;
         return;
     }

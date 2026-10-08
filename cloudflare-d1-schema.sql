@@ -78,3 +78,21 @@ CREATE TABLE IF NOT EXISTS gallery_environment (
   environment TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- קובצי התצוגות המקדימות שב-R2 (variants/<imageId>/<שם>.<webp|jpg|avif>):
+-- שורה לכל קובץ, לסטטיסטיקה במסך "תצוגות מקדימות" בלי לסרוק את הדלי.
+-- הרשומה עצמה (gallery_documents) נשארת המקור לכתובות התצוגות.
+CREATE TABLE IF NOT EXISTS media_variant_files (
+  object_key TEXT PRIMARY KEY,
+  image_id TEXT NOT NULL,
+  variant_name TEXT NOT NULL,
+  format TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  variants_version INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_variant_files_image
+  ON media_variant_files (image_id);
