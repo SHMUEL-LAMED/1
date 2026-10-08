@@ -48,6 +48,8 @@
 
     <header class="site-header" aria-label="כותרת לוח הניהול">
         <div class="site-header-inner">
+            <!-- מוצג רק כשהלוח פונה ל-Worker של סביבת הניסוי (html[data-api-environment="staging"]). -->
+            <span class="env-ribbon" role="status" title="הלוח פונה ל-Worker של סביבת הניסוי ולא לנתוני הייצור">סביבת ניסוי</span>
             <div class="brand-lockup">
                 <span class="brand-mark" aria-hidden="true"><i data-lucide="layout-dashboard" class="w-6 h-6"></i></span>
                 <div class="min-w-0">
@@ -509,6 +511,54 @@
                         <p>בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
                         <button type="button" onclick="runSystemHealthCheck()" class="btn-primary-gold w-full py-2.5 text-xs">הרץ בדיקה</button>
                         <div id="systemHealthResults" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: שגיאות ותקלות ============ -->
+            <section id="view-errors" class="admin-view" data-view="errors" aria-label="שגיאות ותקלות">
+                <div class="admin-overview">
+                    <div class="admin-stat" data-tone="danger">
+                        <span class="admin-stat-icon"><i data-lucide="bug" class="w-5 h-5"></i></span>
+                        <div><strong id="clientErrorsOpenCount">0</strong><span>שגיאות פתוחות</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="cyan">
+                        <span class="admin-stat-icon"><i data-lucide="history" class="w-5 h-5"></i></span>
+                        <div><strong id="clientErrorsRecentCount">0</strong><span>ביממה האחרונה</span></div>
+                    </div>
+                </div>
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="bug"></i> שגיאות שנרשמו באתר ובשרת</h3>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="clearResolvedClientErrors()" class="btn-danger-soft px-3 py-1.5 text-[11px] hidden super-admin-only">ניקוי שטופלו לפני 30 יום</button>
+                            <button type="button" onclick="loadClientErrors()" class="btn-secondary-dark px-3 py-1.5 text-[11px]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> רענן</button>
+                        </div>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>כל סוג תקלה מופיע פעם אחת, עם מספר המופעים ומתי נראה לראשונה ולאחרונה. לחיצה על ההודעה פותחת את פרטי המחסנית. שגיאה שסומנה כטופלה ונרשמה שוב חוזרת מאליה לרשימה הפתוחה.</p>
+                        <div class="admin-filter-chips" role="group" aria-label="סינון שגיאות">
+                            <button type="button" class="admin-filter-chip is-active" data-errors-filter="open" onclick="setClientErrorsFilter('open')">פתוחות</button>
+                            <button type="button" class="admin-filter-chip" data-errors-filter="resolved" onclick="setClientErrorsFilter('resolved')">טופלו</button>
+                        </div>
+                        <p id="clientErrorsStatus" class="field-hint" role="status" aria-live="polite">הרשימה נטענת בפתיחת המסך.</p>
+                        <div class="admin-table-wrap">
+                            <table class="admin-table admin-errors-table">
+                                <thead>
+                                    <tr>
+                                        <th>הודעה</th>
+                                        <th>מקור</th>
+                                        <th>מופעים</th>
+                                        <th>לראשונה</th>
+                                        <th>לאחרונה</th>
+                                        <th>משתמש</th>
+                                        <th>כתובת</th>
+                                        <th>פעולות</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="clientErrorsList"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </section>

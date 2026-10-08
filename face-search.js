@@ -6,6 +6,8 @@
 // מול הטביעות השמורות ב-D1 ומחזיר רק מזהי תמונות עם מרחק ואחוז התאמה.
 // האינדוקס החד־פעמי של הגלריה נמצא ב-face-index.js.
 
+import { resolveApiBaseUrl } from './api-environment.js';
+
 // --- 10. חיפוש פרצוף אמיתי (face-api.js, מקומי בדפדפן, בלי מפתח API) ---
 // המנוע אינו נטען עם האתר. הספרייה והמודלים יורדים רק כשהמשתמש פותח
 // בפועל את כלי חיפוש הפנים, דרך Promise יחיד שנשמר לכל אורך הכניסה.
@@ -21,8 +23,8 @@ const FACE_STRONG_MATCH_THRESHOLD = 0.48;
 const FACE_MODEL_VERSION = 'faceapi-1.7.15-ssd-l68-r1';
 const FACE_SEARCH_RESULT_LIMIT = 200;
 const FACE_API_CDN_BASE_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15';
-// הכתובות זהות לאלו ששימשו קודם בטעינה הראשונית של index.html.
-const FACE_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
+// נכסי המנוע מוגשים מאותו Worker שהאתר פונה אליו (api-environment.js).
+const FACE_WORKER_BASE_URL = resolveApiBaseUrl();
 const FACE_MODEL_BASE_URLS = [
     `${FACE_WORKER_BASE_URL}/face-assets/model`,
     `${FACE_API_CDN_BASE_URL}/model`
@@ -390,6 +392,7 @@ async function executeFaceSearch() {
         }
     } catch (err) {
         console.error('Face recognition engine failed:', err);
+        window.reportClientError?.(err, 'face-search');
         const technicalMessage = String(err?.message || '').trim();
         const userMessage = err?.status === 404
             ? 'חיפוש הפנים בענן עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'

@@ -8,15 +8,18 @@
 - `admin.html` — לוח הניהול כדשבורד: ניווט קבוע בצד ומסך אחד פעיל במרכז.
 - `styles.css` — מערכת העיצוב "ארכיון האורורה" של האתר ושל הלוח, בנויה על אסימוני CSS.
 - `app.js` — נקודת הכניסה: אתחול, מצב משותף, עזרים וטעינה עצלה של מודולים.
+- `error-monitor.js` — ניטור שגיאות בצד הלקוח: מאזינים גלובליים ו־`window.reportClientError`.
 - `popup-announcement.js` — הודעת הפופ-אפ למבקרים והפניה ליעדים שבאתר.
 - `tailwind.generated.css` — פלט בנוי של Tailwind. **אין לערוך ידנית.**
 - `gallery.js` — הצגת הגלריה, מדיה, ניווט ותיקיות.
 - `drive-sync.js` — חיבור וסנכרון Google Drive, סריקה רקורסיבית ותיקיות. הסנכרון מוסיף בלבד: קבצים ותיקיות שנמחקו ב־Drive נשארים באתר.
 - `admin.js` — לוגיקת הניהול: משתמשים, דרגות, הרשאות ואישור תוכן.
 - `admin-ui.js` — שכבת הממשק של הלוח: רשימת המסכים, הניווט, החיפוש והכלים.
+- `admin-errors.js` — מסך "שגיאות ותקלות" בלוח הניהול; נטען עצלה בפתיחת המסך.
 - `face-search.js` — חיפוש הפנים: הפקת טביעה מתמונת החיפוש והשוואה בענן.
 - `face-index.js` — הכנת חיפוש הפנים: אינדוקס חד־פעמי של הגלריה ואינדוקס אוטומטי לתמונות חדשות.
 - `cloudflare-client.js` — התחברות Google ישירה ושכבת הנתונים של D1.
+- `api-environment.js` — לאיזה Worker האתר פונה: הייצור, או סביבת הניסוי ב־`*.pages.dev` וב־`localhost` (ראה "סביבת ניסוי").
 - `cloudflare-worker.js` — API מאובטח, אימות Google, D1, R2, Drive, דוא״ל, חיפוש AI וחיפוש פנים.
 - `cloudflare-d1-schema.sql` — מבנה מסד הנתונים.
 - `sw.js` ו־`manifest.webmanifest` — התקנה כאפליקציה ומטמון מגורסן.
@@ -280,9 +283,12 @@ npm run build:css # אחרי כל שינוי במחלקות שב-HTML או ב-JS
 | `GOOGLE_DRIVE_CLIENT_ID` | Text | חיבור Google Drive קבוע |
 | `GOOGLE_DRIVE_CLIENT_SECRET` | Secret | סוד OAuth של Google Drive |
 | `GOOGLE_DRIVE_REDIRECT_URI` | Text | כתובת החזרה של ה־Worker |
-| `DRIVE_SITE_URL` | Text | כתובת אתר הגלריה |
+| `GOOGLE_DRIVE_SITE_URL` | Text | כתובת אתר הגלריה שאליה חוזרים אחרי חיבור Drive; אם חסר — כתובת GitHub Pages |
 | `FACE_INDEX_TOKEN` | Secret | רשות (אופציונלי): אסימון לתהליך אינדוקס פנים חיצוני, נשלח בכותרת `X-Face-Index-Token` |
 | `SESSION_SIGNING_SECRET` | Secret | רשות (אופציונלי): מפתח החתימה של אסימוני ההתחברות. אם אינו מוגדר, ה־Worker מייצר מפתח אקראי ושומר אותו ב־D1 |
+| `ENVIRONMENT` | Text | `production` (ברירת המחדל כשחסר) או `staging`. מוחזר ב־`/health`; מקורות `localhost` מורשים ב־CORS רק בניסוי |
+| `STAGING_PAGES_PROJECT` | Text | רשות: שם פרויקט Cloudflare Pages של אתר הניסוי (ברירת מחדל `simchas-gallery-staging`). המקור שלו ופריסות התצוגה המקדימה שלו מורשים ב־CORS |
+| `PUBLIC_API_ORIGIN` | Text | רשות: המקור הציבורי שממנו נבנות כתובות המדיה; כשחסר — כתובת ה־Worker עצמו. בניסוי יש להשאיר ריק |
 
 המשתנים הישנים `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID` ו־`FIREBASE_APP_ID` אינם בשימוש וניתן למחוק אותם רק לאחר שהמעבר נבדק.
 
@@ -311,11 +317,118 @@ npm run build:css # אחרי כל שינוי במחלקות שב-HTML או ב-JS
 שינוי הערך של `SESSION_SIGNING_SECRET`, או מחיקת הטבלה `auth_secrets`, מבטל את
 כל אסימוני ההתחברות הקיימים ומחייב את כל המשתמשים להתחבר מחדש.
 
+## ניטור שגיאות
+
+האתר וה־Worker מדווחים על תקלות לטבלה `client_errors` ב־D1, ולוח הניהול
+מציג אותן במסך **שגיאות ותקלות** (`admin.html#errors`). הרשומות מקובצות לפי
+טביעת אצבע — SHA-256 של המקור, ההודעה והשורה הראשונה במחסנית, בלי מספרי
+שורה — ולכן כל סוג תקלה הוא שורה אחת עם מונה מופעים, ולא יומן שגדל בלי גבול.
+
+### מה נאסף
+
+| שדה | תוכן |
+|---|---|
+| `message`, `stack` | הודעת השגיאה והמחסנית, עד 500 ועד 4,000 תווים |
+| `url` | כתובת הדף שבו אירעה השגיאה, עד 500 תווים |
+| `user_agent` | מחרוזת הדפדפן, עד 300 תווים |
+| `last_uid` | מזהה המשתמש המחובר האחרון שנתקל בתקלה — רק כשהדיווח נשא אסימון תקף |
+| גרסת האתר, קוד השגיאה, המסלול | בבלוק "הקשר" שבסוף המחסנית |
+
+לא נשמרים שם, כתובת דוא״ל או תוכן אישי. כל טקסט מנוקה לפני השמירה: כותרות
+`Bearer`, אסימוני ההתחברות של האתר, אסימוני Google ופרמטרים כמו `id_token`
+בכתובת מוחלפים ב־`[הוסר]`, וכל כתובת דוא״ל מוחלפת ב־`[דוא״ל הוסר]`.
+
+### מה הדפדפן שולח
+
+`error-monitor.js` נטען בכל דף ומאזין ל־`error` ול־`unhandledrejection`. קוד
+שתופס שגיאות בעצמו קורא ל־`window.reportClientError(error, 'scope')` — כך
+מדווחים כישלון התחברות, כישלון העלאה, שגיאות ממאזיני הנתונים וכשלונות חיפוש
+הפנים והאינדוקס. הכללים: אותה שגיאה נשלחת פעם אחת לכל טעינת דף, עד עשר
+שגיאות שונות לטעינה, ורעש ידוע אינו נשלח כלל — `ResizeObserver loop`,
+`Script error.` ממקור אחר, בקשות שבוטלו ושגיאות בזמן ניתוק מהרשת.
+
+משתמש מחובר מדווח ב־`fetch` עם האסימון, כדי שהשרת ירשום מי נתקל בתקלה;
+מי שאינו מחובר מדווח ב־`navigator.sendBeacon` עם Blob של JSON, או ב־`fetch`
+עם `keepalive` כשאין `sendBeacon`.
+
+לכל דיווח מצורפת גרסת האתר: הקבוע `SITE_VERSION` שב־`app.js`. אין לקוד
+גישה ל־git, ולכן הערך חייב להיות זהה ל־`CACHE_VERSION` שב־`sw.js` ולעלות
+יחד איתו בכל פריסה; `error-monitor.test.mjs` נכשל כשהשניים אינם תואמים.
+
+### מה ה־Worker רושם
+
+כשבקשה נכשלת בשגיאה פנימית (סטטוס 500 ומעלה) ה־Worker רושם אותה בעצמו עם
+`source: worker`, השיטה והנתיב; תשובות 4xx — חוסר הרשאה, קלט שגוי — אינן
+תקלה ואינן נרשמות. הרישום רץ אחרי שהתשובה יצאה (`ctx.waitUntil`) ולעולם אינו
+משנה אותה, גם כשהמסד עצמו אינו זמין.
+
+### מגבלות
+
+- 30 דיווחים לשעה לכל כתובת IP; מעבר לכך `429`.
+- דיווח מתקבל עם אסימון או בלעדיו; אסימון פסול אינו דוחה את הדיווח, רק
+  משאיר את `last_uid` ריק.
+- דיווח לא תקין נענה ב־`400`, וכישלון שמירה נענה ב־`{ success: true, stored: false }`
+  — יומן השגיאות לעולם אינו מפיל את הדפדפן שדיווח.
+
+### טיפול בלוח הניהול
+
+מנהל (דרגה 3 ומעלה) רואה במסך את השגיאות הפתוחות: הודעה, מקור (האתר או
+השרת), מספר מופעים, מתי נראתה לראשונה ולאחרונה, המשתמש האחרון וכתובת הדף;
+לחיצה על ההודעה פותחת את המחסנית. התג שבתפריט ושורת "ממתין לטיפול" בסקירה
+מציגים כמה שגיאות פתוחות נראו ביממה האחרונה. מנהל־על מסמן **טופל**, מחזיר
+עם **פתח מחדש**, ומנקה בלחיצה אחת שגיאות שטופלו לפני יותר משלושים יום.
+שגיאה שסומנה כטופלה ונרשמה שוב חוזרת מאליה לרשימה הפתוחה — זה האות שהתיקון
+לא הספיק.
+
+### נקודות הקצה
+
+| נתיב | הרשאה | תפקיד |
+|---|---|---|
+| `POST /telemetry/errors` | כל אחד, מוגבל בקצב | דיווח שגיאה: `{ message, stack, url, userAgent, extra? }`; עונה `{ success: true }` |
+| `GET /telemetry/errors?status=open\|resolved&limit=` | מנהל או מנהל־על | רשימת השגיאות, מהמופע האחרון לישן |
+| `GET /telemetry/errors/summary` | מנהל או מנהל־על | `{ open, last24h }` לתג שבתפריט |
+| `POST /telemetry/errors/resolve` | מנהל־על | `{ fingerprint }` — סימון כטופלה |
+| `POST /telemetry/errors/reopen` | מנהל־על | `{ fingerprint }` — פתיחה מחדש |
+| `POST /telemetry/errors/clear` | מנהל־על | מחיקת שגיאות שטופלו לפני יותר משלושים יום |
+## בדיקות דפדפן אוטומטיות
+
+לצד בדיקות היחידה (`npm test`) רצה בכל PR, במשימה `e2e` שב־`checks.yml`,
+חבילת בדיקות קצה־לקצה ב־Playwright: Chromium אמיתי טוען את `index.html` ואת
+`admin.html` משרת סטטי מקומי (`e2e/static-server.mjs`) ובודק את מה שהמבקר
+רואה בפועל — שער הכניסה, שחזור ההתחברות מאסימון שמור (גם בלשונית נוספת),
+כניסה דרך Google והחלפת האסימון באסימון השרת, התנתקות, מסכי ממתין / נדחה /
+חסום, ציור הגלריה, התצוגה המלאה ולוח הניהול. בדיקה נכשלת גם אם הדף זרק
+שגיאה (`pageerror`) בדרך, ולכן רגרסיה שקטה בקוד הדף נתפסת לפני הפריסה.
+
+הבדיקות אינן נוגעות ברשת וב־Worker האמיתי. `e2e/fixtures.mjs` מיירט את
+הבקשות של הדפדפן: ספריית Google Identity, lucide והגופנים מוחלפים בתחליפים
+קטנים, וה־Worker מוחלף בזיוף בזיכרון שמחזיר בדיוק את הצורות
+ש־`cloudflare-client.js` מצפה להן — `POST /auth/session`,
+`GET/PUT/DELETE /data/<אוסף>/<מזהה>` עם עימוד ומיזוג, כותרות CORS, שגיאות
+401/403/404 וכללי ההרשאה של `assertDataPermission`. הנתונים (פרופיל, תיקיות,
+תמונות) נזרעים בכל בדיקה בנפרד, ואסימון ההתחברות המזויף נכתב ל־`localStorage`
+בדיוק כפי שדפדפן של משתמש מחובר מכיל אותו. ה־Service Worker חסום בבדיקות,
+כדי שהקוד יגיע תמיד מהשרת ולא מהמטמון.
+
+```bash
+npm install                         # פעם אחת
+npx playwright install chromium     # פעם אחת: הורדת הדפדפן
+npm run test:e2e                    # כל הבדיקות, ללא חלון
+npx playwright test --headed        # עם חלון דפדפן
+npx playwright test e2e/admin.spec.mjs   # קובץ בודד
+```
+
+השרת הסטטי מאזין ב־`127.0.0.1:8080`; אם הפורט תפוס, `E2E_PORT=8123 npm run test:e2e`.
+בכישלון נשמרים צילום מסך ו־trace תחת `test-results/`, וב־CI הם מצורפים לריצה
+כ־artifact. `node --test` אינו מריץ את קובצי `e2e/*.spec.mjs`, ולהפך.
+
 ## פריסה
 
 האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. גם ה־Worker נפרס
 אוטומטית באמצעות `.github/workflows/deploy-worker.yml` בכל שינוי של
-`cloudflare-worker.js` בענף `main`. לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
+`cloudflare-worker.js`: ענף `main` אל Worker הייצור, וענף `staging` אל
+`simchas-gallery-api-staging` של סביבת הניסוי (ראה "סביבת ניסוי" להלן).
+לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
 תחת **Settings → Secrets and variables → Actions**, סוד אחד בלבד:
 
 | סוד | ערך |
@@ -325,8 +438,10 @@ npm run build:css # אחרי כל שינוי במחלקות שב-HTML או ב-JS
 הפריסה קוראת את שמות כל ה־Bindings מהגרסה הפעילה ומורישה אותם לגרסה החדשה.
 לפני העלאה היא מוודאת ש־`GALLERY_DB` ו־`GALLERY_BUCKET` קיימים, ולכן אינה
 יוצרת מסד או דלי חדשים ואינה זקוקה למזהים שלהם ב־GitHub. לאחר הפריסה מתבצעת
-בדיקת `/health` שמוודאת כי D1 ו־R2 מחוברים. אפשר גם להפעיל פריסה ידנית מתוך
-**Actions → Deploy Cloudflare Worker → Run workflow**.
+בדיקת `/health` שמוודאת כי D1 ו־R2 מחוברים ושה־Worker מדווח על הסביבה
+המצופה. אפשר גם להפעיל פריסה ידנית מתוך **Actions → Deploy Cloudflare Worker →
+Run workflow** ולבחור בשדה `target` לאן לפרוס: `production` רץ מ־`main` בלבד,
+ו־`staging` מותר מכל ענף.
 
 לפני מעבר סופי מומלץ להוריד גיבוי JSON ממסך הגיבוי שבלוח הניהול, ולאחר חיבור D1 לשחזר אותו דרך מסך הגיבוי באתר. קובצי המדיה עצמם נשארים ב־R2.
 
@@ -345,10 +460,168 @@ npm run build:css # אחרי כל שינוי במחלקות שב-HTML או ב-JS
 בקובץ אינם מדויקים. הכשלון הנוכחי הוא למעשה מה שמונע את זה.
 
 הפריסה הנכונה כבר קיימת — `deploy-worker.yml`, שיורש את ה־Bindings מהגרסה הפעילה
-(`bindings_inherit=strict`), רץ רק על `main`, ורק כששונה `cloudflare-worker.js`.
+(`bindings_inherit=strict`), רץ רק על `main` ועל `staging`, ורק כששונה `cloudflare-worker.js`.
 לכן הדרך לסגור את הבדיקה היא **לנתק את שילוב ה־Git**, בדשבורד של Cloudflare:
 **Workers & Pages → simchas-gallery-api → Settings → Build → Disconnect repository**.
 פעולה זו אינה נוגעת ב־Worker הפעיל, ב־Bindings או בפריסה דרך ה־Action.
+
+מאותה סיבה, גם את ה־Worker של סביבת הניסוי (`simchas-gallery-api-staging`) אין
+לחבר ל־Git: שני ה־Workers נפרסים אך ורק דרך `deploy-worker.yml`.
+
+## סביבת ניסוי (Staging)
+
+שינוי גדול נבדק קודם בסביבה נפרדת לגמרי, שאינה נוגעת במשתמשים ובנתונים
+האמיתיים: Worker משלה (`simchas-gallery-api-staging`) עם D1 ו־R2 משלו, ואתר
+משלה שמוגש מ־Cloudflare Pages מתוך הענף `staging`. אותו קוד בדיוק רץ בשני
+המקומות; ההבדל היחיד הוא ה־Bindings והמשתנים של כל Worker.
+
+| | ייצור | ניסוי |
+|---|---|---|
+| אתר | `https://shmuel-lamed.github.io/1/` (GitHub Pages, ענף `main`) | `https://<project>.pages.dev` (Cloudflare Pages, ענף `staging`) |
+| Worker | `simchas-gallery-api` | `simchas-gallery-api-staging` |
+| כתובת ה־API | `https://simchas-gallery-api.0534169095.workers.dev` | `https://simchas-gallery-api-staging.0534169095.workers.dev` |
+| D1 | `simchas-gallery-db` | `simchas-gallery-db-staging` (שם מומלץ) |
+| R2 | הדלי הקיים | `simchas-gallery-media-staging` (שם מומלץ) |
+| `ENVIRONMENT` | חסר (= `production`) | `staging` |
+
+שמות המסד והדלי של הניסוי הם המלצה בלבד; מה שחייב להיות מדויק הוא שמות
+ה־Bindings ב־Worker — `GALLERY_DB` ו־`GALLERY_BUCKET` — בדיוק כמו בייצור.
+
+### איך האתר יודע לאן לפנות
+
+`api-environment.js` הוא המקום היחיד שבו כתובת ה־Worker נקבעת;
+`cloudflare-client.js`, `app.js`, `drive-sync.js` ו־`face-search.js` מייבאים
+אותה משם. סדר ההחלטה:
+
+1. ‎`?api=production` או ‎`?api=staging` בכתובת גובר על הכול, ונשמר
+   ב־`sessionStorage` כך שהבחירה מחזיקה לאורך הלשונית, גם במעבר ללוח הניהול.
+   ‎`?api=auto` מוחק אותה, וסגירת הלשונית מאפסת אותה ממילא. כך אפשר לפתוח את
+   אתר הניסוי מול נתוני הייצור כדי להשוות, או את האתר הרגיל מול ה־Worker של
+   הניסוי.
+2. אתר שמוגש מ־`*.pages.dev` או מ־`localhost` / `127.0.0.1` פונה ל־Worker של הניסוי.
+3. כל השאר — GitHub Pages והדומיין — פונה לייצור.
+
+הסביבה הפעילה נחשפת ב־`window.API_ENVIRONMENT` (`production` או `staging`),
+מסומנת על `<html data-api-environment>`, מוצגת כרצועת **סביבת ניסוי** בקצה
+הכותרת כשהאתר פונה לניסוי, ומופיעה בדוח התקינות שבלוח הניהול.
+
+ה־Worker מצדו מחזיר את הסביבה שלו ב־`GET /health` (`environment`), ומרשה
+ב־CORS את `https://<project>.pages.dev` ואת פריסות התצוגה המקדימה
+`https://<hash>.<project>.pages.dev` (לפי `STAGING_PAGES_PROJECT`, בבדיקת
+סיומת על המארח ולא בביטוי רגולרי); מקורות `localhost` מורשים רק
+כש־`ENVIRONMENT=staging`.
+
+### הגדרה חד־פעמית (בדשבורד, פעם אחת)
+
+**1. ה־Worker של הניסוי**
+
+1. **Workers & Pages → Create → Create Worker**, בשם המדויק
+   `simchas-gallery-api-staging`. פרוס את "Hello World" שמוצע — הקוד האמיתי
+   יגיע מה־Action. אל תחבר את ה־Worker הזה ל־Git (ראה סעיף הבדיקה האדומה).
+2. **Storage & databases → D1** → צור מסד `simchas-gallery-db-staging`, פתח
+   **Console**, הדבק את תוכן `cloudflare-d1-schema.sql` והפעל.
+3. **R2** → צור דלי `simchas-gallery-media-staging`.
+4. ב־Worker החדש, **Settings → Bindings**: D1 binding בשם `GALLERY_DB` אל המסד
+   החדש, ו־R2 binding בשם `GALLERY_BUCKET` אל הדלי החדש. **ודא פעמיים שלא
+   נבחרו המסד או הדלי של הייצור.**
+5. **Settings → Variables and Secrets** — לפי הטבלה:
+
+| שם | ערך בניסוי | הערות |
+|---|---|---|
+| `ENVIRONMENT` | `staging` | חובה. בלעדיו ה־Worker נחשב לייצור, ובדיקת `/health` שבסוף הפריסה נכשלת |
+| `STAGING_PAGES_PROJECT` | שם פרויקט ה־Pages | רשות; ברירת המחדל `simchas-gallery-staging`. חייב להתאים לשם שנבחר בשלב 2 |
+| `GOOGLE_CLIENT_ID` | כמו בייצור | אותו לקוח OAuth משרת את שני האתרים |
+| `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` | כמו בייצור | אותו לקוח Drive, עם כתובת החזרה נוספת (שלב 3) |
+| `GOOGLE_DRIVE_REDIRECT_URI` | `https://simchas-gallery-api-staging.0534169095.workers.dev/drive/oauth/callback` | כתובת החזרה של ה־Worker של הניסוי |
+| `GOOGLE_DRIVE_SITE_URL` | `https://<project>.pages.dev/` | לאן חוזרים אחרי חיבור Drive |
+| `PUBLIC_API_ORIGIN` | **להשאיר ריק** | אחרת כתובות המדיה שמועלות בניסוי יצביעו על הייצור |
+| `OPENAI_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM` | לפי הצורך | אפשר להשאיר ריקים: חיפוש AI ודוא״ל פשוט לא יעבדו בניסוי |
+| `FACE_INDEX_TOKEN` | רשות | כמו בייצור, רק אם תהליך אינדוקס חיצוני רץ מול הניסוי |
+| `SESSION_SIGNING_SECRET` | **לא להעתיק מהייצור** | להשאיר ריק: ה־Worker מייצר מפתח משלו ושומר אותו ב־D1 של הניסוי. כך אסימון התחברות של הניסוי אינו תקף בייצור, ולהפך |
+
+**2. אתר הניסוי (Cloudflare Pages)**
+
+1. **Workers & Pages → Create → Pages → Connect to Git**, ובחר את המאגר `SHMUEL-LAMED/1`.
+2. **Project name**: `simchas-gallery-staging` (או שם אחר — ואז יש להגדיר `STAGING_PAGES_PROJECT`).
+3. **Production branch**: `staging`. **Build command**: ריק. **Build output directory**: `/`.
+4. **Save and Deploy**. הכתובת: `https://<project>.pages.dev`. כל ענף אחר שנדחף
+   למאגר מקבל פריסת תצוגה מקדימה `https://<hash>.<project>.pages.dev` (אפשר
+   לצמצם זאת ב־**Settings → Builds & deployments → Preview branches**).
+
+**3. Google**
+
+1. ב־Google Cloud Console → **Credentials**, בלקוח ה־OAuth של האתר
+   (`GOOGLE_CLIENT_ID`), הוסף תחת **Authorized JavaScript origins** את
+   `https://<project>.pages.dev` (ו־`http://localhost:<port>` לפיתוח מקומי).
+   Google אינה מקבלת כוכבית, ולכן ההתחברות עובדת רק בכתובת הראשית של
+   הפרויקט ולא בכתובות התצוגה המקדימה.
+2. בלקוח ה־Drive (`GOOGLE_DRIVE_CLIENT_ID`), הוסף תחת **Authorized redirect URIs**
+   את `https://simchas-gallery-api-staging.0534169095.workers.dev/drive/oauth/callback`.
+
+**4. GitHub**
+
+1. הסוד `CLOUDFLARE_API_TOKEN` הקיים משרת גם את הניסוי אם היקפו הוא
+   **Account → Workers Scripts: Edit** לכל החשבון. אם האסימון הוגבל ל־Worker
+   מסוים, יש להרחיב אותו או ליצור אסימון חדש ולעדכן את הסוד.
+2. אחרי מיזוג השינוי הזה ל־`main`, צור את הענף: `git push origin main:staging`.
+   הדחיפה הראשונה מפעילה את `deploy-worker.yml` עם היעד `staging`; הריצה
+   מצליחה רק אם `/health` של הניסוי מחזיר `environment: "staging"` עם D1
+   ו־R2 מחוברים (דלי ריק תקין).
+3. היכנס לאתר הניסוי עם חשבון מנהל־העל. חשבונות מנהל־העל ההתחלתיים מזוהים
+   לפי כתובת הדוא״ל גם בניסוי, ולכן הכניסה הראשונה כבר מגיעה כמנהל־על.
+
+### נתונים לניסוי
+
+סביבת הניסוי מתחילה ריקה, ושום דבר אינו מועתק אליה אוטומטית. כדי לעבוד מול
+עותק של נתוני הייצור משתמשים במסך **גיבוי ושחזור** שבלוח הניהול (מנהל־על
+בלבד):
+
+1. באתר הייצור: **לוח הניהול → גיבוי ושחזור → הורד קובץ גיבוי**. הקובץ כולל
+   תיקיות, פרטי מדיה, פריטים ממתינים, משתמשים ובקשות מחיקה.
+2. באתר הניסוי (הפונה כברירת מחדל ל־Worker של הניסוי): **לוח הניהול → גיבוי
+   ושחזור → בחר קובץ לשחזור**, ואחרי שהמסך מציג כמה תיקיות ופריטים נקראו —
+   **שחזר את הנתונים**. רשומות עם אותו מזהה מתעדכנות; רשומות אחרות אינן נמחקות.
+
+קובצי המדיה עצמם אינם מועתקים: רשומות התמונות בגיבוי מצביעות על כתובות
+`/media/` של ה־Worker של הייצור, ולכן תמונות מאושרות (שהן ציבוריות) מוצגות
+בניסוי ישירות מהייצור, ואילו פריטים ממתינים וקובצי צ׳אט — שדורשים התחברות —
+לא ייפתחו שם. העלאות חדשות בניסוי נשמרות בדלי של הניסוי. אם במקום הגיבוי
+הועתק המסד כולו (ייצוא וייבוא D1), יש להריץ בקונסולת ה־D1 של הניסוי
+`UPDATE gallery_environment SET environment = 'staging' WHERE marker_key = 'environment';`
+— אחרת ה־Worker של הניסוי מסרב לרוץ מול מסד שמסומן כייצור.
+
+### העבודה היומיומית
+
+- `main` נשאר כמו היום: PR של פיצ׳ר נפתח מול `main`, ומיזוג מפרסם לייצור.
+- `staging` הוא ענף אינטגרציה, לא ענף פיתוח. לפני שינוי מסוכן דוחפים אליו
+  את אותם commits — `git push origin <branch>:staging` — או פותחים את ה־PR
+  מול `staging`. `checks.yml` רץ גם על דחיפות ל־`staging`, ו־`deploy-worker.yml`
+  פורס לניסוי כש־`cloudflare-worker.js` השתנה; אתר הניסוי מתעדכן מ־Pages
+  תוך דקה.
+- מנסים ב־`https://<project>.pages.dev`, ואז ממזגים ל־`main` כרגיל.
+- את `staging` מותר לאפס: `git push --force-with-lease origin main:staging`
+  מחזיר אותו למצב הייצור אחרי שהניסוי הסתיים.
+- פריסה ידנית: **Actions → Deploy Cloudflare Worker → Run workflow**, בחירת
+  ענף ושל `target`. יעד `staging` מותר מכל ענף — כך אפשר לנסות ענף פיצ׳ר על
+  ה־Worker של הניסוי בלי לגעת ב־`staging`; יעד `production` רץ מ־`main` בלבד.
+
+### מה מגן על הייצור
+
+- ה־Action פורס לכל Worker רק את ה־Bindings שכבר מוגדרים בו
+  (`bindings_inherit=strict`) ואינו יוצר מסד או דלי. Worker ניסוי בלי
+  `GALLERY_DB` או `GALLERY_BUCKET` מכשיל את הפריסה לפני ההעלאה.
+- אחרי הפריסה `/health` חייב להחזיר את הסביבה המצופה; Worker ניסוי בלי
+  `ENVIRONMENT=staging` נכשל כאן.
+- כל מסד נושא שורת סימון (הטבלה `gallery_environment`) שה־Worker הראשון שרץ
+  מולו כותב בה את שם הסביבה שלו. Worker של הניסוי שחובר בטעות למסד הייצור
+  מוצא שם `production` ומסרב לשרת כל בקשה (`environment_database_mismatch`).
+  ל־Binding של D1 אין שם, ולכן זו הדרך היחידה לזהות את הטעות — והיא עובדת רק
+  אחרי שה־Worker של הייצור רץ פעם אחת עם הגרסה הזו וכתב את הסימון שלו; עד
+  אז ההגנה היחידה היא בדיקה ידנית של ה־Bindings.
+- מפתח החתימה של אסימוני ההתחברות נפרד לכל Worker, ולכן התחברות בניסוי
+  אינה מקנה שום הרשאה בייצור.
+- מטמון ה־Service Worker נפרד לכל מקור, ולכן אתר הניסוי אינו משפיע על
+  המטמון של האתר הרגיל באותו דפדפן.
 
 ## אבטחה והרשאות
 

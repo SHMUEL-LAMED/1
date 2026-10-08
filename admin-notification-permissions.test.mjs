@@ -69,7 +69,8 @@ function adminData() {
       { uid: "u1", displayName: "משתמש", status: "approved", messages: [{ direction: "user_to_admin", text: "שלום", sentAt: 1 }] }
     ],
     images: [{ id: "i1" }, { id: "i2" }, { id: "i3" }, { id: "i4" }],
-    folders: [{ id: "all" }, { id: "1" }, { id: "2" }]
+    folders: [{ id: "all" }, { id: "1" }, { id: "2" }],
+    clientErrorsSummary: { open: 5, last24h: 2 }
   };
 }
 
@@ -117,6 +118,8 @@ async function load(roleName) {
   // הבדיקה טוענת את שניהם, כי הכלל שנבדק כאן — שאין דליפת מידע ניהולי —
   // חייב לחול גם כששני המודולים נמצאים יחד.
   await import(`./chat-admin.js?perm=${moduleCounter}`);
+  // מסך השגיאות נטען עצלה בדף הניהול; המונים שלו הם נתון ניהולי כמו כל השאר.
+  await import(`./admin-errors.js?perm=${moduleCounter}`);
   return { win: globalThis.window, text: id => globalThis.document.getElementById(id).textContent, notifications };
 }
 
@@ -125,7 +128,8 @@ async function load(roleName) {
 const ADMIN_COUNTERS = [
   "pendingCountBadge", "pendingUsersCountBadge", "deletionRequestsCountBadge",
   "adminOverviewUsersCount", "adminOverviewPendingCount",
-  "adminOverviewImagesCount", "adminOverviewFoldersCount"
+  "adminOverviewImagesCount", "adminOverviewFoldersCount",
+  "clientErrorsOpenCount", "clientErrorsRecentCount"
 ];
 
 function renderEverything(win) {
@@ -138,6 +142,7 @@ function renderEverything(win) {
   win.renderDeletionRequests();
   win.renderAdminMessageReplies();
   win.renderAdminMessageUsers();
+  win.renderClientErrorsSummary();
 }
 
 for (const roleName of ["guest", "viewer", "uploader"]) {
@@ -179,6 +184,8 @@ test("מנהל דרגה 3 מקבל את מוני התוכן, אך לא נתונ�
   assert.equal(text("adminOverviewPendingCount"), "3");
   assert.equal(text("adminOverviewImagesCount"), "4");
   assert.equal(text("adminOverviewFoldersCount"), "2", "התיקייה 'all' אינה נספרת");
+  assert.equal(text("clientErrorsOpenCount"), "5", "מנהל דרגה 3 רואה את מונה השגיאות");
+  assert.equal(text("clientErrorsRecentCount"), "2");
 
   // אלה שמורים למנהל־על בלבד.
   assert.equal(text("adminOverviewUsersCount"), "0", "בקשות הצטרפות אינן לדרגה 3");
@@ -197,6 +204,18 @@ test("מנהל־על מקבל את כל המונים", async () => {
   assert.equal(text("deletionRequestsCountBadge"), "1");
   assert.equal(text("adminOverviewUsersCount"), "2");
   assert.equal(text("adminOverviewPendingCount"), "3");
+  assert.equal(text("clientErrorsOpenCount"), "5");
+  assert.equal(text("clientErrorsRecentCount"), "2");
+});
+
+test("מונה השגיאות שבתפריט נכתב רק למי שמורשה לראות נתוני ניהול", () => {
+  // התג מחושב ב-admin-ui.js, שאינו ניתן לייבוא כאן; נבדק שהוא נושא את
+  // אותה בדיקת הרשאה שקטה כמו שאר המונים.
+  const source = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
+  const start = source.indexOf("id: 'errors'");
+  assert.ok(start > 0, "המסך errors לא נמצא ב-ADMIN_VIEWS");
+  const entry = source.slice(start, source.indexOf("keywords:", start));
+  assert.match(entry, /badge: \(\) => \(window\.canViewAdminData\?\.\(\)/, "התג חייב לבדוק הרשאת ניהול");
 });
 
 test("סל המחזור ויומן הפעולות שמורים למנהל־על", async () => {

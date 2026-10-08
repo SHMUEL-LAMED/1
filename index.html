@@ -57,6 +57,8 @@
 
     <header class="site-header" aria-label="כותרת האתר">
         <div class="site-header-inner">
+            <!-- מוצג רק כשהאתר פונה ל-Worker של סביבת הניסוי (html[data-api-environment="staging"]). -->
+            <span class="env-ribbon" role="status" title="האתר פונה ל-Worker של סביבת הניסוי ולא לנתוני הייצור">סביבת ניסוי</span>
             <div class="brand-lockup">
                 <span class="brand-mark" aria-hidden="true"><i data-lucide="aperture" class="w-6 h-6"></i></span>
                 <div class="min-w-0">

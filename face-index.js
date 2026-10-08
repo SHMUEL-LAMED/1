@@ -352,6 +352,7 @@ async function startFaceIndexing() {
         }
     } catch (error) {
         console.error('אינדוקס הפנים נכשל:', error);
+        window.reportClientError?.(error, 'face-index');
         faceIndexRun.lastError = error;
         faceIndexRun.message = error?.status === 404
             ? 'האינדוקס בענן אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית ולנסות שוב.'

@@ -675,6 +675,39 @@ html[data-theme="light"] .aurora-orb { opacity: .75; }
 .header-status[data-state="online"]::before { animation: pulse-soft 2.4s ease-in-out infinite; }
 .header-status[data-state="locked"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
 
+/* רצועת "סביבת ניסוי": מופיעה רק כשהאתר פונה ל-Worker של הניסוי — app.js
+   מסמן html[data-api-environment="staging"]. היא יושבת על הקצה העליון של
+   הכותרת בלי לתפוס מקום בשורה עצמה, ולכן אינה מפריעה גם בטלפון. */
+.env-ribbon { display: none; }
+html[data-api-environment="staging"] .env-ribbon {
+    position: absolute;
+    top: -10px;
+    inset-inline-start: 22px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 10px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--violet-line);
+    background: linear-gradient(var(--violet-tint), var(--violet-tint)), var(--panel);
+    color: var(--violet);
+    box-shadow: var(--shadow-1);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    white-space: nowrap;
+}
+html[data-api-environment="staging"] .env-ribbon::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+
 .admin-back-link { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
 
 /* ==========================================================================
@@ -3837,6 +3870,53 @@ body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); gri
 .admin-table td { padding: 9px 11px; text-align: start; border-bottom: 1px solid var(--line); }
 .admin-table th { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-4); }
 .admin-table tbody tr:hover { background: var(--panel-soft); }
+
+/* מסך השגיאות: טבלה שנגללת לרוחב, מחסנית מתקפלת ותג מקור. */
+.admin-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel-softer); }
+.admin-errors-table td { vertical-align: top; font-size: 11px; color: var(--ink-2); }
+.admin-errors-table .error-message { min-width: 240px; max-width: 440px; }
+.admin-errors-table .error-message .admin-row-meta { margin-top: 4px; word-break: break-word; }
+.error-details summary { cursor: pointer; list-style: none; font-weight: 800; color: var(--ink); word-break: break-word; }
+.error-details summary::-webkit-details-marker { display: none; }
+.error-details summary::before { content: "\25B8"; display: inline-block; margin-inline-end: 6px; color: var(--ink-4); transition: transform .2s var(--ease); }
+.error-details[open] summary::before { transform: rotate(90deg); }
+.error-stack {
+    margin-top: 8px;
+    max-height: 260px;
+    overflow: auto;
+    padding: 10px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-2);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-all;
+    direction: ltr;
+    text-align: left;
+}
+.error-source {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.error-source[data-source="site"] { background: var(--cyan-tint); border-color: var(--cyan-line); color: var(--cyan); }
+.error-source[data-source="worker"] { background: var(--violet-tint); border-color: var(--violet-line); color: var(--violet); }
+.admin-errors-table .error-count { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--danger); }
+.admin-errors-table .error-time { white-space: nowrap; color: var(--ink-3); }
+.admin-errors-table .error-url { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: left; }
+.admin-errors-table .error-url a { color: var(--cyan); }
+.admin-errors-table .error-actions { white-space: nowrap; }
+.admin-errors-table .error-actions button { padding: 5px 11px; font-size: 10px; }
+.admin-errors-table .admin-empty { text-align: center; }
 
 /* צינור ההודעות והתראות בתיבה האישית. */
 .profile-inbox-list .is-unread { border-color: var(--gold-line); }
