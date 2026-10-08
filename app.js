@@ -24,7 +24,7 @@ window.PAGE_MODE = PAGE_MODE;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v54';
+const SITE_VERSION = 'v57';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -325,6 +325,10 @@ function closeModal(id) {
     }
     if (id === 'userUploadModal') {
         window.resetUploadPauseState?.();
+    }
+    if (id === 'lightboxModal') {
+        // עוצר מצגת פעילה ומאפס זום גם כשהתצוגה נסגרת ב-Escape הכללי.
+        window.onLightboxClosed?.();
     }
 }
 window.closeModal = closeModal;
