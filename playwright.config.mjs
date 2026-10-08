@@ -37,7 +37,8 @@ export default defineConfig({
         { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
     ],
     // שרת סטטי לשורש המאגר, בלי תלות חיצונית. פורט תפוס הוא שגיאה ולא
-    // שימוש חוזר, כדי שלא ייבדק בטעות עותק אחר של האתר.
+    // שימוש חוזר, כדי שלא ייבדק בטעות עותק אחר של האתר. E2E_ROOT=dist מגיש
+    // במקום השורש את תוצר הבנייה של Vite, כך שאותן בדיקות מוכיחות גם אותו.
     webServer: {
         command: `node e2e/static-server.mjs ${PORT}`,
         url: `${BASE_URL}/index.html`,
