@@ -2344,6 +2344,115 @@ body textarea { resize: vertical; min-height: 84px; }
 #lightboxImage { transition: filter .25s var(--ease); }
 .lightbox-stage.is-loading #lightboxImage { filter: brightness(.6) saturate(.85); }
 
+/* מחוות (lightbox-gestures.js): הבמה מקבלת את כל המגע — צביטה, החלקה
+   ומשיכה — במקום הגלילה והזום של הדפדפן. הזום וההזזה של התמונה הם
+   המאפיינים scale ו-translate, ולא transform, כדי שלא יתנגשו באנימציית
+   הכניסה (pop-in) ובתנועת המצגת. */
+#lightboxModal { overflow: hidden; }
+#lightboxModal .lightbox-stage { position: relative; touch-action: none; }
+#lightboxImage { cursor: zoom-in; -webkit-user-drag: none; user-select: none; }
+.lightbox-stage.is-zoomed { overflow: hidden; }
+.lightbox-stage.is-zoomed #lightboxImage { cursor: grab; }
+.lightbox-stage.is-zoomed #lightboxImage:active { cursor: grabbing; }
+
+/* מצגת (lightbox-slideshow.js) */
+#lightboxModal .slideshow-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    padding-inline: 12px;
+    font-size: 13px;
+    font-weight: 700;
+}
+#lightboxModal .slideshow-toggle:focus-visible { border-radius: var(--r-full); }
+#lightboxModal .slideshow-toggle[aria-pressed="true"] { border-color: var(--cinema-accent-line); color: var(--cinema-accent); }
+.slideshow-toggle-text { display: none; }
+@media (min-width: 640px) {
+    .slideshow-toggle-text { display: inline; }
+}
+#lightboxModal.is-slideshow #lightboxImage { cursor: default; }
+.slideshow-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    max-width: 100%;
+}
+.slideshow-controls[hidden] { display: none; }
+.slideshow-progress {
+    width: min(420px, 100%);
+    height: 3px;
+    border-radius: var(--r-full);
+    background: var(--cinema-line);
+    overflow: hidden;
+}
+#slideshowProgress {
+    display: block;
+    height: 100%;
+    background: var(--cinema-accent);
+    transform: scaleX(0);
+    /* האתר מימין לשמאל: הפס מתמלא מימין. */
+    transform-origin: right center;
+}
+.slideshow-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 6px;
+    border-radius: var(--r-xl);
+    background: var(--cinema-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--cinema-line);
+    box-shadow: var(--cinema-shadow);
+}
+.slideshow-btn {
+    display: inline-grid;
+    place-items: center;
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: var(--r-full);
+    background: var(--cinema-button);
+    border: 1px solid var(--cinema-line-strong);
+    color: var(--cinema-ink);
+    transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+}
+.slideshow-btn:hover { background: var(--cinema-button-hover); border-color: var(--cinema-accent-line); color: var(--cinema-accent); }
+.slideshow-chip { padding-inline: 14px; font-size: 13px; font-weight: 700; }
+.slideshow-chip[aria-pressed="false"] { color: var(--cinema-ink-soft); border-style: dashed; }
+.slideshow-interval {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--cinema-ink-soft);
+    font-size: 13px;
+}
+#slideshowInterval {
+    width: auto;
+    min-height: 40px;
+    padding: 0 12px;
+    border-radius: var(--r-full);
+    background: var(--cinema-button);
+    border: 1px solid var(--cinema-line-strong);
+    color: var(--cinema-ink);
+    font-size: 13px;
+}
+#slideshowInterval option { background: var(--cinema-bg-deep); color: var(--cinema-ink); }
+/* העותק של השקופית הקודמת שנמוג מעל החדשה. */
+.slideshow-fade {
+    position: absolute;
+    z-index: 2;
+    object-fit: contain;
+    pointer-events: none;
+    border-radius: var(--r-lg);
+}
+
 /* ==========================================================================
    14. חלונות (modal) — מעטפת אחידה לכל החלונות באתר
    ========================================================================== */

@@ -5,6 +5,12 @@
 import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
+// מחוות התצוגה המלאה (זום, החלקה) והמצגת — כל אחד במודול משלו.
+import { initLightboxGestures, resetLightboxZoom } from './lightbox-gestures.js';
+import {
+    initLightboxSlideshow, isSlideshowActive, startSlideshow, stopSlideshow,
+    slideshowNoteNavigation, handleSlideshowKey
+} from './lightbox-slideshow.js';
 
 let currentFilteredImages = [];
 
@@ -1909,32 +1915,69 @@ function changeImageFolder(id) {
 }
 
 // --- 8. Lightbox Display ---
-let gallerySlideshowTimer = null;
+
+// מחברים את המחוות ואת המצגת בפתיחה הראשונה של התצוגה המלאה.
+let lightboxInteractionsReady = false;
+function ensureLightboxInteractions() {
+    if (lightboxInteractionsReady) return;
+    lightboxInteractionsReady = true;
+    const currentItem = () => currentFilteredImages[window.state.currentLightboxIndex];
+    initLightboxGestures({
+        navigate: step => navigateLightbox(step),
+        close: () => window.closeLightbox(),
+        atStart: () => window.state.currentLightboxIndex <= 0,
+        atEnd: () => window.state.currentLightboxIndex >= currentFilteredImages.length - 1,
+        // הזום מחליף לקובץ המקורי ברזולוציה מלאה, לא לתצוגה הבינונית.
+        getOriginalUrl: () => {
+            const item = currentItem();
+            return item && !window.isVideoRecord(item) ? window.safeImageUrl(item.url) : '';
+        },
+        canZoom: () => !isSlideshowActive() && !window.isVideoRecord(currentItem()),
+        canSwipe: () => true
+    });
+    initLightboxSlideshow({
+        getItems: () => currentFilteredImages,
+        getIndex: () => window.state.currentLightboxIndex,
+        showIndex: index => showLightboxIndex(index),
+        isVideo: item => window.isVideoRecord(item),
+        notify: (text, ok) => window.showNotification(text, ok)
+    });
+}
 
 function openLightbox(imageId) {
     imageId = window.safeRecordId(imageId);
     currentFilteredImages = getFilteredSortedImages();
     window.state.currentLightboxIndex = currentFilteredImages.findIndex(img => window.safeRecordId(img.id) === imageId);
     if (window.state.currentLightboxIndex === -1) return;
+    ensureLightboxInteractions();
     window.recordMediaView(imageId);
     // בפתיחה אין תמונה קודמת שכדאי להשאיר על המסך: הפריט מוצג מיד.
     updateLightbox(true); window.openModal('lightboxModal');
 }
 
-function navigateLightbox(step) {
+function showLightboxIndex(index) {
     if (currentFilteredImages.length === 0) return;
     const activeVideo = document.getElementById('lightboxVideo');
     if (activeVideo) activeVideo.pause();
-    window.state.currentLightboxIndex = (window.state.currentLightboxIndex + step + currentFilteredImages.length) % currentFilteredImages.length;
+    window.state.currentLightboxIndex = (index + currentFilteredImages.length) % currentFilteredImages.length;
     updateLightbox();
 }
 
+function navigateLightbox(step) {
+    if (currentFilteredImages.length === 0) return;
+    showLightboxIndex(window.state.currentLightboxIndex + step);
+    // במצגת: מעבר ידני נותן לשקופית החדשה זמן מלא.
+    slideshowNoteNavigation();
+}
+
+// נקרא גם מ-closeModal (Escape הכללי) וגם מכפתור הסגירה.
+window.onLightboxClosed = function() {
+    stopSlideshow({ silent: true });
+    resetLightboxZoom();
+};
+
 window.closeLightbox = function() {
-    if (gallerySlideshowTimer) {
-        window.clearInterval(gallerySlideshowTimer);
-        gallerySlideshowTimer = null;
-        updateSlideshowButton();
-    }
+    window.onLightboxClosed();
     const activeVideo = document.getElementById('lightboxVideo');
     releaseLightboxStream();
     if (activeVideo) {
@@ -1994,43 +2037,22 @@ function playLightboxVideo(video, record, fallbackUrl) {
         });
 }
 
-function updateSlideshowButton() {
-    const button = document.getElementById('slideshowToggle');
-    if (!button) return;
-    const running = Boolean(gallerySlideshowTimer);
-    button.setAttribute('aria-label', running ? 'עצירת מצגת אוטומטית' : 'הפעלת מצגת אוטומטית');
-    button.title = running ? 'עצירת מצגת' : 'הפעלת מצגת';
-    button.innerHTML = `<i data-lucide="${running ? 'pause' : 'play'}" class="w-6 h-6"></i>`;
-    window.scheduleIconRefresh();
-}
-
+// כפתור "הפעל מצגת" שבסרגל התצוגה המלאה: מפעיל, ובזמן מצגת — עוצר.
 window.toggleGallerySlideshow = function() {
-    if (gallerySlideshowTimer) {
-        window.clearInterval(gallerySlideshowTimer);
-        gallerySlideshowTimer = null;
-    } else {
-        const slideshowImages = currentFilteredImages.filter(item => !window.isVideoRecord(item));
-        if (slideshowImages.length < 2) {
-            window.showNotification('נדרשות לפחות שתי תמונות להפעלת מצגת.', false);
-            return;
-        }
-        const currentId = window.safeRecordId(currentFilteredImages[window.state.currentLightboxIndex]?.id);
-        currentFilteredImages = slideshowImages;
-        window.state.currentLightboxIndex = Math.max(0, slideshowImages.findIndex(item => window.safeRecordId(item.id) === currentId));
-        updateLightbox();
-        gallerySlideshowTimer = window.setInterval(() => navigateLightbox(1), 4000);
-    }
-    updateSlideshowButton();
+    ensureLightboxInteractions();
+    if (isSlideshowActive()) stopSlideshow();
+    else startSlideshow();
 };
 
+// "הפעל מצגת" בסרגל הגלריה ובדף האירוע: התיקייה המוצגת, מהפריט הראשון.
 window.startGallerySlideshow = function() {
-    const images = getFilteredSortedImages().filter(item => !window.isVideoRecord(item));
-    if (!images.length) {
-        window.showNotification('אין תמונות להצגת מצגת.', false);
+    const items = getFilteredSortedImages();
+    if (!items.length) {
+        window.showNotification('אין פריטים להצגת מצגת.', false);
         return;
     }
-    openLightbox(images[0].id);
-    if (images.length > 1 && !gallerySlideshowTimer) window.toggleGallerySlideshow();
+    openLightbox(items[0].id);
+    if (!isSlideshowActive()) startSlideshow();
 };
 
 // --- טעינה מוקדמת ופענוח בתצוגה המלאה ---
@@ -2171,6 +2193,8 @@ function loadDecodedImage(source) {
 
 function updateLightbox(immediate = false) {
     const img = currentFilteredImages[window.state.currentLightboxIndex]; if (!img) return;
+    // כל מעבר פריט מתחיל ב-1x, על התצוגה הבינונית.
+    resetLightboxZoom();
     const f = window.state.folders.find(fold => fold.id === img.folderId);
 
     const lbImage = document.getElementById('lightboxImage');
@@ -2265,6 +2289,8 @@ function updateLightbox(immediate = false) {
 document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');
     if (lightbox && !lightbox.classList.contains('hidden')) {
+        // רווח ו-Escape שייכים למצגת כשהיא פועלת (Escape עוצר אותה בלבד).
+        if (handleSlideshowKey(e)) return;
         if (e.key === 'ArrowLeft') navigateLightbox(1);
         else if (e.key === 'ArrowRight') navigateLightbox(-1);
     }
