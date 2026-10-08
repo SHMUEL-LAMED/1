@@ -311,6 +311,8 @@ test('עותקי AVIF מוצעים ב-<picture> בכרטיס ובתצוגה המ
         return { media: [Math.round(media.width), Math.round(media.height)], image: [Math.round(image.width), Math.round(image.height)] };
     });
     expect(sizes.image).toEqual(sizes.media);
+    // שלד הטעינה נעצר גם כשההורה הישיר של התמונה הוא <picture>.
+    await expect(cards.nth(2).locator('.gallery-media')).toHaveClass(/is-loaded/);
 
     const fallen = cards.nth(1).locator('img.gallery-card-img');
     await expect(fallen).toHaveAttribute('src', mediaUrl('img_e2e_2'));
