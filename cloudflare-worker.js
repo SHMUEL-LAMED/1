@@ -27,11 +27,29 @@ const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DEFAULT_DRIVE_SITE_URL = "https://shmuel-lamed.github.io/1/";
 const DRIVE_STATE_TTL_MS = 10 * 60 * 1000;
 const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
+// גרסת הסכימה נשמרת ב-gallery_schema_meta תחת המפתח 'gallery'. כל עלייה היא
+// תוספת אידמפוטנטית (CREATE ... IF NOT EXISTS) ב-ensureDatabaseSchema, ולכן מסד
+// קיים בכל גרסה קודמת מגיע לגרסה הנוכחית בבקשה הראשונה אחרי הפריסה:
+//   3 — אינדקס האימייל (user_email_index) ומילוי חד-פעמי שלו.
+//   4 — טביעות הפנים, מצב האינדוקס ושגיאות הלקוח.
+//   5 — media_variant_files: רישום קובצי התצוגות המקדימות.
+// גרסאות הנתונים של שכבת הנתונים (data_version:<אוסף>, ראו bumpDataVersion)
+// נשמרות באותה טבלה תחת מפתחות אחרים, והעלאת הסכימה אינה נוגעת בהן.
 const DATABASE_SCHEMA_VERSION = 5;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
 const DATA_PAGE_DEFAULT_LIMIT = 500;
+// שדות שאפשר לסנן ולקבץ לפיהם ב-SQL (json_extract). הרשימה סגורה כדי
+// ששם שדה מהכתובת לעולם לא ייכנס לשאילתה כמות שהוא.
+const DATA_FILTER_FIELDS = ["folderId", "status", "mediaType", "uploadedBy"];
+// מספר המזהים המרבי בבקשה אחת של ?ids= (למשל רשימת המועדפים).
+const DATA_IDS_MAX = 200;
+// רשימות ומונים נשמרים במטמון הקצה (Cache API) לחמש דקות. המפתח כולל את
+// גרסת הנתונים של האוסף, ולכן כל כתיבה מפילה את המטמון מיד.
+const DATA_CACHE_TTL_SECONDS = 300;
+// אוספים אישיים אינם נכנסים למטמון הקצה לעולם.
+const EDGE_CACHE_EXCLUDED_COLLECTIONS = new Set(["userFavorites", "userPreferences"]);
 // כל בקשה ל־/ai-search צורכת מכסה אחת, כולל ניסיונות חוזרים אחרי 429.
 // חיפוש מלא הוא עד 10 קבוצות, וכל קבוצה עשויה להגיע לשישה ניסיונות —
 // כלומר עד 60 בקשות. המגבלה גבוהה מכך כדי שחיפוש אחד לא יחסום את עצמו.
@@ -288,7 +306,10 @@ function corsHeaders(request, env = runtimeEnv) {
       ? { "Access-Control-Allow-Origin": origin }
       : {}),
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Face-Index-Token",
+    // If-None-Match אינה כותרת "בטוחה" ב-CORS, ולכן חייבת להופיע כאן —
+    // אחרת הדפדפן חוסם את הבקשה המותנית כבר ב-preflight.
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Face-Index-Token, If-None-Match",
+    "Access-Control-Expose-Headers": "ETag",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
@@ -304,6 +325,40 @@ function json(request, data, status = 200) {
       "X-Content-Type-Options": "nosniff"
     }
   });
+}
+
+// --- ETag ותשובות מותנות ---
+// כל תשובת GET מוצלחת מ-/data נושאת ETag חזק: SHA-256 של הגוף, base64url,
+// 22 התווים הראשונים. הדפדפן שולח אותו ב-If-None-Match ומקבל 304 ריק
+// כשהנתונים לא השתנו — חוסך את הגוף, לא את הבדיקה.
+async function computeEtag(body) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  return `"${base64UrlEncode(new Uint8Array(digest)).slice(0, 22)}"`;
+}
+
+function etagMatches(request, etag) {
+  const header = request.headers.get("If-None-Match");
+  if (!header) return false;
+  return header.split(",").some(token => token.trim().replace(/^W\//i, "") === etag);
+}
+
+function conditionalJson(request, body, etag, status = 200) {
+  const headers = {
+    ...corsHeaders(request),
+    "ETag": etag,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  };
+  if (etagMatches(request, etag)) return new Response(null, { status: 304, headers });
+  return new Response(body, {
+    status,
+    headers: { ...headers, "Content-Type": "application/json; charset=utf-8" }
+  });
+}
+
+async function etagJson(request, data, status = 200) {
+  const body = JSON.stringify(data);
+  return conditionalJson(request, body, await computeEtag(body), status);
 }
 
 function apiError(message, status = 400, code = "request_failed") {
@@ -678,11 +733,13 @@ async function ensureDatabaseSchema(env) {
            AND length(trim(COALESCE(json_extract(data_json, '$.email'), ''))) > 0`
       ).run();
     }
+    // MAX: Worker שנפרס מחדש בגרסה ישנה יותר אינו מוריד את הגרסה הרשומה,
+    // וכך מילויים חד-פעמיים (כמו של גרסה 3) אינם רצים שוב בטעות.
     await env.GALLERY_DB.prepare(
       `INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at)
        VALUES ('gallery', ?, ?)
        ON CONFLICT(schema_key) DO UPDATE SET
-         schema_version = excluded.schema_version,
+         schema_version = MAX(gallery_schema_meta.schema_version, excluded.schema_version),
          updated_at = excluded.updated_at`
     ).bind(DATABASE_SCHEMA_VERSION, Date.now()).run();
     databaseSchemaReady = true;
@@ -730,6 +787,7 @@ async function readUserProfile(uid, env, verifiedEmail = "") {
           "DELETE FROM gallery_documents WHERE collection_name = 'userProfiles' AND document_id = ?"
         ).bind(legacyRow.document_id).run();
       }
+      await bumpDataVersion(env, "userProfiles");
       row = { document_id: uid, data_json: JSON.stringify(migratedData), created_at: legacyRow.created_at };
     }
   }
@@ -836,6 +894,11 @@ async function ensureInitialSuperAdminProfile(account, env) {
        data_json = excluded.data_json, owner_uid = excluded.owner_uid, updated_at = excluded.updated_at`
   ).bind(account.localId, JSON.stringify(profile), account.localId, existing?.requestedAt || now, now).run();
   await updateUserEmailIndex(env, account.localId, account.email, now);
+  // הכתיבה הזו רצה בכל בקשה של מנהל־העל הראשי; רק שינוי ממשי בפרופיל
+  // (יצירה או קידום) מצדיק הפלה של רשימת המשתמשים במטמון.
+  if (!existing || existing.status !== "approved" || existing.role !== "super_admin") {
+    await bumpDataVersion(env, "userProfiles");
+  }
   return profile;
 }
 
@@ -891,6 +954,7 @@ async function establishGoogleSession(request, env) {
        data_json = excluded.data_json, owner_uid = excluded.owner_uid, updated_at = excluded.updated_at`
   ).bind(account.localId, JSON.stringify(profile), account.localId, existing?.requestedAt || now, now).run();
   await updateUserEmailIndex(env, account.localId, account.email, now);
+  await bumpDataVersion(env, "userProfiles");
 
   const session = await createSessionToken(env, account, profile);
   return json(request, {
@@ -1126,6 +1190,7 @@ async function handleChatMessages(request, env) {
     ).bind(JSON.stringify(nextProfile), nextUpdatedAt, conversationUid, previousUpdatedAt).run();
 
     if (updateResult?.meta?.changes == null || Number(updateResult.meta.changes) === 1) {
+      await bumpDataVersion(env, "userProfiles");
       const retainedKeys = chatAttachmentKeys(nextMessages);
       const removedKeys = [...chatAttachmentKeys(originalMessages)].filter(key => !retainedKeys.has(key));
       if (removedKeys.length) await cleanupRemovedChatAttachments(env, removedKeys);
@@ -1160,41 +1225,267 @@ async function actorCanAccessLegacyChatAttachment(actor, env, key) {
   return Boolean(row?.allowed);
 }
 
-async function handleDataRequest(request, env, url) {
+// --- גרסת נתונים לכל אוסף ---
+// נשמרת ב-gallery_schema_meta תחת data_version:<אוסף>. כל כתיבה לאוסף
+// מקדמת אותה, והיא חלק ממפתח מטמון הקצה — כך רשימה שנשמרה במטמון מתיישנת
+// ברגע הכתיבה ולא אחרי חמש דקות. קריאה אחת זולה ב-D1 לכל בקשת רשימה.
+async function readDataVersion(env, collectionName) {
+  const row = await env.GALLERY_DB.prepare(
+    "SELECT schema_version FROM gallery_schema_meta WHERE schema_key = ?"
+  ).bind(`data_version:${collectionName}`).first();
+  return Number(row?.schema_version) || 0;
+}
+
+// הגרסה החדשה היא הגדול מבין "הקודמת + 1" ו-Date.now(): עולה תמיד, וגם
+// אחרי איפוס של הטבלה אינה חוזרת לערך שכבר שימש במפתח מטמון.
+async function bumpDataVersion(env, collectionName) {
+  const now = Date.now();
+  try {
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(schema_key) DO UPDATE SET
+         schema_version = MAX(gallery_schema_meta.schema_version + 1, excluded.schema_version),
+         updated_at = excluded.updated_at`
+    ).bind(`data_version:${collectionName}`, now, now).run();
+  } catch (error) {
+    // הכתיבה עצמה כבר הצליחה; במקרה הגרוע המטמון מתיישן לבד בתוך חמש דקות.
+    console.warn("Data version bump failed", collectionName, error?.message || error);
+  }
+}
+
+async function bumpDataVersions(env, collectionNames) {
+  for (const collectionName of new Set(collectionNames)) await bumpDataVersion(env, collectionName);
+}
+
+// --- סמני דפדוף ---
+// הסמן הוא JSON ב-base64url של ערך המיון ומזהה השורה האחרונה בעמוד.
+// ערך המיון נלקח מהעמודה המחושבת שהחזירה השאילתה עצמה, ולכן ההשוואה
+// בעמוד הבא נעשית בדיוק על אותו מספר ש-SQLite חישב.
+function encodeCursor(value, id) {
+  return base64UrlEncode(new TextEncoder().encode(JSON.stringify({ v: value, id })));
+}
+
+function decodeCursor(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(raw)));
+    const value = Number(parsed?.v);
+    const id = String(parsed?.id || "");
+    if (!Number.isFinite(value) || !id) throw new Error("invalid cursor");
+    return { value, id };
+  } catch {
+    throw apiError("סמן הדפדוף אינו תקין.", 400, "invalid_cursor");
+  }
+}
+
+function orderExpression(orderField) {
+  return `CAST(COALESCE(json_extract(data_json, '$.${orderField}'), 0) AS REAL)`;
+}
+
+// פירוש פרמטרי הרשימה פעם אחת: גם השאילתה וגם מפתח המטמון נבנים מהתוצאה,
+// ולכן שני ניסוחים שונים של אותה בקשה חולקים עותק אחד במטמון.
+function parseListQuery(url, kind) {
+  const params = url.searchParams;
+  const limit = Math.max(1, Math.min(DATA_PAGE_MAX_LIMIT, Number(params.get("limit")) || DATA_PAGE_DEFAULT_LIMIT));
+  const offset = Math.max(0, Math.trunc(Number(params.get("offset")) || 0));
+  const orderField = safeDataPart(params.get("orderBy") || "updatedAt", "שדה המיון");
+  const direction = params.get("direction") === "asc" ? "ASC" : "DESC";
+  const after = decodeCursor(params.get("after"));
+  const filters = [];
+  for (const field of DATA_FILTER_FIELDS) {
+    const value = params.get(field);
+    if (value !== null && value !== "") filters.push({ field, value: String(value).slice(0, 200) });
+  }
+  const rawIds = String(params.get("ids") || "").split(",").map(value => value.trim()).filter(Boolean);
+  if (rawIds.length > DATA_IDS_MAX) {
+    throw apiError(`אפשר לבקש עד ${DATA_IDS_MAX} מזהים בבקשה אחת.`, 400, "too_many_ids");
+  }
+  const ids = [...new Set(rawIds.map(value => safeDataPart(value, "מזהה המסמך")))];
+  let by = "";
+  if (kind === "counts") {
+    by = safeDataPart(params.get("by") || "folderId", "שדה הקיבוץ");
+    if (!DATA_FILTER_FIELDS.includes(by)) throw apiError("אי אפשר לקבץ לפי השדה הזה.", 400, "invalid_group_field");
+  }
+  return { kind, limit, offset, orderField, direction, after, filters, ids, by };
+}
+
+// מחרוזת שאילתה מנורמלת למפתח המטמון. אין בה שום פרט על המשתמש.
+function listQueryKey(query) {
+  const parts = [`kind=${query.kind}`, `orderBy=${query.orderField}`, `direction=${query.direction}`, `limit=${query.limit}`, `offset=${query.offset}`];
+  if (query.after) parts.push(`after=${encodeCursor(query.after.value, query.after.id)}`);
+  for (const filter of query.filters) parts.push(`${filter.field}=${encodeURIComponent(filter.value)}`);
+  if (query.ids.length) parts.push(`ids=${[...query.ids].sort().join(",")}`);
+  if (query.by) parts.push(`by=${query.by}`);
+  return parts.join("&");
+}
+
+// מחלקת ההרשאה היא כל מה שהמטמון יודע על המבקש. לעולם לא מזהה משתמש:
+// כל הצופים המאושרים חולקים עותק אחד של כל רשימה.
+function actorPermissionClass(actor) {
+  const approved = actor.status === "approved" || actor.initialAdmin;
+  if (!approved) return "pending";
+  if (actor.role === "super_admin") return "super_admin";
+  if (actor.role === "admin") return "admin";
+  return "approved-viewer";
+}
+
+async function dataCacheKey(request, collectionName, query, version, permissionClass) {
+  let queryKey = listQueryKey(query);
+  // מפתח ארוך במיוחד (רשימת מזהים) מקוצר לגיבוב, כדי שהכתובת תישאר סבירה.
+  if (queryKey.length > 1500) queryKey = `h=${await sha256(queryKey, { normalize: false })}`;
+  return `${new URL(request.url).origin}/__data-cache/${collectionName}/${query.kind}?${queryKey}&v=${version}&p=${permissionClass}`;
+}
+
+// Cache API זמין רק ב-Worker שמוגש מדומיין בחשבון Cloudflare. בסביבת
+// בדיקות, וגם בכתובת *.workers.dev, הוא חסר או מתעלם — והקוד ממשיך בלעדיו.
+function edgeCache() {
+  try {
+    return globalThis.caches?.default || null;
+  } catch {
+    return null;
+  }
+}
+
+function listFilterSql(query) {
+  let clause = "";
+  const bindings = [];
+  for (const filter of query.filters) {
+    // CAST ל-TEXT: מזהה תיקייה שנשמר כמספר בגיבוי ישן עדיין מתאים לערך מהכתובת.
+    clause += ` AND CAST(json_extract(data_json, '$.${filter.field}') AS TEXT) = ?`;
+    bindings.push(filter.value);
+  }
+  if (query.ids.length) {
+    clause += ` AND document_id IN (${query.ids.map(() => "?").join(", ")})`;
+    bindings.push(...query.ids);
+  }
+  return { clause, bindings };
+}
+
+// document_id הוא שובר־שוויון: בלי סדר מלא ויציב, עמוד על שדה עם ערכים
+// חוזרים עלול להחזיר את אותה שורה פעמיים או לדלג על שורה. הסמן ממשיך
+// מהשורה האחרונה בהשוואת צמד (ערך המיון, מזהה), שנכתבת כ-OR מפורש כי
+// תמיכת D1 בהשוואת שורות אינה מובטחת. שורה אחת מעבר לעמוד מגלה אם יש
+// המשך, בלי שאילתת ספירה נוספת.
+async function listDocuments(env, collectionName, query) {
+  const order = orderExpression(query.orderField);
+  const { clause, bindings } = listFilterSql(query);
+  let cursorClause = "";
+  const cursorBindings = [];
+  if (query.after) {
+    const comparator = query.direction === "ASC" ? ">" : "<";
+    cursorClause = ` AND (${order} ${comparator} ? OR (${order} = ? AND document_id > ?))`;
+    cursorBindings.push(query.after.value, query.after.value, query.after.id);
+  }
+  const offset = query.after ? 0 : query.offset;
+  const result = await env.GALLERY_DB.prepare(
+    `SELECT document_id, data_json, ${order} AS order_value FROM gallery_documents
+     WHERE collection_name = ?${clause}${cursorClause}
+     ORDER BY ${order} ${query.direction}, document_id ASC
+     LIMIT ? OFFSET ?`
+  ).bind(collectionName, ...bindings, ...cursorBindings, query.limit + 1, offset).all();
+  const rows = result.results || [];
+  const hasMore = rows.length > query.limit;
+  const pageRows = rows.slice(0, query.limit);
+  const documents = pageRows.map(row => ({ id: row.document_id, data: parseDocumentData(row) }));
+  const lastRow = pageRows.at(-1);
+  const nextCursor = hasMore && lastRow
+    ? encodeCursor(Number(lastRow.order_value) || 0, String(lastRow.document_id))
+    : null;
+  return { success: true, documents, offset, limit: query.limit, hasMore, nextCursor };
+}
+
+async function countDocuments(env, collectionName, query) {
+  const { clause, bindings } = listFilterSql(query);
+  const row = await env.GALLERY_DB.prepare(
+    `SELECT COUNT(*) AS count FROM gallery_documents WHERE collection_name = ?${clause}`
+  ).bind(collectionName, ...bindings).first();
+  return { success: true, count: Number(row?.count) || 0 };
+}
+
+// מונים מקובצים בשאילתה אחת, למשל כמה פריטים בכל תיקייה — במקום רשימה
+// מלאה או בקשת ספירה לכל תיקייה.
+async function countDocumentsGrouped(env, collectionName, query) {
+  const { clause, bindings } = listFilterSql(query);
+  const result = await env.GALLERY_DB.prepare(
+    `SELECT COALESCE(CAST(json_extract(data_json, '$.${query.by}') AS TEXT), '') AS value, COUNT(*) AS count
+     FROM gallery_documents
+     WHERE collection_name = ?${clause}
+     GROUP BY value`
+  ).bind(collectionName, ...bindings).all();
+  const counts = {};
+  let total = 0;
+  for (const row of result.results || []) {
+    const count = Number(row.count) || 0;
+    counts[String(row.value ?? "")] = count;
+    total += count;
+  }
+  return { success: true, by: query.by, total, counts };
+}
+
+// רשימות ומונים: קודם מטמון הקצה, ואחריו D1. העותק במטמון הוא גוף + ETag
+// בלבד, בלי כותרות CORS — אלה נבנות לכל בקשה לפי מקורה. לדפדפן התשובה
+// נשארת no-store כבעבר; s-maxage חל רק על העותק שבמטמון.
+async function serveCachedList(request, env, ctx, collectionName, actor, query) {
+  const version = await readDataVersion(env, collectionName);
+  const cache = EDGE_CACHE_EXCLUDED_COLLECTIONS.has(collectionName) ? null : edgeCache();
+  const cacheKey = cache
+    ? await dataCacheKey(request, collectionName, query, version, actorPermissionClass(actor))
+    : "";
+  if (cache) {
+    const cached = await cache.match(cacheKey).catch(() => null);
+    if (cached) {
+      const body = await cached.text();
+      const etag = cached.headers.get("ETag") || await computeEtag(body);
+      return conditionalJson(request, body, etag);
+    }
+  }
+
+  const payload = query.kind === "count"
+    ? await countDocuments(env, collectionName, query)
+    : query.kind === "counts"
+      ? await countDocumentsGrouped(env, collectionName, query)
+      : await listDocuments(env, collectionName, query);
+  const body = JSON.stringify(payload);
+  const etag = await computeEtag(body);
+
+  if (cache) {
+    const stored = cache.put(cacheKey, new Response(body, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": `s-maxage=${DATA_CACHE_TTL_SECONDS}`,
+        "ETag": etag
+      }
+    })).catch(error => console.warn("Edge cache write skipped", error?.message || error));
+    if (typeof ctx?.waitUntil === "function") ctx.waitUntil(stored);
+    else await stored;
+  }
+  return conditionalJson(request, body, etag);
+}
+
+async function handleDataRequest(request, env, url, ctx) {
   await ensureDatabaseSchema(env);
   const parts = url.pathname.slice("/data/".length).split("/").filter(Boolean).map(decodeURIComponent);
   const collectionName = safeDataPart(parts[0], "שם האוסף");
   if (!DATA_COLLECTIONS.has(collectionName)) throw apiError("האוסף המבוקש אינו קיים.", 404, "collection_not_found");
   const documentId = parts[1] ? safeDataPart(parts[1], "מזהה המסמך") : "";
+  // /count ו-/counts הם רשימות מקוצרות, לא מסמכים, ונבדקים באותן הרשאות
+  // של רשימת האוסף.
+  const listKind = request.method === "GET" && ["count", "counts"].includes(documentId) ? documentId : "";
   const actor = await dataActor(request, env);
-  assertDataPermission(actor, collectionName, request.method, documentId);
+  assertDataPermission(actor, collectionName, request.method, listKind ? "" : documentId);
 
-  if (request.method === "GET" && documentId) {
+  if (request.method === "GET" && documentId && !listKind) {
     const row = await env.GALLERY_DB.prepare(
       "SELECT data_json FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
     ).bind(collectionName, documentId).first();
     if (!row) throw apiError("המסמך לא נמצא.", 404, "not_found");
-    return json(request, { success: true, id: documentId, data: parseDocumentData(row) });
+    return etagJson(request, { success: true, id: documentId, data: parseDocumentData(row) });
   }
 
   if (request.method === "GET") {
-    const rowLimit = Math.max(1, Math.min(DATA_PAGE_MAX_LIMIT, Number(url.searchParams.get("limit")) || DATA_PAGE_DEFAULT_LIMIT));
-    const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset")) || 0));
-    const orderField = safeDataPart(url.searchParams.get("orderBy") || "updatedAt", "שדה המיון");
-    const direction = url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
-    // document_id הוא שובר־שוויון: בלי סדר מלא ויציב, OFFSET על שדה עם ערכים
-    // חוזרים עלול להחזיר את אותה שורה בשני עמודים או לדלג על שורה.
-    // שורה אחת מעבר לעמוד מגלה אם קיים המשך, בלי שאילתת ספירה נוספת.
-    const result = await env.GALLERY_DB.prepare(
-      `SELECT document_id, data_json FROM gallery_documents
-       WHERE collection_name = ?
-       ORDER BY CAST(COALESCE(json_extract(data_json, '$.${orderField}'), 0) AS REAL) ${direction}, document_id ASC
-       LIMIT ? OFFSET ?`
-    ).bind(collectionName, rowLimit + 1, offset).all();
-    const rows = result.results || [];
-    const hasMore = rows.length > rowLimit;
-    const documents = rows.slice(0, rowLimit).map(row => ({ id: row.document_id, data: parseDocumentData(row) }));
-    return json(request, { success: true, documents, offset, limit: rowLimit, hasMore });
+    const query = parseListQuery(url, listKind || "list");
+    return serveCachedList(request, env, ctx, collectionName, actor, query);
   }
 
   if (request.method === "PUT" && documentId) {
@@ -1274,6 +1565,7 @@ async function handleDataRequest(request, env, url) {
     if (collectionName === "userProfiles") {
       await updateUserEmailIndex(env, documentId, nextData.email, now);
     }
+    await bumpDataVersion(env, collectionName);
     return json(request, { success: true, id: documentId, data: nextData });
   }
 
@@ -1281,6 +1573,7 @@ async function handleDataRequest(request, env, url) {
     await env.GALLERY_DB.prepare(
       "DELETE FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
     ).bind(collectionName, documentId).run();
+    await bumpDataVersion(env, collectionName);
     if (collectionName === "userProfiles") {
       await env.GALLERY_DB.prepare("DELETE FROM user_email_index WHERE document_id = ?").bind(documentId).run();
     }
@@ -1654,6 +1947,11 @@ async function uploadImage(request, env) {
       uploadedAt: new Date().toISOString()
     }
   });
+  // קובץ גלריה חדש: רשימות התמונות שבמטמון הקצה אינן עדכניות עוד.
+  if (!isChatAttachment) {
+    await ensureDatabaseSchema(env);
+    await bumpDataVersion(env, state === "pending" ? "pendingImages" : "images");
+  }
 
   let variants = null;
   if (variantParts.length) {
@@ -1798,6 +2096,8 @@ async function approveImage(request, env) {
     }  });
   await env.GALLERY_BUCKET.delete(key);
   await markMediaVariantsApproved(env, faceImageIdFromObjectKey(approvedKey));
+  await ensureDatabaseSchema(env);
+  await bumpDataVersions(env, ["images", "pendingImages"]);
 
   return json(request, {
     success: true,
@@ -1824,6 +2124,7 @@ async function deleteImage(request, env, pathname) {
   if (!key.startsWith("chat/") && !key.startsWith("variants/")) {
     await deleteFaceIndexForDeletedMedia(env, key);
     await deleteMediaVariantsForDeletedMedia(env, key);
+    await bumpDataVersions(env, ["images", "pendingImages"]);
   }
   if (key.startsWith("variants/")) await forgetVariantFiles(env, [key]);
   return json(request, { success: true, key });
@@ -2005,6 +2306,8 @@ async function attachVariantsToRecords(env, imageId, variants) {
     ).bind(JSON.stringify({ ...data, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION }), updatedAt, collectionName, imageId).run();
     updated.push(collectionName);
   }
+  // הרשומה השתנתה: רשימות שבמטמון הקצה וב-ETag חייבות להתיישן מיד.
+  await bumpDataVersions(env, updated);
   return { variants: merged, updated };
 }
 
@@ -3195,7 +3498,7 @@ export default {
 
       const url = new URL(request.url);
       if (url.pathname.startsWith("/data/")) {
-        return await handleDataRequest(request, env, url);
+        return await handleDataRequest(request, env, url, ctx);
       }
       if (request.method === "GET" && url.pathname === "/drive/oauth/callback") {
         return await finishDriveOAuth(request, env, url);
@@ -3208,10 +3511,11 @@ export default {
           success: true,
           service: "simchas-gallery-api",
           environment: workerEnvironment(env),
-          version: "2026-08-13-cloudflare-d1-face-index",
+          version: "2026-10-08-data-layer-cursors-etag-cache",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index", "media-variants"
+            "persistent-drive-oauth", "cloud-face-index", "media-variants",
+            "data-filters", "cursor-pagination", "etag-304", "edge-cache"
           ],
           faceModelVersion: FACE_MODEL_VERSION,
           databaseConnected: true,

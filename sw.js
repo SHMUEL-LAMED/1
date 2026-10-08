@@ -21,6 +21,7 @@ const APP_SHELL = [
   "./error-monitor.js",
   "./session-ui.js",
   "./gallery.js",
+  "./gallery-feed.js",
   "./media-variants.js",
   "./session-auth.js",
   "./popup-announcement.js",

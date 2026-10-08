@@ -7,9 +7,13 @@ import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSourc
 let currentFilteredImages = [];
 
 // --- 5. New Updates Banner ---
+// "חדש מאז הביקור הקודם" נבדק מול העמוד החדש ביותר של הארכיון
+// (state.latestImages, שאילתת limit קטנה), לא מול הרשימה כולה — היא אינה
+// נטענת עוד בדף הגלריה.
 window.checkNewUpdates = function() {
-    if (window.state.images.length === 0) return;
-    const newest = window.state.images.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
+    const source = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
+    if (!source || source.length === 0) return;
+    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
     const lastSeen = parseInt(localStorage.getItem('yeshiva_last_seen_update') || '0');
     const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
     const banner = document.getElementById('newUpdatesBanner');
@@ -18,12 +22,29 @@ window.checkNewUpdates = function() {
     }
 }
 
-function showNewUpdates() {
+// כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
+const RECENT_UPDATES_LIMIT = 200;
+async function showNewUpdates() {
     localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    window.state.tempSearchResults = window.state.images.filter(img => (img.createdAt || 0) >= weekAgo);
+    // התמונות מהשבוע האחרון מגיעות משאילתה ממוינת מהחדש לישן עם limit,
+    // ולא מהרשימה המלאה. אם השאילתה נכשלת נשארים עם מה שכבר בזיכרון.
+    let recent = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
+    try {
+        const { collection, query, orderBy, limit, getDocsPage } = window.firestoreModules || {};
+        if (window.db && typeof getDocsPage === 'function') {
+            const page = await getDocsPage(
+                query(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'images'), orderBy('createdAt', 'desc'), limit(RECENT_UPDATES_LIMIT)),
+                { pageSize: RECENT_UPDATES_LIMIT }
+            );
+            recent = page.docs.map(item => item.data());
+        }
+    } catch (error) {
+        console.warn('Recent updates query failed:', error);
+    }
+    window.state.tempSearchResults = recent.filter(img => (img.createdAt || 0) >= weekAgo);
 
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) {
@@ -298,7 +319,20 @@ window.openEventPage = function(event, folderId) {
     const id = window.safeRecordId(folderId);
     const folder = window.state.folders.find(item => window.safeRecordId(item.id) === id);
     if (!folder || id === 'all') return;
-    const media = window.state.images.filter(item => window.safeRecordId(item.folderId) === id);
+    // בדף הגלריה הזיכרון מחזיק רק את התיקייה הפעילה: הפריטים מגיעים מהמטמון
+    // לפי תיקייה, והמספר הכולל מהמונים שבשרת. תיקייה שטרם נטענה נמשכת ברקע
+    // והעמוד מצויר שוב כשהיא מגיעה.
+    const media = window.getLoadedFolderImages
+        ? window.getLoadedFolderImages(id)
+        : window.state.images.filter(item => window.safeRecordId(item.folderId) === id);
+    if (!media.length && typeof window.prefetchFolderImages === 'function' && (Number(window.state.folderCounts?.[id]) || 0) > 0) {
+        window.prefetchFolderImages(id).then(items => {
+            const modal = document.getElementById('eventPageModal');
+            if (items.length && window.state.activeEventFolderId === id && modal && !modal.classList.contains('hidden')) {
+                window.openEventPage(null, id);
+            }
+        }).catch(error => console.warn('Event folder prefetch failed:', error));
+    }
     const coverRecord = media.find(item => !window.isVideoRecord(item));
     const cover = document.getElementById('eventPageCover');
     if (cover) {
@@ -310,8 +344,12 @@ window.openEventPage = function(event, folderId) {
     document.getElementById('eventPageTitle').textContent = folder.name || 'אירוע';
     document.getElementById('eventPageDate').textContent = folder.eventDate ? window.formatDate(folder.eventDate) : 'ארכיון שמחת התורה';
     document.getElementById('eventPageDescription').textContent = folder.description || 'לא נוסף עדיין תיאור לאירוע.';
-    const videoCount = media.filter(isVideoRecord).length;
-    document.getElementById('eventPageStats').textContent = `${media.length} פריטים · ${videoCount} סרטונים · ${media.length - videoCount} תמונות`;
+    const videoCount = media.filter(window.isVideoRecord).length;
+    const totalCount = Math.max(media.length, Number(window.state.folderCounts?.[id]) || 0);
+    const fullyLoaded = window.isFolderFullyLoaded ? window.isFolderFullyLoaded(id) : true;
+    document.getElementById('eventPageStats').textContent = fullyLoaded && totalCount === media.length
+        ? `${media.length} פריטים · ${videoCount} סרטונים · ${media.length - videoCount} תמונות`
+        : `${totalCount} פריטים`;
     const openButton = document.getElementById('eventOpenGalleryBtn');
     if (openButton) openButton.onclick = () => {
         setActiveFolder(id);
@@ -395,6 +433,8 @@ function setActiveFolder(folderId) {
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) searchBanner.classList.add('hidden');
     window.state.activeFolderId = safeFolderId; window.renderFolders(); window.renderImages();
+    // התיקייה שנבחרה נטענת לבדה: מהמטמון של הביקור, או העמוד הראשון מהענן.
+    window.loadFolderImages?.(safeFolderId);
 }
 
 window.openFavoritesFromProfile = function() {
@@ -407,7 +447,15 @@ window.openFavoritesFromProfile = function() {
     if (panel) panel.classList.remove('active');
 };
 
-function handleSearch(val) { window.state.searchQuery = val; window.renderImages(); }
+function handleSearch(val) {
+    window.state.searchQuery = val;
+    window.renderImages();
+    // חיפוש בתיקייה שטרם נטענה כולה מושך את שאר העמודים ברקע, כדי שהתוצאות
+    // יכסו גם פריטים ישנים.
+    if (val && window.state.imagesHasMore) {
+        window.loadAllImagesForSearch?.()?.catch(error => console.warn('Search autoload failed:', error));
+    }
+}
 
 window.setGallerySort = function(sort) {
     window.state.gallerySort = ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest';
@@ -473,12 +521,18 @@ function renderArchiveEntryFacts(eventCount, mediaCount) {
         else mediaCountEl.textContent = formatCount(mediaCount);
     }
     if (updatedEl) {
-        const latest = (window.state.images || []).reduce(
+        const latest = latestImagesSource().reduce(
             (newest, item) => Math.max(newest, Number(item?.createdAt) || 0),
             0
         );
         updatedEl.textContent = formatArchiveUpdate(latest);
     }
+}
+
+// החדשות ביותר בכל הארכיון מגיעות משאילתת limit קטנה (state.latestImages);
+// בלעדיה — ממה שטעון, כמו בדף הניהול.
+function latestImagesSource() {
+    return window.state.latestImages?.length ? window.state.latestImages : (window.state.images || []);
 }
 
 // פסיפס הרגעים האחרונים בפוסטר הכניסה: עד חמש תמונות מהחדשות ביותר.
@@ -487,7 +541,7 @@ const HERO_MOSAIC_LIMIT = 5;
 function renderHeroMosaic() {
     const mosaic = document.getElementById('heroMosaic');
     if (!mosaic) return;
-    const tiles = [...(window.state.images || [])]
+    const tiles = [...latestImagesSource()]
         .map(item => {
             const url = pickCardSource(item, window.safeImageUrl).url;
             return url ? { id: window.safeRecordId(item.id), url, createdAt: Number(item?.createdAt) || 0 } : null;
@@ -514,7 +568,7 @@ window._doRenderFolders = function() {
     const folderList = document.getElementById('folderList'); if (!folderList) return;
     const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
     const folderParts = [];
-    const favoriteCount = window.state.images.filter(item => window.state.favorites.has(window.safeRecordId(item.id))).length;
+    const favoriteCount = window.state.favorites.size;
     const profileFavoritesCount = document.getElementById('profileFavoritesCount');
     if (profileFavoritesCount) profileFavoritesCount.textContent = String(favoriteCount);
 
@@ -530,7 +584,10 @@ window._doRenderFolders = function() {
     });
 
     const eventCount = Math.max(0, folders.filter(folder => folder.id !== 'all').length);
-    const mediaCount = window.state.images.length;
+    // המונים מגיעים מהשרת בשאילתה אחת (GET /data/images/counts?by=folderId);
+    // בלעדיהם — ממה שטעון בזיכרון, כמו בדף הניהול.
+    const folderCounts = window.state.folderCounts;
+    const mediaCount = folderCounts ? (Number(window.state.imagesTotal) || 0) : window.state.images.length;
     const folderTotalCount = document.getElementById('folderTotalCount');
     const folderMediaCount = document.getElementById('folderMediaCount');
     if (folderTotalCount) folderTotalCount.textContent = String(eventCount);
@@ -547,7 +604,9 @@ window._doRenderFolders = function() {
         );
         const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
         const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
-        const count = folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length;
+        const count = folderCounts
+            ? (folderId === 'all' ? mediaCount : (Number(folderCounts[folderId]) || 0))
+            : (folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length);
         const depth = folder.syncedFromDrive ? Math.max(0, Math.min(12, Number(folder.driveDepth) || 0)) : 0;
         const nestingStyle = depth ? `style="margin-inline-start:${Math.min(depth * 18, 144)}px"` : '';
         const branchIcon = depth ? '<span class="text-slate-600 shrink-0" aria-hidden="true">↳</span>' : '';
@@ -583,6 +642,12 @@ let galleryPageItems = [];
 let galleryRenderedCount = 0;
 let galleryPageObserver = null;
 
+let galleryRenderKey = '';
+// כשהמשתמש לוחץ "טען פריטים ישנים יותר" הוא מצפה לראות את מה שהגיע מיד,
+// ולא לחכות שהזקיף בתחתית יזהה שוב את הגלילה (מה שלא קורה כשהזקיף
+// נשאר גלוי לאורך כל הטעינה). הציור הבא באותה תצוגה מציג לפחות מנה נוספת.
+let galleryRevealAtLeast = 0;
+
 window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const grid = document.getElementById('photosGrid'); const emptyState = document.getElementById('emptyState');
@@ -590,19 +655,48 @@ window._doRenderImages = function() {
     renderHeroMosaic();
     const filtered = getFilteredSortedImages();
     galleryPageItems = filtered;
+    // באותה תצוגה (תיקייה, חיפוש, מיון) מצוירות מחדש כל המנות שכבר הוצגו,
+    // כדי שעמוד נוסף שמגיע מהענן לא יקפיץ את הגלילה חזרה להתחלה.
+    const renderKey = [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults !== null].join('|');
+    const sameView = renderKey === galleryRenderKey;
+    const previouslyRendered = sameView ? Math.max(galleryRenderedCount, galleryRevealAtLeast) : 0;
+    galleryRevealAtLeast = 0;
+    galleryRenderKey = renderKey;
     galleryRenderedCount = 0;
 
     const imageCounter = document.getElementById('imageCounter');
-    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = `${filtered.length} פריטים`; }
+    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = galleryCounterLabel(filtered.length); }
 
     if (filtered.length === 0) {
-        grid.classList.add('hidden'); emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+        grid.classList.add('hidden');
+        // בזמן טעינת תיקייה אין עדיין מה להציג — וגם לא "אין פריטים".
+        const loading = Boolean(window.state.imagesLoading);
+        emptyState.classList.toggle('hidden', loading); emptyState.classList.toggle('flex', !loading);
         updateGalleryLoadMore();
         return;
     }
     grid.classList.remove('hidden'); emptyState.classList.add('hidden'); emptyState.classList.remove('flex');
-    window.renderMoreImages();
+    window.renderMoreImages(Math.max(GALLERY_PAGE_SIZE, previouslyRendered));
 };
+
+// הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
+function galleryCounterLabel(shownCount) {
+    const state = window.state;
+    if (state.imagesLoading && shownCount === 0) return 'טוען…';
+    if (state.tempSearchResults !== null || !state.imagesHasMore) return `${shownCount} פריטים`;
+    if (state.searchQuery) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
+    const total = galleryFolderTotal();
+    return total > shownCount ? `${shownCount} מתוך ${total} פריטים` : `${shownCount} פריטים`;
+}
+
+// כמה פריטים יש בתיקייה הפעילה לפי המונים שבשרת; בלעדיהם — מה שטעון.
+function galleryFolderTotal() {
+    const state = window.state;
+    const folderId = window.safeRecordId(state.activeFolderId);
+    if (folderId === 'favorites') return state.favorites.size;
+    if (!state.folderCounts) return state.images.length;
+    return folderId === 'all' ? (Number(state.imagesTotal) || 0) : (Number(state.folderCounts[folderId]) || 0);
+}
 
 // בונה כרטיס אחד. הוצא מהלולאה כדי שגם המנה הראשונה וגם כל מנה נוספת
 // ייבנו מאותו קוד בדיוק.
@@ -653,11 +747,11 @@ function buildCardPicture(source, title) {
 }
 
 // מוסיפה את המנה הבאה בלבד, ומרעננת אייקונים רק על מה שנוסף.
-window.renderMoreImages = function() {
+window.renderMoreImages = function(batchSize = GALLERY_PAGE_SIZE) {
     const grid = document.getElementById('photosGrid');
     if (!grid || galleryRenderedCount >= galleryPageItems.length) return;
     const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
-    const nextCount = Math.min(galleryRenderedCount + GALLERY_PAGE_SIZE, galleryPageItems.length);
+    const nextCount = Math.min(galleryRenderedCount + Math.max(1, Number(batchSize) || GALLERY_PAGE_SIZE), galleryPageItems.length);
     const html = galleryPageItems
         .slice(galleryRenderedCount, nextCount)
         .map((img, offset) => buildGalleryCard(img, galleryRenderedCount + offset, isEditBlocked))
@@ -674,10 +768,30 @@ function updateGalleryLoadMore() {
     const footer = document.getElementById('galleryLoadMore');
     if (!footer) return;
     const remaining = galleryPageItems.length - galleryRenderedCount;
-    footer.classList.toggle('hidden', remaining <= 0);
-    footer.classList.toggle('flex', remaining > 0);
+    // כשכל מה שנטען כבר מוצג ויש בענן עמודים ישנים יותר, הכפתור מושך את
+    // העמוד הבא. הגלילה עצמה מציירת רק את המנה הבאה מהזיכרון ואינה פונה לענן.
+    const canFetchMore = remaining <= 0 && Boolean(window.state.imagesHasMore)
+        && window.state.tempSearchResults === null && !window.state.imagesLoading;
+    footer.classList.toggle('hidden', remaining <= 0 && !canFetchMore);
+    footer.classList.toggle('flex', remaining > 0 || canFetchMore);
+    const renderButton = document.getElementById('galleryRenderMoreBtn');
+    const fetchButton = document.getElementById('galleryFetchMoreBtn');
+    if (renderButton) renderButton.classList.toggle('hidden', remaining <= 0);
+    if (fetchButton) {
+        fetchButton.classList.toggle('hidden', !canFetchMore);
+        fetchButton.disabled = Boolean(window.state.imagesLoadingMore);
+        fetchButton.textContent = window.state.imagesLoadingMore ? 'טוען…' : 'טען פריטים ישנים יותר';
+    }
+    // מוני התיקיות מגיעים מהשרת בבקשה נפרדת, לעתים אחרי שהגלריה כבר צוירה;
+    // לכן גם הכיתוב שליד סרגל הכלים מתעדכן כאן ולא רק בציור המלא.
+    const imageCounter = document.getElementById('imageCounter');
+    if (imageCounter && galleryRenderKey) imageCounter.textContent = galleryCounterLabel(galleryPageItems.length);
     const counter = document.getElementById('galleryLoadMoreCount');
-    if (counter) counter.textContent = remaining > 0 ? `מוצגים ${galleryRenderedCount} מתוך ${galleryPageItems.length} פריטים` : '';
+    if (counter) {
+        counter.textContent = remaining > 0
+            ? `מוצגים ${galleryRenderedCount} מתוך ${galleryPageItems.length} פריטים`
+            : (canFetchMore ? `נטענו ${galleryPageItems.length} מתוך ${galleryFolderTotal()} פריטים` : '');
+    }
 
     // הזקיף טוען את המנה הבאה עוד לפני שהמשתמש מגיע לתחתית, כך שהגלילה
     // נראית רציפה. בדפדפן בלי IntersectionObserver נשאר הכפתור הידני.
@@ -688,6 +802,18 @@ function updateGalleryLoadMore() {
         galleryPageObserver.observe(footer);
     }
 }
+
+window.updateGalleryLoadMore = updateGalleryLoadMore;
+
+// הכפתור "טען פריטים ישנים יותר": מושך את העמוד הבא של התיקייה מהענן.
+// loadMoreImages מצייר את הגלריה מחדש בעצמו כשהעמוד מגיע.
+window.fetchOlderImages = async function() {
+    galleryRevealAtLeast = galleryRenderedCount + GALLERY_PAGE_SIZE;
+    const result = await window.loadMoreImages?.();
+    if (!result?.added) galleryRevealAtLeast = 0;
+    if (result?.done && !result.added) window.showNotification('אלה כל הפריטים בתיקייה.', true);
+    return result;
+};
 
 window.populateFolderSelects = function() {
     ['pendingTargetFolder', 'moveFolderSelect', 'adminTargetFolderSelect', 'userTargetFolderSelect'].forEach(id => {
@@ -1234,7 +1360,9 @@ function handleDeleteFolder(event, folderId) {
         });
         return;
     }
-    const mediaCount = window.state.images.filter(item => window.safeRecordId(item.folderId) === folderId).length;
+    const mediaCount = window.state.folderCounts
+        ? (Number(window.state.folderCounts[folderId]) || 0)
+        : window.state.images.filter(item => window.safeRecordId(item.folderId) === folderId).length;
     window.showConfirm('העברת תיקייה לסל', `להעביר את התיקייה ואת ${mediaCount} הפריטים שבתוכה לסל המחזור? יהיה אפשר לשחזר הכול יחד.`, async () => {
         try {
             await window.moveFolderToTrash(folderId);
@@ -1510,7 +1638,7 @@ window.openAiImageSearchModal = function() {
         window.showNotification('חיפוש AI זמין למשתמשים מאושרים בלבד.', false);
         return;
     }
-    if (!Array.isArray(window.state.images) || window.state.images.length === 0) {
+    if (!Array.isArray(window.state.images) || (window.state.images.length === 0 && !(Number(window.state.imagesTotal) > 0))) {
         window.showNotification('הגלריה עדיין ריקה.', false);
         return;
     }
