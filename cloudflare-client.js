@@ -1,4 +1,8 @@
-const API_BASE_URL = "https://simchas-gallery-api.0534169095.workers.dev";
+import { resolveApiBaseUrl } from "./api-environment.js";
+
+// הכתובת נקבעת ב-api-environment.js, במקום אחד לכל המודולים: הייצור כברירת
+// מחדל, ה-Worker של סביבת הניסוי ב-*.pages.dev וב-localhost, ו-‎?api= לדריסה.
+const API_BASE_URL = resolveApiBaseUrl();
 const TOKEN_STORAGE_KEY = "simchas_gallery_google_id_token";
 const GOOGLE_WEB_CLIENT_ID = "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com";
 
@@ -762,6 +766,7 @@ async function handleOfficialGoogleCredential(response) {
     return user;
   } catch (error) {
     console.error("Google sign-in failed:", error);
+    window.reportClientError?.(error, "sign-in");
     // אסימון שנדחה בשרת לא נשאר בדפדפן.
     if (["invalid_token", "account_unavailable", "email_not_verified", "account_blocked"].includes(error?.code)) {
       await setGoogleIdToken("");

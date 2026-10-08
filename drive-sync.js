@@ -11,6 +11,7 @@
 
 import { collection, query, orderBy, limit } from "./cloudflare-client.js";
 import { onSnapshot, reportFirestoreError, getAuthInstance, dismissGoogleOneTap } from "./session-auth.js";
+import { resolveApiBaseUrl } from "./api-environment.js";
 
 // מצב חיבור ה-Drive. שלושת המשתנים האלה נקראו ונכתבו בכל הקובץ בלי שהוצהרו
 // אי־פעם: מודול ES רץ תמיד ב-strict mode, ולכן כל קריאה אליהן זרקה
@@ -21,7 +22,8 @@ let driveRestoredForUid = '';
 // שתי אלה נותרו חסרות מאותו פיצול. DRIVE_WORKER_BASE_URL נדרשת בכל פנייה
 // ל-Worker, ו-driveRestorePromise שומרת על שחזור חיבור יחיד במקום מקביל —
 // שתיהן נמצאות במסלולים שרצים רק אחרי התחברות, ולכן לא צצו בטעינת הדף.
-const DRIVE_WORKER_BASE_URL = 'https://simchas-gallery-api.0534169095.workers.dev';
+// הכתובת מגיעה מ-api-environment.js: בסביבת הניסוי זה ה-Worker של הניסוי.
+const DRIVE_WORKER_BASE_URL = resolveApiBaseUrl();
 let driveRestorePromise = null;
 
 function setDriveConnectionUI(email = '') {

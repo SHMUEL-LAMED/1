@@ -10,6 +10,7 @@
 
 import { selectVariantCandidates, runVariantBackfill, MEDIA_VARIANTS_VERSION } from './media-variants.js';
 import { generateMediaVariants, appendVariantParts } from './media-variants-generate.js';
+import { API_BASE_URLS } from './api-environment.js';
 
 // שלושה פריטים במקביל: פענוח תמונה גדולה או סרטון תופס זיכרון, ויותר מזה
 // רק מקפיא את הדף בלי לקצר את הריצה.
@@ -41,19 +42,32 @@ function variantsConcurrency() {
     return Math.max(1, Math.min(VARIANTS_JOB_MAX_CONCURRENCY, hardwareThreads - 1));
 }
 
-// רק קובץ שמאוחסן ב-R2 של הגלריה ניתן לעיבוד: קישור חיצוני (למשל Drive
-// ישן) אינו מגיע עם CORS, והקנבס היה "נצבע".
+// רק קובץ שמאוחסן ב-R2 של הגלריה — בייצור או בסביבת הניסוי — ניתן לעיבוד:
+// קישור חיצוני (למשל Drive ישן) אינו מגיע עם CORS, והקנבס היה "נצבע".
+const WORKER_MEDIA_PREFIXES = [window.R2_WORKER_BASE_URL, ...Object.values(API_BASE_URLS)]
+    .filter(Boolean)
+    .map(origin => `${origin}/media/`);
 function isWorkerMediaUrl(url) {
-    return typeof url === 'string' && url.startsWith(`${window.R2_WORKER_BASE_URL}/media/`);
+    return typeof url === 'string' && WORKER_MEDIA_PREFIXES.some(prefix => url.startsWith(prefix));
+}
+
+// המסך עשוי להיפתח מהכתובת (#variants) רגע לפני ששכבת הנתונים מוכנה;
+// ממתינים לה קצת במקום להציג שגיאה שנעלמת ברענון.
+const DATA_LAYER_WAIT_MS = 6000;
+const DATA_LAYER_POLL_MS = 200;
+async function waitForDataLayer() {
+    for (let waited = 0; waited <= DATA_LAYER_WAIT_MS; waited += DATA_LAYER_POLL_MS) {
+        const { collection, getDocs } = window.firestoreModules || {};
+        if (window.db && typeof collection === 'function' && typeof getDocs === 'function') return { collection, getDocs };
+        await variantsDelay(DATA_LAYER_POLL_MS);
+    }
+    throw new Error('החיבור לענן עדיין לא מוכן. נסה שוב בעוד רגע.');
 }
 
 // הרשומות נקראות מחדש מה-API ולא מהמצב המקומי של הדף, כדי שהמונה והריצה
 // ישקפו את מה ששמור בענן גם אחרי ריצה בלשונית אחרת.
 async function fetchMediaRecords() {
-    const { collection, getDocs } = window.firestoreModules || {};
-    if (!window.db || typeof collection !== 'function' || typeof getDocs !== 'function') {
-        throw new Error('החיבור לענן עדיין לא מוכן. נסה שוב בעוד רגע.');
-    }
+    const { collection, getDocs } = await waitForDataLayer();
     const records = [];
     for (const name of ['images', 'pendingImages']) {
         const snapshot = await getDocs(collection(window.db, 'artifacts', window.appId, 'public', 'data', name));
