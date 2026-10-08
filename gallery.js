@@ -561,40 +561,107 @@ window._doRenderFolders = function() {
     window.scheduleIconRefresh(folderList);
 }
 
-// הגלריה מרונדרת במנות. קודם נבנתה כל הרשת בבת אחת, ואז רץ עליה מנוע
-// האייקונים — שבעה אייקונים לכל כרטיס — בכל מעבר תיקייה או לחיצה על לב.
-// בספרייה של מאות פריטים זו הייתה העבודה היקרה ביותר בדף.
-const GALLERY_PAGE_SIZE = 60;
+// הגלריה מרונדרת במנות. המנה הראשונה נבנית מיד, וכל מנה נוספת מצטרפת רק
+// כשהזקיף שבסוף הרשת מתקרב למסך. הרשימה המסוננת והממוינת נשמרת במלואה —
+// ממנה ניזונה גם התצוגה המלאה — ורק הכרטיסים עצמם נבנים בעצלות. בספרייה
+// של אלפי פריטים בניית כל הרשת בבת אחת, ומנוע האייקונים שרץ עליה אחר כך,
+// הייתה העבודה היקרה ביותר בדף.
+const GALLERY_FIRST_BATCH = 48;
+const GALLERY_PAGE_SIZE = 48;
+// הזקיף מבקש את המנה הבאה הרבה לפני שהמשתמש מגיע אליו, כדי שהגלילה תהיה רציפה.
+const GALLERY_SENTINEL_MARGIN = '900px 0px';
 let galleryPageItems = [];
-let galleryRenderedCount = 0;
+let galleryRenderedCards = [];
+let galleryViewSignature = null;
 let galleryPageObserver = null;
+let galleryCloudRequest = null;
+let galleryCloudStalledAt = -1;
+
+// מה מגדיר „תצוגה”: תיקייה, חיפוש, מיון וסינון זמני. כל עוד אלה לא השתנו,
+// רינדור מחדש הוא עדכון נתונים — תמונה חדשה, לב שנלחץ, חזרה ללשונית — ואז
+// מספר הכרטיסים שכבר הוצגו נשמר, כדי שהדף לא יתקצר מתחת לגלילה של המשתמש.
+// שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
+function currentViewSignature() {
+    return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults];
+}
+
+function sameViewSignature(first, second) {
+    return Array.isArray(first) && Array.isArray(second)
+        && first.length === second.length
+        && first.every((value, index) => value === second[index]);
+}
+
+function buildGalleryCards(from, to) {
+    const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
+    return galleryPageItems.slice(from, to).map((img, offset) => buildGalleryCard(img, from + offset, isEditBlocked).trim());
+}
 
 window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const grid = document.getElementById('photosGrid'); const emptyState = document.getElementById('emptyState');
-    if (!grid || !emptyState) return; grid.innerHTML = '';
+    if (!grid || !emptyState) return;
     renderHeroMosaic();
-    const filtered = getFilteredSortedImages();
-    galleryPageItems = filtered;
-    galleryRenderedCount = 0;
+    const signature = currentViewSignature();
+    const sameView = sameViewSignature(signature, galleryViewSignature);
+    galleryViewSignature = signature;
+    if (!sameView) galleryCloudStalledAt = -1;
+    // פריט בלי מזהה אינו מקבל כרטיס, ולכן אינו נספר — כך המספור ומיקום
+    // הכרטיס ברשת נשארים חופפים.
+    galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
 
     const imageCounter = document.getElementById('imageCounter');
-    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = `${filtered.length} פריטים`; }
+    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = `${galleryPageItems.length} פריטים`; }
 
-    if (filtered.length === 0) {
+    if (galleryPageItems.length === 0) {
+        grid.innerHTML = ''; galleryRenderedCards = [];
         grid.classList.add('hidden'); emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
         updateGalleryLoadMore();
         return;
     }
     grid.classList.remove('hidden'); emptyState.classList.add('hidden'); emptyState.classList.remove('flex');
-    window.renderMoreImages();
+    // בלי IntersectionObserver אין מי שיבקש את המנה הבאה, ולכן נבנה הכול.
+    const keep = typeof IntersectionObserver !== 'function'
+        ? Infinity
+        : (sameView ? Math.max(GALLERY_FIRST_BATCH, galleryRenderedCards.length) : GALLERY_FIRST_BATCH);
+    syncGalleryCards(grid, buildGalleryCards(0, Math.min(keep, galleryPageItems.length)));
+    updateGalleryLoadMore();
 };
+
+// מיישם את רשימת הכרטיסים על הרשת בשינויים מינימליים: כרטיס שהמרקאפ שלו
+// לא השתנה נשאר ב-DOM כמות שהוא (התמונה שבו אינה נטענת מחדש), כרטיס שהשתנה
+// מוחלף במקומו, וכרטיסים חסרים נוספים בסוף. כך רענון נתונים שלא שינה דבר
+// אינו נוגע בדף כלל, ולחיצה על לב מחליפה כרטיס אחד בלבד.
+function syncGalleryCards(grid, cards) {
+    const previous = galleryRenderedCards;
+    galleryRenderedCards = cards;
+    // הרשת כבר אינה תואמת את מה שצוייר (למשל אחרי ניקוי חיצוני): בנייה מלאה.
+    if (grid.children.length !== previous.length) {
+        grid.innerHTML = cards.join('');
+        window.scheduleIconRefresh(grid);
+        return;
+    }
+    const common = Math.min(previous.length, cards.length);
+    for (let i = 0; i < common; i++) {
+        if (previous[i] === cards[i]) continue;
+        grid.children[i].outerHTML = cards[i];
+        window.scheduleIconRefresh(grid.children[i]);
+    }
+    while (grid.children.length > cards.length) grid.lastElementChild.remove();
+    if (cards.length > common) appendGalleryCards(grid, cards.slice(common));
+}
+
+// מוסיפה כרטיסים בסוף הרשת ומרעננת אייקונים רק על מה שנוסף.
+function appendGalleryCards(grid, cards) {
+    const firstNewCard = grid.children.length;
+    grid.insertAdjacentHTML('beforeend', cards.join(''));
+    for (let i = firstNewCard; i < grid.children.length; i++) window.scheduleIconRefresh(grid.children[i]);
+}
 
 // בונה כרטיס אחד. הוצא מהלולאה כדי שגם המנה הראשונה וגם כל מנה נוספת
 // ייבנו מאותו קוד בדיוק.
 function buildGalleryCard(img, index, isEditBlocked) {
     const imageId = window.safeRecordId(img.id);
-    if (!imageId) return;
+    if (!imageId) return '';
     const folder = window.state.folders.find(f => f.id === img.folderId);
     const imageUrl = window.safeImageUrl(img.url);
     const isVideo = window.isVideoRecord(img);
@@ -609,8 +676,10 @@ function buildGalleryCard(img, index, isEditBlocked) {
            <span class="absolute top-3 right-3 rounded-full bg-black/70 border border-white/20 px-2.5 py-1 text-[9px] font-bold text-white flex items-center gap-1"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
         : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onerror="window.handleImageError(this)">`;
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
+    // ההשהיה של אנימציית הכניסה נמדדת מתחילת המנה, כדי שכל מנה תעלה בהדרגה
+    // משלה במקום להמתין את ההשהיה המרבית כולה.
     return `
-        <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" style="--card-index:${Math.min(index, 12)}">
+        <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:${Math.min(index % GALLERY_PAGE_SIZE, 12)}">
             <button type="button" class="gallery-media" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
                 ${mediaHtml}
                 <span class="gallery-number">${String(index + 1).padStart(2, '0')}</span>
@@ -624,41 +693,94 @@ function buildGalleryCard(img, index, isEditBlocked) {
         </article>`;
 }
 
-// מוסיפה את המנה הבאה בלבד, ומרעננת אייקונים רק על מה שנוסף.
-window.renderMoreImages = function() {
+// מוסיפה את המנה הבאה בלבד. כשכל מה שהורד כבר מוצג ובענן נותרו עוד תמונות,
+// הן מתבקשות מהענף שמטפל בעימוד בשרת. manual=true מגיע מכפתור „הצג עוד”.
+window.renderMoreImages = function(manual = false) {
     const grid = document.getElementById('photosGrid');
-    if (!grid || galleryRenderedCount >= galleryPageItems.length) return;
-    const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
-    const nextCount = Math.min(galleryRenderedCount + GALLERY_PAGE_SIZE, galleryPageItems.length);
-    const html = galleryPageItems
-        .slice(galleryRenderedCount, nextCount)
-        .map((img, offset) => buildGalleryCard(img, galleryRenderedCount + offset, isEditBlocked))
-        .filter(Boolean)
-        .join('');
-    const firstNewCard = grid.children.length;
-    grid.insertAdjacentHTML('beforeend', html);
-    galleryRenderedCount = nextCount;
-    for (let i = firstNewCard; i < grid.children.length; i++) window.scheduleIconRefresh(grid.children[i]);
+    if (!grid) return;
+    if (manual === true) galleryCloudStalledAt = -1;
+    const rendered = galleryRenderedCards.length;
+    if (rendered >= galleryPageItems.length) {
+        requestMoreImagesFromCloud();
+        return;
+    }
+    const cards = buildGalleryCards(rendered, Math.min(rendered + GALLERY_PAGE_SIZE, galleryPageItems.length));
+    appendGalleryCards(grid, cards);
+    galleryRenderedCards = galleryRenderedCards.concat(cards);
     updateGalleryLoadMore();
 };
+
+// --- המשך טעינה מהענן ---
+// ענף מקביל מוסיף עימוד בשרת: הוא מסמן ב-state.imagesHasMore שבענן נותרו
+// תמונות שטרם הורדו, ומגדיר window.loadMoreImages שמביאה את העמוד הבא
+// ומחזירה { added, done }. בלעדיהם הגלריה היא רינדור הדרגתי רגיל.
+function canLoadMoreFromCloud() {
+    return window.state.imagesHasMore === true && typeof window.loadMoreImages === 'function';
+}
+
+function requestMoreImagesFromCloud() {
+    if (galleryCloudRequest || !canLoadMoreFromCloud()) return;
+    // בקשה שלא הוסיפה דבר אינה חוזרת על עצמה כל עוד לא השתנה כלום — אחרת
+    // הזקיף שנשאר על המסך היה מציף את השרת בבקשות ריקות.
+    if (galleryCloudStalledAt === (window.state.images || []).length) return;
+    let request;
+    try {
+        request = Promise.resolve(window.loadMoreImages());
+    } catch (error) {
+        request = Promise.reject(error);
+    }
+    galleryCloudRequest = request
+        .then(result => {
+            if (result?.done === true) window.state.imagesHasMore = false;
+            return Number(result?.added) || 0;
+        }, error => {
+            console.warn('טעינת תמונות נוספות מהענן נכשלה:', error);
+            return 0;
+        })
+        .then(added => {
+            galleryCloudRequest = null;
+            if (added <= 0) galleryCloudStalledAt = (window.state.images || []).length;
+            // מה שנוסף ל-state.images נכנס לרשימה הממוינת: הרשת מתעדכנת במקום
+            // (אותה תצוגה, אותו מספר כרטיסים) ואז מקבלת את המנה הבאה.
+            window._doRenderImages();
+            if (added > 0) window.renderMoreImages();
+        });
+    updateGalleryLoadMore();
+}
 
 function updateGalleryLoadMore() {
     const footer = document.getElementById('galleryLoadMore');
     if (!footer) return;
-    const remaining = galleryPageItems.length - galleryRenderedCount;
-    footer.classList.toggle('hidden', remaining <= 0);
-    footer.classList.toggle('flex', remaining > 0);
+    const remaining = galleryPageItems.length - galleryRenderedCards.length;
+    const loading = Boolean(galleryCloudRequest);
+    const cloudHasMore = canLoadMoreFromCloud();
+    const visible = remaining > 0 || loading || cloudHasMore;
+    footer.classList.toggle('hidden', !visible);
+    footer.classList.toggle('flex', visible);
     const counter = document.getElementById('galleryLoadMoreCount');
-    if (counter) counter.textContent = remaining > 0 ? `מוצגים ${galleryRenderedCount} מתוך ${galleryPageItems.length} פריטים` : '';
+    if (counter) counter.textContent = remaining > 0 ? `מוצגים ${galleryRenderedCards.length} מתוך ${galleryPageItems.length} פריטים` : '';
+    // „טוען עוד...” מוצג רק בזמן שבקשה לענן פתוחה; עם סיומה אין מה להציג.
+    const status = document.getElementById('galleryLoadingStatus');
+    if (status) status.classList.toggle('hidden', !loading);
+    const button = document.getElementById('galleryLoadMoreButton');
+    if (button) button.classList.toggle('hidden', loading || !(remaining > 0 || cloudHasMore));
+    if (visible) observeGallerySentinel();
+}
 
-    // הזקיף טוען את המנה הבאה עוד לפני שהמשתמש מגיע לתחתית, כך שהגלילה
-    // נראית רציפה. בדפדפן בלי IntersectionObserver נשאר הכפתור הידני.
-    if (!galleryPageObserver && typeof IntersectionObserver === 'function') {
+// הזקיף נצפה מחדש אחרי כל מנה: observe מדווח על המצב הנוכחי, ולכן אם הוא
+// עדיין בטווח (מסך גבוה, צפיפות גבוהה) המנה הבאה מגיעה בלי גלילה נוספת.
+// בדפדפן בלי IntersectionObserver הרשת נבנתה כבר במלואה, ונשאר רק הכפתור
+// הידני לבקשת תמונות נוספות מהענן.
+function observeGallerySentinel() {
+    const sentinel = document.getElementById('gallerySentinel');
+    if (!sentinel || typeof IntersectionObserver !== 'function') return;
+    if (!galleryPageObserver) {
         galleryPageObserver = new IntersectionObserver(entries => {
             if (entries.some(entry => entry.isIntersecting)) window.renderMoreImages();
-        }, { rootMargin: '600px 0px' });
-        galleryPageObserver.observe(footer);
+        }, { rootMargin: GALLERY_SENTINEL_MARGIN });
     }
+    galleryPageObserver.unobserve(sentinel);
+    galleryPageObserver.observe(sentinel);
 }
 
 window.populateFolderSelects = function() {
@@ -1283,7 +1405,8 @@ function openLightbox(imageId) {
     window.state.currentLightboxIndex = currentFilteredImages.findIndex(img => window.safeRecordId(img.id) === imageId);
     if (window.state.currentLightboxIndex === -1) return;
     window.recordMediaView(imageId);
-    updateLightbox(); window.openModal('lightboxModal');
+    // בפתיחה אין תמונה קודמת שכדאי להשאיר על המסך: הפריט מוצג מיד.
+    updateLightbox(true); window.openModal('lightboxModal');
 }
 
 function navigateLightbox(step) {
@@ -1348,25 +1471,98 @@ window.startGallerySlideshow = function() {
     if (images.length > 1 && !gallerySlideshowTimer) window.toggleGallerySlideshow();
 };
 
-function updateLightbox() {
+// --- טעינה מוקדמת ופענוח בתצוגה המלאה ---
+// לכל היותר ארבע טעינות מוקדמות נשמרות בו־זמנית; הישנה שבהן נזנחת, ואם
+// טרם הסתיימה — ההורדה שלה מבוטלת.
+const LIGHTBOX_PRELOAD_LIMIT = 4;
+// רשת איטית אינה משאירה את המשתמש על התמונה הקודמת לנצח: אחרי ההמתנה הזו
+// התמונה הבאה מוצגת גם אם טרם פוענחה.
+const LIGHTBOX_DECODE_TIMEOUT_MS = 6000;
+const lightboxPreloads = new Map();
+// מונה שמזהה את הבקשה האחרונה להצגת תמונה: דפדוף מהיר משאיר רק את האחרונה.
+let lightboxImageRequest = 0;
+
+// מה התצוגה המלאה מציגה עבור פריט: התמונה עצמה, ולסרטון רק הפוסטר.
+function lightboxPreviewUrl(item) {
+    return item ? window.safeImageUrl(window.isVideoRecord(item) ? item.thumbnailUrl : item.url) : '';
+}
+
+function dataSaverEnabled() {
+    return typeof navigator !== 'undefined' && navigator?.connection?.saveData === true;
+}
+
+function startLightboxImageLoad(url) {
+    const existing = lightboxPreloads.get(url);
+    if (existing) return existing;
+    while (lightboxPreloads.size >= LIGHTBOX_PRELOAD_LIMIT) {
+        const [oldestUrl, oldest] = lightboxPreloads.entries().next().value;
+        lightboxPreloads.delete(oldestUrl);
+        if (!oldest.complete) oldest.src = '';
+    }
+    const loader = new Image();
+    loader.decoding = 'async';
+    loader.src = url;
+    lightboxPreloads.set(url, loader);
+    return loader;
+}
+
+// השכנים של הפריט הנוכחי — הבא והקודם — נטענים מראש כדי שהדפדוף יהיה
+// מיידי. לסרטון נטען הפוסטר בלבד, לעולם לא קובץ הווידאו, ובמצב חיסכון
+// בנתונים אין טעינה מוקדמת כלל.
+function preloadLightboxNeighbours() {
+    if (typeof Image !== 'function' || dataSaverEnabled()) return;
+    const total = currentFilteredImages.length;
+    if (total < 2) return;
+    const current = window.state.currentLightboxIndex;
+    for (const step of [1, -1]) {
+        const url = lightboxPreviewUrl(currentFilteredImages[(current + step + total) % total]);
+        if (url && !lightboxPreloads.has(url)) startLightboxImageLoad(url);
+    }
+}
+
+// מבטיחה שהתמונה הורדה ופוענחה לפני שהיא מוצגת. ממתינה לכל היותר זמן קצוב,
+// ובדפדפן בלי decode() מסתפקת בטעינה.
+function loadDecodedImage(url) {
+    if (typeof Image !== 'function') return Promise.resolve();
+    const loader = startLightboxImageLoad(url);
+    const loaded = new Promise((resolve, reject) => {
+        if (loader.complete) {
+            if (loader.naturalWidth > 0) resolve(); else reject(new Error('image failed'));
+            return;
+        }
+        loader.addEventListener('load', () => resolve(), { once: true });
+        loader.addEventListener('error', () => reject(new Error('image failed')), { once: true });
+    });
+    const decoded = loaded.then(() => (typeof loader.decode === 'function' ? loader.decode().catch(() => {}) : undefined));
+    let timer = null;
+    const timeout = new Promise(resolve => { timer = setTimeout(resolve, LIGHTBOX_DECODE_TIMEOUT_MS); });
+    return Promise.race([decoded, timeout]).finally(() => clearTimeout(timer));
+}
+
+function updateLightbox(immediate = false) {
     const img = currentFilteredImages[window.state.currentLightboxIndex]; if (!img) return;
     const f = window.state.folders.find(fold => fold.id === img.folderId);
 
     const lbImage = document.getElementById('lightboxImage');
     const lbVideo = document.getElementById('lightboxVideo');
+    const lbStage = document.getElementById('lightboxStage');
     const imageUrl = window.safeImageUrl(img.url);
     const isVideo = window.isVideoRecord(img);
-    document.getElementById('lightboxImageFallback')?.remove();
     // ההשתקפות ברקע: התמונה עצמה, או תמונת הפוסטר של סרטון. בלי אחת מהן
-    // הרקע נשאר כהה ואחיד.
+    // הרקע נשאר כהה ואחיד. לתמונה היא מתחלפת יחד איתה, לא לפניה.
     const lbBackdrop = document.getElementById('lightboxBackdrop');
-    if (lbBackdrop) {
-        const backdropUrl = isVideo ? window.safeImageUrl(img.thumbnailUrl) : imageUrl;
+    const setBackdrop = backdropUrl => {
+        if (!lbBackdrop) return;
         lbBackdrop.hidden = !backdropUrl;
         if (backdropUrl && lbBackdrop.src !== backdropUrl) lbBackdrop.src = backdropUrl;
         lbBackdrop.onerror = () => { lbBackdrop.hidden = true; };
-    }
+    };
+    // כל בקשת תצוגה חדשה מבטלת פענוח שעדיין רץ מהקודמת.
+    const request = ++lightboxImageRequest;
     if (isVideo) {
+        document.getElementById('lightboxImageFallback')?.remove();
+        lbStage?.classList.remove('is-loading');
+        setBackdrop(window.safeImageUrl(img.thumbnailUrl));
         if (lbImage) lbImage.hidden = true;
         if (lbVideo) {
             lbVideo.classList.remove('hidden');
@@ -1395,9 +1591,24 @@ function updateLightbox() {
             lbVideo.load();
             lbVideo.classList.add('hidden');
         }
-        lbImage.hidden = false;
-        lbImage.onerror = () => window.handleImageError(lbImage);
-        lbImage.src = imageUrl;
+        const show = () => {
+            if (request !== lightboxImageRequest) return;
+            document.getElementById('lightboxImageFallback')?.remove();
+            setBackdrop(imageUrl);
+            lbImage.hidden = false;
+            lbImage.onerror = () => window.handleImageError(lbImage);
+            lbImage.src = imageUrl;
+            lbStage?.classList.remove('is-loading');
+        };
+        // התמונה הקודמת נשארת על המסך עד שהבאה פוענחה, ורק אז מתחלפת — בלי
+        // הבזק של מסך ריק. בפתיחה, או כשאין תמונה קודמת (ממלא מקום של תמונה
+        // שבורה), אין מה להשאיר ומציגים מיד.
+        if (immediate || lbImage.hidden || !imageUrl) {
+            show();
+        } else {
+            lbStage?.classList.add('is-loading');
+            loadDecodedImage(imageUrl).then(show, show);
+        }
     }
 
     const lbTitle = document.getElementById('lightboxTitle');
@@ -1415,6 +1626,7 @@ function updateLightbox() {
 
     const lbCounter = document.getElementById('lightboxCounter');
     if(lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    preloadLightboxNeighbours();
 }
 document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');

@@ -226,10 +226,14 @@
 
             <div id="photosGrid" class="grid"></div>
 
-            <!-- זקיף העימוד: כשהוא נכנס למסך נטענת המנה הבאה. -->
+            <!-- זקיף העימוד: כשהוא מתקרב למסך נטענת המנה הבאה. כשכל מה שהורד כבר
+                 מוצג ובענן נותרו עוד תמונות, הן מתבקשות דרך window.loadMoreImages
+                 ו„טוען עוד...” מוצג עד שהן מגיעות. -->
             <div id="galleryLoadMore" class="hidden py-8 flex-col items-center gap-3">
+                <span id="gallerySentinel" class="gallery-sentinel" aria-hidden="true"></span>
                 <span id="galleryLoadMoreCount" class="text-[11px] text-slate-400"></span>
-                <button type="button" onclick="window.renderMoreImages()" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <span id="galleryLoadingStatus" class="gallery-loading hidden" role="status">טוען עוד...</span>
+                <button type="button" id="galleryLoadMoreButton" onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
             </div>
 
             <div id="emptyState" class="gallery-empty hidden">
@@ -450,7 +454,7 @@
             <button type="button" onclick="navigateLightbox(-1)" class="lightbox-nav w-12 h-12 rounded-full absolute right-3 z-10 grid place-items-center" aria-label="התמונה הקודמת">
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
-            <div class="lightbox-stage w-full h-full flex items-center justify-center p-4">
+            <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
                 <img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)">
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
