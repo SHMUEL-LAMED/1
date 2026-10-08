@@ -1247,6 +1247,7 @@ window.copyAdminDiagnostics = async function() {
         `פריטים: ${(window.state?.images || []).length}`,
         `תיקיות: ${(window.state?.folders || []).length}`,
         `ממתינים: ${(window.state?.pendingImages || []).length}`,
+        `סביבת API: ${window.API_ENVIRONMENT || 'production'}`,
         `Worker: ${R2_WORKER_BASE_URL}`
     ].join('\n');
 

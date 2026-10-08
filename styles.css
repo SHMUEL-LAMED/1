@@ -675,6 +675,39 @@ html[data-theme="light"] .aurora-orb { opacity: .75; }
 .header-status[data-state="online"]::before { animation: pulse-soft 2.4s ease-in-out infinite; }
 .header-status[data-state="locked"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
 
+/* רצועת "סביבת ניסוי": מופיעה רק כשהאתר פונה ל-Worker של הניסוי — app.js
+   מסמן html[data-api-environment="staging"]. היא יושבת על הקצה העליון של
+   הכותרת בלי לתפוס מקום בשורה עצמה, ולכן אינה מפריעה גם בטלפון. */
+.env-ribbon { display: none; }
+html[data-api-environment="staging"] .env-ribbon {
+    position: absolute;
+    top: -10px;
+    inset-inline-start: 22px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 10px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--violet-line);
+    background: linear-gradient(var(--violet-tint), var(--violet-tint)), var(--panel);
+    color: var(--violet);
+    box-shadow: var(--shadow-1);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    white-space: nowrap;
+}
+html[data-api-environment="staging"] .env-ribbon::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+
 .admin-back-link { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
 
 /* ==========================================================================

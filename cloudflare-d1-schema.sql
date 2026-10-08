@@ -70,3 +70,11 @@ CREATE TABLE IF NOT EXISTS client_errors (
 );
 CREATE INDEX IF NOT EXISTS idx_client_errors_resolved_seen
   ON client_errors (resolved_at, last_seen DESC);
+-- סימון הסביבה של המסד: ה-Worker הראשון שרץ מולו כותב כאן 'production' או
+-- 'staging', וכל Worker שמוצא ערך של הסביבה האחרת מסרב לשרת בקשות. כך Worker
+-- של הניסוי שחובר בטעות למסד הייצור נעצר לפני שהוא נוגע בנתונים.
+CREATE TABLE IF NOT EXISTS gallery_environment (
+  marker_key TEXT PRIMARY KEY,
+  environment TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
