@@ -206,8 +206,8 @@
                     <button type="button" onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="brain-circuit" class="w-4 h-4"></i><span>חיפוש AI</span>
                     </button>
-                    <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעלת מצגת">
-                        <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">מצגת</span>
+                    <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
+                        <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
                     </button>
                     <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="בחירה מרובה">
                         <i data-lucide="list-checks" class="w-4 h-4"></i><span class="hidden sm:inline">בחירה מרובה</span>
@@ -451,8 +451,8 @@
                 <p id="lightboxDetails" class="lightbox-sub text-xs">תאריך • קטגוריה</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעלת מצגת אוטומטית" aria-label="הפעלת מצגת אוטומטית" class="btn-secondary-dark w-11 h-11 rounded-full">
-                    <i data-lucide="play" class="w-5 h-5"></i>
+                <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעל מצגת" aria-label="הפעל מצגת" aria-pressed="false" class="btn-secondary-dark slideshow-toggle h-11 rounded-full">
+                    <i data-lucide="play" class="w-5 h-5"></i><span class="slideshow-toggle-text">הפעל מצגת</span>
                 </button>
                 <button type="button" id="lightboxDownload" title="הורדת קובץ" aria-label="הורדת קובץ המדיה" class="btn-secondary-dark w-11 h-11 rounded-full">
                     <i data-lucide="download" class="w-5 h-5"></i>
@@ -474,6 +474,28 @@
                 <i data-lucide="chevron-left" class="w-6 h-6"></i>
             </button>
         </div>
+        <!-- פקדי המצגת: מוצגים רק בזמן מצגת (lightbox-slideshow.js). -->
+        <div id="slideshowControls" class="slideshow-controls" hidden>
+            <div class="slideshow-progress" aria-hidden="true"><span id="slideshowProgress"></span></div>
+            <div class="slideshow-row">
+                <button type="button" id="slideshowPauseBtn" class="slideshow-btn" aria-label="השהיית המצגת" aria-keyshortcuts="Space" title="השהיה (רווח)">
+                    <i data-lucide="pause" class="w-5 h-5"></i>
+                </button>
+                <label class="slideshow-interval">
+                    <span>לשקופית</span>
+                    <select id="slideshowInterval" aria-label="זמן לכל שקופית">
+                        <option value="3000">3 שניות</option>
+                        <option value="5000" selected>5 שניות</option>
+                        <option value="8000">8 שניות</option>
+                    </select>
+                </label>
+                <button type="button" id="slideshowVideosBtn" class="slideshow-btn slideshow-chip" aria-pressed="true" title="ניגון סרטונים במצגת">סרטונים: מנגן</button>
+                <button type="button" id="slideshowStopBtn" class="slideshow-btn" aria-label="עצירת המצגת" aria-keyshortcuts="Escape" title="עצירה (Escape)">
+                    <i data-lucide="square" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+        <p id="slideshowStatus" class="sr-only" role="status" aria-live="polite"></p>
         <div class="text-center text-sm py-2"><span id="lightboxCounter">1 מתוך 10</span></div>
     </div>
 
