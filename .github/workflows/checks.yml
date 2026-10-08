@@ -29,12 +29,16 @@ jobs:
         run: npm run check:css
       - name: Run Worker tests
         run: npm test
+      - name: Build the site with Vite
+        run: npm run build
 
   # בדיקות דפדפן אמיתי (Playwright): האתר נטען ב-Chromium משרת סטטי מקומי,
   # וה-Worker וסקריפטי צד שלישי מוחלפים בזיופים — ראו e2e/fixtures.mjs.
+  # אותן בדיקות רצות פעמיים: על קובצי המקור (כפי שהענף מוגש היום) ועל תוצר
+  # הבנייה ב-dist/ (כפי שהוא נפרס מ-pages.yml).
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,8 +51,14 @@ jobs:
         run: npm install --ignore-scripts
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
-      - name: Run browser tests
+      - name: Run browser tests (source files)
         run: npm run test:e2e
+      - name: Build the site with Vite
+        run: npm run build
+      - name: Run browser tests (built site in dist/)
+        run: npm run test:e2e
+        env:
+          E2E_ROOT: dist
       - name: Upload traces and screenshots of failed tests
         if: failure()
         uses: actions/upload-artifact@v4

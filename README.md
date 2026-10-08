@@ -657,6 +657,8 @@ npx playwright test e2e/admin.spec.mjs   # קובץ בודד
 ```
 
 השרת הסטטי מאזין ב־`127.0.0.1:8080`; אם הפורט תפוס, `E2E_PORT=8123 npm run test:e2e`.
+אותן בדיקות רצות גם על תוצר הבנייה: `npm run build && E2E_ROOT=dist npm run test:e2e`
+(השרת מגיש אז את `dist/` באותם נתיבים). ב־CI שתי הריצות מתבצעות בכל PR.
 בכישלון נשמרים צילום מסך ו־trace תחת `test-results/`, וב־CI הם מצורפים לריצה
 כ־artifact. `node --test` אינו מריץ את קובצי `e2e/*.spec.mjs`, ולהפך.
 
@@ -672,6 +674,9 @@ npx playwright test e2e/admin.spec.mjs   # קובץ בודד
    חזרה ללשונית, במיקוד ובחזרת הרשת. תוכן שונה = גרסה חדשה. בשרת שאינו מריץ
    Jekyll (למשל בבדיקות) הקובץ נשאר לא מעובד, ואז הבדיקה נופלת ל־`ETag` של
    `index.html`. Service Worker חדש שתופס שליטה בדף מפעיל את אותו מסלול.
+   באתר הבנוי (`npm run build`, ראו "פריסה") אין Jekyll: `version.json`
+   נכתב בזמן הבנייה עם אותו מבנה בדיוק — `revision` מ־`GITHUB_SHA` ו־`builtAt`
+   משעת הבנייה — ולכן כל פריסה עדיין מזוהה כגרסה חדשה.
 2. **מרענן מיד כשאפשר.** לשונית מוסתרת מתרעננת בשקט; לשונית פעילה מתרעננת
    מיד — אלא אם המשתמש באמצע העלאה (`window.markSiteBusy('upload')`), הקלדה
    בשדה שיש בו טקסט, או צפייה בסרטון. אז מופיעה הודעה אחת והרענון מתבצע
@@ -688,7 +693,8 @@ npx playwright test e2e/admin.spec.mjs   # קובץ בודד
 
 ## פריסה
 
-האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main`. גם ה־Worker נפרס
+האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main` (מקובצי המקור, או
+מתוצר הבנייה של Vite אחרי המעבר — ראו "בניית ייצור ב־Vite" להלן). גם ה־Worker נפרס
 אוטומטית באמצעות `.github/workflows/deploy-worker.yml` בכל שינוי של
 `cloudflare-worker.js`: ענף `main` אל Worker הייצור, וענף `staging` אל
 `simchas-gallery-api-staging` של סביבת הניסוי (ראה "סביבת ניסוי" להלן).
@@ -708,6 +714,43 @@ Run workflow** ולבחור בשדה `target` לאן לפרוס: `production` ר
 ו־`staging` מותר מכל ענף.
 
 לפני מעבר סופי מומלץ להוריד גיבוי JSON ממסך הגיבוי שבלוח הניהול, ולאחר חיבור D1 לשחזר אותו דרך מסך הגיבוי באתר. קובצי המדיה עצמם נשארים ב־R2.
+
+### בניית ייצור ב־Vite והמעבר לפריסה מ־GitHub Actions
+
+`npm run build` בונה את האתר ב־Vite לתיקייה `dist/` (שאינה נשמרת במאגר): שני
+הדפים (`index.html`, `admin.html`) עם JS ו־CSS מאוגדים, מוקטנים ובשמות מגובבים
+תחת `assets/`, ובסיס יחסי (`base: './'`) כך שהתוצר עובד תחת `/1/` בלי לקבע את
+שם המאגר. התוסף `site-build.mjs` משלים את מה ש־Vite אינו עושה לבד:
+
+- מעתיק כמות שהם את `sw.js`, `manifest.webmanifest`, הסמלים ו־`admin-messages.html`.
+- כותב מחדש את `APP_SHELL` שב־`dist/sw.js` ממניפסט הבנייה של Vite: דף הגלריה,
+  ה־CSS וה־JS שהוא טוען (בשמות המגובבים) והסמלים. מודולי הניהול נשארים בחוץ
+  כמו במקור. `CACHE_VERSION` אינו משתנה, וממשיך לעלות יחד עם `SITE_VERSION`.
+- כותב `dist/version.json` אמיתי (commit וזמן בנייה) ו־`dist/.nojekyll`.
+
+קובצי המקור אינם משתנים ואין צורך בבנייה כדי לעבוד: `npm run dev` מריץ את שרת
+הפיתוח של Vite, `npm run preview` מגיש את `dist/` אחרי בנייה, ושרת סטטי פשוט על
+שורש המאגר ממשיך לעבוד כמו קודם.
+
+**הפריסה.** `.github/workflows/pages.yml` רץ בכל דחיפה ל־`main`: `npm ci`, בדיקת
+תחביר, `npm test`, `npm run build`, והעלאת `dist/` ל־GitHub Pages
+(`upload-pages-artifact` + `deploy-pages`). שלב הפריסה פועל **רק** כשמקור
+Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצה), והאתר ממשיך להיות
+מוגש מקובצי המקור שבענף `main` דרך Jekyll — בדיוק כמו היום. לכן שני המסלולים
+עובדים במקביל, ואין למחוק את קובצי המקור או את ה־front matter של `version.json`.
+
+**המעבר (פעולה אחת של בעל המאגר):**
+
+1. **Settings → Pages → Build and deployment → Source** → לבחור **GitHub Actions**.
+2. **Actions → Deploy site to GitHub Pages → Run workflow** (או לדחוף ל־`main`).
+   מעכשיו כל דחיפה ל־`main` בונה ופורסת את `dist/`.
+
+**חזרה לאחור:** באותו מסך לבחור שוב **Deploy from a branch** עם `main` ו־`/ (root)`
+ולשמור. GitHub Pages חוזר להגיש את קובצי המקור מהענף, ו־`pages.yml` חוזר לדלג
+על שלב הפריסה. אין צורך לשנות קוד בשום כיוון.
+
+אתר הניסוי ב־Cloudflare Pages (ענף `staging`) אינו מושפע ומוגש כמו קודם מקובצי
+המקור, בלי בנייה.
 
 ### הבדיקה האדומה של Workers Builds — אין לתקן אותה בהוספת wrangler.jsonc
 

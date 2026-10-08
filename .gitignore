@@ -3,3 +3,5 @@ test-results/
 playwright-report/
 # עותקי עבודה זמניים של סוכני Claude Code
 .claude/worktrees/
+# תוצר הבנייה של Vite (npm run build); נפרס מ-Actions ואינו נשמר במאגר
+dist/

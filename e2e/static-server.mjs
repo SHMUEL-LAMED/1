@@ -3,12 +3,21 @@
 // מגיש את שורש המאגר כפי ש-GitHub Pages מגיש אותו: הקבצים כמות שהם, עם
 // סוגי התוכן הנכונים ובלי מטמון, כדי שכל בדיקה תטען את הקוד העדכני.
 // אין כאן תלות חיצונית: http ו-fs של Node בלבד.
+//
+// E2E_ROOT מחליף את התיקייה שמוגשת, יחסית לשורש המאגר: E2E_ROOT=dist מריץ
+// את אותן בדיקות על תוצר הבנייה (npm run build), באותם נתיבים בדיוק.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.resolve(REPO_ROOT, process.env.E2E_ROOT || '.');
+
+if (!fs.existsSync(path.join(ROOT, 'index.html'))) {
+    console.error(`static server: ${ROOT}/index.html אינו קיים (הורץ npm run build?)`);
+    process.exit(1);
+}
 const HOST = '127.0.0.1';
 const PORT = Number(process.argv[2] || process.env.E2E_PORT) || 8080;
 
