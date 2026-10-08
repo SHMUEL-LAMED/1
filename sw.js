@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v45";
+const CACHE_VERSION = "v48";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -27,6 +27,7 @@ const APP_SHELL = [
   "./face-search.js",
   "./cloudflare-client.js",
   "./api-environment.js",
+  "./auto-update.js",
   "./manifest.webmanifest",
   "./favicon-32.png",
   "./icon-192.png",
@@ -95,10 +96,24 @@ function staleWhileRevalidate(request, cacheName) {
   );
 }
 
+// ב-HTTP cache של הדפדפן קובץ נחשב טרי עד עשר דקות (max-age של GitHub Pages),
+// ולכן רענון מיד אחרי פריסה היה עלול להביא קוד ישן מהמטמון. no-cache מאמת
+// כל קובץ מול השרת (304 כשאין שינוי), כך שרענון אחרי פריסה מביא תמיד את
+// הגרסה החדשה — זה מה שמאפשר ל-auto-update.js לרענן את הדף מיד.
+// בקשת ניווט אינה ניתנת לשכפול עם הגדרות, והדפדפן ממילא מאמת את הדף ברענון.
+function freshRequest(request) {
+  if (request.mode === "navigate") return request;
+  try {
+    return new Request(request, { cache: "no-cache" });
+  } catch {
+    return request;
+  }
+}
+
 // קודם רשת, ובנפילה בלבד חוזרים למטמון. מתאים לקוד של האתר: גרסה חדשה
 // מגיעה למשתמש כבר בטעינה הראשונה אחרי פריסה, והמטמון נשאר גיבוי לאופליין.
 function networkFirst(request, cacheName) {
-  return fetch(request)
+  return fetch(freshRequest(request))
     .then(response => {
       if (response && response.ok) {
         const copy = response.clone();
@@ -114,6 +129,9 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
+
+  // סימון הגרסה של האתר נקרא תמיד מהרשת: הוא הדרך לגלות שעלתה פריסה חדשה.
+  if (/\/version\.json$/i.test(url.pathname)) return;
 
   // נכסי מנוע זיהוי הפנים מגיעים מה-Worker ולכן נבדקים לפני סינון המקור.
   if (FACE_ASSET_PATTERN.test(url.pathname)) {
