@@ -1,6 +1,7 @@
 // מסלול המיגרציה של D1 על מסד ייצור קיים: מסד בגרסת סכימה 4, עם גרסאות
 // הנתונים של שכבת הנתונים (data_version:<אוסף>) ובלי טבלת התצוגות. הבקשה
-// הראשונה של ה-Worker החדש חייבת ליצור את media_variant_files, לעלות לגרסה 5,
+// הראשונה של ה-Worker החדש חייבת ליצור את media_variant_files ואת טבלאות
+// ההעלאה בחלקים ו-Stream (גרסה 6), לעלות לגרסה הנוכחית,
 // לא לגעת בגרסאות הנתונים — ושכבת הנתונים (ETag) וצירוף תצוגות עובדים יחד.
 // קובץ נפרד, כי ה-Worker זוכר בזיכרון שהסכימה כבר הוכנה.
 import test from "node:test";
@@ -63,6 +64,8 @@ function productionDatabaseAtVersion4() {
   const d1 = new D1();
   d1.database.exec(readFileSync(new URL("./cloudflare-d1-schema.sql", import.meta.url), "utf8"));
   d1.database.exec("DROP TABLE media_variant_files");
+  // הטבלאות של גרסה 6 לא היו קיימות במסד בגרסה 4.
+  for (const table of ["upload_sessions", "upload_session_parts", "stream_videos"]) d1.database.exec(`DROP TABLE ${table}`);
   d1.database.exec(`CREATE TABLE gallery_schema_meta (schema_key TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
   d1.database.exec(`CREATE TABLE user_email_index (normalized_email TEXT PRIMARY KEY, document_id TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
   const insertMeta = d1.database.prepare("INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES (?, ?, 1)");
@@ -107,7 +110,7 @@ test.before(() => {
 });
 test.after(() => { globalThis.fetch = originalFetch; });
 
-test("מסד ייצור בגרסה 4 עולה לגרסה 5: טבלת התצוגות נוצרת, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
+test("מסד ייצור בגרסה 4 עולה לגרסה 6: טבלת התצוגות וטבלאות ההעלאה בחלקים נוצרות, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
   const d1 = productionDatabaseAtVersion4();
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: new R2() };
 
@@ -118,10 +121,13 @@ test("מסד ייצור בגרסה 4 עולה לגרסה 5: טבלת התצוג�
   assert.ok(etag);
 
   const tables = d1.database.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").all().map(row => row.name);
-  for (const name of ["media_variant_files", "idx_media_variant_files_image", "gallery_documents", "image_face_descriptors", "client_errors", "gallery_environment"]) {
+  for (const name of [
+    "media_variant_files", "idx_media_variant_files_image", "gallery_documents", "image_face_descriptors", "client_errors", "gallery_environment",
+    "upload_sessions", "idx_upload_sessions_owner", "upload_session_parts", "stream_videos"
+  ]) {
     assert.ok(tables.includes(name), `${name} חסר אחרי המיגרציה`);
   }
-  assert.equal(meta(d1, "gallery"), 5);
+  assert.equal(meta(d1, "gallery"), 6);
   // המיגרציה אינה נוגעת בגרסאות הנתונים של שכבת הנתונים.
   assert.equal(meta(d1, "data_version:images"), 1000);
   assert.equal(meta(d1, "data_version:userProfiles"), 2000);

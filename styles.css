@@ -2015,6 +2015,22 @@ body textarea { resize: vertical; min-height: 84px; }
     transition: transform .35s var(--ease-spring), background .2s var(--ease);
 }
 .gallery-card:hover .gallery-play > span { transform: scale(1.1); background: var(--gold-foil); color: var(--ink-on-accent); }
+/* תצוגה מקדימה בריחוף (video-hover-preview.js): בזמן שהסרטון רץ בכרטיס,
+   כפתור ההפעלה מתפנה ממנו ופס דק מסמן שזו רק טעימה של כמה שניות. */
+.gallery-card.is-previewing .gallery-play { opacity: 0; transition: opacity .2s var(--ease); }
+.gallery-card.is-previewing .gallery-media::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 3;
+    height: 3px;
+    background: var(--gold);
+    transform-origin: right center;
+    animation: hover-preview-progress 4s linear both;
+    pointer-events: none;
+}
+@keyframes hover-preview-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 .gallery-caption {
     display: flex;
@@ -2531,6 +2547,85 @@ body textarea { resize: vertical; min-height: 84px; }
 .toast-title { font-size: 13px; font-weight: 800; color: var(--ink); }
 .toast-impact { font-size: 11px; font-weight: 600; color: var(--ink-3); line-height: 1.5; }
 @keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* --- תור ההעלאה: סרגל לכל קובץ, ביטול, סיכום כולל ---
+   הסרגל ממלא את עצמו מ"ההתחלה" של השורה (ימין ב-RTL) לפי --upload-progress,
+   שנכתב מ-gallery.js. כל הצבעים מאסימונים; המצב נקרא מ-data-upload-state. */
+.upload-queue-progress {
+    --upload-tone: var(--cyan);
+    position: relative;
+    height: 4px;
+    margin-top: 5px;
+    border-radius: var(--r-full);
+    background: var(--line);
+    overflow: hidden;
+}
+.upload-queue-progress-bar {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: var(--upload-progress, 0%);
+    border-radius: inherit;
+    background: var(--upload-tone);
+    transition: width .3s var(--ease);
+}
+[data-upload-state="success"] .upload-queue-progress { --upload-tone: var(--green); }
+[data-upload-state="error"] .upload-queue-progress { --upload-tone: var(--danger); }
+[data-upload-state="waiting"] .upload-queue-progress { --upload-tone: var(--gold); }
+[data-upload-state="cancelled"] .upload-queue-progress { --upload-tone: var(--ink-4); }
+[data-upload-state="cancelled"] .upload-queue-status { text-decoration: line-through; }
+.upload-queue-percent { font-variant-numeric: tabular-nums; }
+.upload-queue-cancel {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    transition: color .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease);
+}
+.upload-queue-cancel:hover,
+.upload-queue-cancel:focus-visible { color: var(--danger); border-color: var(--danger-line); background: var(--danger-tint); }
+.upload-queue-cancel[hidden] { display: none; }
+.upload-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+}
+.upload-summary-progress { height: 6px; margin-top: 0; --upload-tone: var(--gold); }
+.upload-summary-text { font-size: 11px; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.upload-resume-hint {
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    color: var(--ink-2);
+    font-size: 11px;
+    line-height: 1.55;
+}
+.upload-original-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-softer);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-2);
+    cursor: pointer;
+}
+.upload-original-toggle input { margin-top: 3px; accent-color: var(--gold); }
+.upload-original-toggle > span { display: flex; flex-direction: column; gap: 2px; }
+.upload-original-toggle.hidden { display: none; }
 
 /* ==========================================================================
    15. האזור האישי (מגירה) ופאנל הפרופיל

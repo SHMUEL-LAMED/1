@@ -298,6 +298,8 @@ function openModal(id) {
     m.setAttribute('aria-hidden', 'false');
     const firstControl = m.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
     if (firstControl) requestAnimationFrame(() => firstControl.focus({ preventScroll: true }));
+    // חלון ההעלאה: מתג "הקובץ המקורי" למנהלים, ותזכורת להעלאות שלא הושלמו.
+    if (id === 'userUploadModal') window.prepareUploadModal?.();
 }
 
 
@@ -627,33 +629,89 @@ installErrorMonitor({
     getToken: async () => (window.state?.currentUser ? window.getFirebaseIdToken?.() : null)
 });
 
+function uploadCancelledError() {
+    const error = new Error('ההעלאה בוטלה.');
+    error.name = 'AbortError';
+    error.code = 'upload_cancelled';
+    return error;
+}
+
+function storageError(status, payload) {
+    // הקוד והסטטוס נשמרים על אובייקט השגיאה כדי שקוראים יוכלו להבחין בין
+    // עומס זמני, חוסר הרשאה ונתיב שאינו קיים ב-Worker הפרוס.
+    const error = new Error(payload?.message || payload?.error || `שגיאת שרת האחסון (${status}).`);
+    error.status = status;
+    error.code = payload?.code || 'request_failed';
+    return error;
+}
+
+// options.signal — ביטול מבחוץ (כפתור "בטל" בתור ההעלאה); options.timeoutMs —
+// הזמן המרבי לבקשה. ביטול מבחוץ נזרק כ-AbortError, וזמן קצוב — כשגיאת רשת
+// שאפשר לנסות שוב.
 async function r2Request(path, options = {}) {
+    const { signal: outerSignal, timeoutMs = 45000, ...fetchOptions } = options;
+    if (outerSignal?.aborted) throw uploadCancelledError();
     const token = await window.getFirebaseIdToken();
-    const headers = new Headers(options.headers || {});
+    const headers = new Headers(fetchOptions.headers || {});
     headers.set('Authorization', `Bearer ${token}`);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const onOuterAbort = () => controller.abort();
+    outerSignal?.addEventListener('abort', onOuterAbort, { once: true });
     let response;
     try {
-        response = await fetch(`${R2_WORKER_BASE_URL}${path}`, { ...options, headers, signal: controller.signal });
+        response = await fetch(`${R2_WORKER_BASE_URL}${path}`, { ...fetchOptions, headers, signal: controller.signal });
     } catch (error) {
+        if (outerSignal?.aborted) throw uploadCancelledError();
         if (error?.name === 'AbortError') throw new Error('ההעלאה ארכה יותר מדי. בדוק את החיבור ונסה שוב.');
         throw new Error('לא ניתן להתחבר לשרת האחסון. נסה שוב בעוד רגע.');
     } finally {
         clearTimeout(timeoutId);
+        outerSignal?.removeEventListener('abort', onOuterAbort);
     }
 
     let payload = null;
     try { payload = await response.json(); } catch (error) {}
-    if (!response.ok) {
-        // הקוד והסטטוס נשמרים על אובייקט השגיאה כדי שקוראים יוכלו להבחין בין
-        // עומס זמני, חוסר הרשאה ונתיב שאינו קיים ב-Worker הפרוס.
-        const error = new Error(payload?.message || payload?.error || `שגיאת שרת האחסון (${response.status}).`);
-        error.status = response.status;
-        error.code = payload?.code || 'request_failed';
-        throw error;
-    }
+    if (!response.ok) throw storageError(response.status, payload);
     return payload;
+}
+
+// אותו חוזה כמו r2Request, אבל עם דיווח התקדמות של השליחה (XMLHttpRequest —
+// fetch אינו מדווח על התקדמות העלאה). משמש את תור ההעלאה לסרגל של כל קובץ.
+async function r2Send(path, { method = 'POST', body, headers = {}, signal, onProgress, timeoutMs = 120000 } = {}) {
+    if (typeof onProgress !== 'function' || typeof XMLHttpRequest !== 'function') {
+        return r2Request(path, { method, body, headers, signal, timeoutMs });
+    }
+    if (signal?.aborted) throw uploadCancelledError();
+    const token = await window.getFirebaseIdToken();
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const onAbort = () => xhr.abort();
+        const cleanup = () => signal?.removeEventListener('abort', onAbort);
+        xhr.open(method, `${R2_WORKER_BASE_URL}${path}`);
+        xhr.timeout = timeoutMs;
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+        xhr.upload.onprogress = event => {
+            if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+        };
+        xhr.onload = () => {
+            cleanup();
+            let payload = null;
+            try { payload = JSON.parse(xhr.responseText); } catch (error) {}
+            if (xhr.status >= 200 && xhr.status < 300) {
+                onProgress(1);
+                resolve(payload);
+            } else {
+                reject(storageError(xhr.status, payload));
+            }
+        };
+        xhr.onerror = () => { cleanup(); reject(new Error('לא ניתן להתחבר לשרת האחסון. נסה שוב בעוד רגע.')); };
+        xhr.ontimeout = () => { cleanup(); reject(new Error('ההעלאה ארכה יותר מדי. בדוק את החיבור ונסה שוב.')); };
+        xhr.onabort = () => { cleanup(); reject(uploadCancelledError()); };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        xhr.send(body);
+    });
 }
 
 function formatBytes(bytes) {
@@ -694,21 +752,103 @@ async function appendMediaVariantsToForm(form, mediaBlob) {
     }
 }
 
+// קובץ גדול מחלק אחד (8MiB) עולה בחלקים דרך upload-resumable.js, וקטן ממנו —
+// בבקשה אחת כמו קודם. הערך זהה ל-RESUMABLE_THRESHOLD שבמודול.
+const RESUMABLE_UPLOAD_THRESHOLD = 8 * 1024 * 1024;
+const MAX_SINGLE_VIDEO_BYTES = 100 * 1024 * 1024;
+const MAX_RESUMABLE_VIDEO_BYTES = 1024 * 1024 * 1024;
+
+// ממשק הרשת של ההעלאה בחלקים, מעל נתיבי /upload/multipart/* שב-Worker.
+function resumableUploadApi() {
+    const jsonPost = (path, payload, signal) => r2Request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal
+    });
+    return {
+        create: (meta, { signal } = {}) => jsonPost('/upload/multipart/create', meta, signal),
+        status: (uploadId, { signal } = {}) => r2Request(`/upload/multipart/status?uploadId=${encodeURIComponent(uploadId)}`, { signal }),
+        uploadPart: (uploadId, partNumber, blob, { signal, onProgress } = {}) => r2Send(
+            `/upload/multipart/part?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
+            { method: 'PUT', body: blob, headers: { 'Content-Type': 'application/octet-stream' }, signal, onProgress, timeoutMs: 180000 }
+        ),
+        complete: (uploadId, appendExtras, { signal } = {}) => {
+            const form = new FormData();
+            form.append('uploadId', uploadId);
+            if (typeof appendExtras === 'function') appendExtras(form);
+            return r2Request('/upload/multipart/complete', { method: 'POST', body: form, signal, timeoutMs: 120000 });
+        },
+        abort: uploadId => jsonPost('/upload/multipart/abort', { uploadId })
+    };
+}
+
+// מפתח ההמשך של העלאה: טביעת הקובץ שתור ההעלאה חישב, או — לקוראים אחרים
+// (סנכרון Drive) — מזהה המדיה, שמאפשר המשך בניסיון חוזר באותה כניסה.
+function resumeKeyFor(imgId, options) {
+    return options.resumeKey || `${window.state.currentUser?.uid || 'anon'}:id:${safeRecordId(imgId)}`;
+}
+
+async function uploadMediaInParts(mediaBlob, imgId, cleanTitle, options) {
+    const { uploadResumable } = await import('./upload-resumable.js');
+    return uploadResumable({
+        blob: mediaBlob,
+        fingerprint: resumeKeyFor(imgId, options),
+        meta: {
+            imageId: safeRecordId(imgId),
+            title: cleanTitle,
+            fileName: options.fileName || cleanTitle,
+            mimeType: mediaBlob.type,
+            capturedAt: options.capturedAt || '',
+            scope: window.state.currentUser?.uid || ''
+        },
+        api: resumableUploadApi(),
+        signal: options.signal,
+        onProgress: fraction => options.onProgress?.(fraction),
+        // התצוגות המקדימות נוצרות רק לקראת ההשלמה, כדי שלא יחושבו שוב בכל המשך.
+        completeExtras: options.variants === false ? null : async () => {
+            const form = new FormData();
+            await appendMediaVariantsToForm(form, mediaBlob);
+            return target => { for (const [name, value] of form.entries()) target.append(name, value); };
+        }
+    });
+}
+
+// ביטול מפורש מתור ההעלאה: מבטל את ההעלאה בחלקים ב-Worker ושוכח אותה.
+window.abortResumableUpload = async function(resumeKey) {
+    if (!resumeKey) return false;
+    const { abortResumableUpload } = await import('./upload-resumable.js');
+    return abortResumableUpload(resumeKey, { api: resumableUploadApi() });
+};
+
 window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מדיה', options = {}) {
     if (!(mediaBlob instanceof Blob)) throw new Error('קובץ המדיה אינו תקין.');
     const isVideo = String(mediaBlob.type || '').startsWith('video/');
-    if (isVideo && mediaBlob.size > 100 * 1024 * 1024) throw new Error('גודל הסרטון חייב להיות עד 100MB.');
+    const inParts = options.resumable !== false && mediaBlob.size > RESUMABLE_UPLOAD_THRESHOLD;
+    if (isVideo && mediaBlob.size > (inParts ? MAX_RESUMABLE_VIDEO_BYTES : MAX_SINGLE_VIDEO_BYTES)) {
+        throw new Error(inParts ? 'גודל הסרטון חייב להיות עד 1GB.' : 'גודל הסרטון חייב להיות עד 100MB.');
+    }
     const cleanTitle = String(title || 'קובץ מדיה').replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 100) || 'קובץ מדיה';
-    const form = new FormData();
-    const extension = mediaBlob.type === 'video/webm' ? 'webm' : (isVideo ? 'mp4' : 'jpg');
-    form.append('file', mediaBlob, `${safeRecordId(imgId) || 'media'}.${extension}`);
-    form.append('imageId', safeRecordId(imgId));
-    form.append('title', cleanTitle);
-    if (options.variants !== false) await appendMediaVariantsToForm(form, mediaBlob);
-    const result = await r2Request('/upload', {
-        method: 'POST',
-        body: form
-    });
+    let result;
+    if (inParts) {
+        result = await uploadMediaInParts(mediaBlob, imgId, cleanTitle, options);
+    } else {
+        const form = new FormData();
+        const extension = mediaBlob.type === 'video/webm' ? 'webm' : (isVideo ? 'mp4' : (mediaBlob.type === 'image/webp' ? 'webp' : 'jpg'));
+        form.append('file', mediaBlob, `${safeRecordId(imgId) || 'media'}.${extension}`);
+        form.append('imageId', safeRecordId(imgId));
+        form.append('title', cleanTitle);
+        if (options.capturedAt) form.append('capturedAt', String(options.capturedAt));
+        if (options.variants !== false) await appendMediaVariantsToForm(form, mediaBlob);
+        if (options.signal?.aborted) throw uploadCancelledError();
+        result = await r2Send('/upload', {
+            method: 'POST',
+            body: form,
+            signal: options.signal,
+            onProgress: options.onProgress,
+            timeoutMs: isVideo ? 180000 : 45000
+        });
+    }
     if (!result?.url || !result?.key) throw new Error('שרת האחסון לא החזיר כתובת לקובץ.');
     const storedMedia = {
         url: result.url,
@@ -723,26 +863,45 @@ window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מד
         storedMedia.variants = result.variants;
         storedMedia.variantsVersion = Number(result.variantsVersion) || 1;
     }
+    // Cloudflare Stream (רשות): כשה-Worker שלח את הסרטון ל-Stream, הרשומה
+    // נושאת את כתובות הניגון ב-HLS. בלי Stream השדה פשוט אינו קיים.
+    const stream = streamFromResult(result);
+    if (stream) storedMedia.stream = stream;
     return storedMedia;
 };
+
+function streamFromResult(result) {
+    const stream = result?.stream;
+    if (!stream || typeof stream !== 'object' || !stream.uid) return null;
+    return { uid: String(stream.uid), hls: String(stream.hls || ''), iframe: String(stream.iframe || '') };
+}
 
 window.uploadImageToR2 = async function(base64Data, imgId, title = 'תמונה', options = {}) {
     return window.uploadMediaToR2(dataUrlToBlob(base64Data), imgId, title, options);
 };
 
-async function prepareMediaRecordForCloud(record, mediaId) {
-    const { sourceFile, thumbnailDataUrl, _isDuplicate, ...cleanRecord } = record;
+// uploadOptions: { signal, onProgress, resumeKey } מתור ההעלאה — ביטול,
+// התקדמות, והמפתח שלפיו העלאה בחלקים ממשיכה מהמקום שנעצרה.
+async function prepareMediaRecordForCloud(record, mediaId, uploadOptions = {}) {
+    const { sourceFile, thumbnailDataUrl, _isDuplicate, _resumeKey, _resumeFrom, ...cleanRecord } = record;
     let preparedRecord = cleanRecord;
+    const mediaOptions = {
+        signal: uploadOptions.signal,
+        onProgress: uploadOptions.onProgress,
+        resumeKey: uploadOptions.resumeKey || _resumeKey || '',
+        capturedAt: cleanRecord.capturedAt || '',
+        fileName: sourceFile?.name || ''
+    };
     if (sourceFile instanceof Blob) {
-        const storedMedia = await window.uploadMediaToR2(sourceFile, mediaId, cleanRecord.title);
+        const storedMedia = await window.uploadMediaToR2(sourceFile, mediaId, cleanRecord.title, mediaOptions);
         preparedRecord = { ...cleanRecord, ...storedMedia };
     } else if (cleanRecord.url && cleanRecord.url.startsWith('data:')) {
-        const storedImage = await window.uploadImageToR2(cleanRecord.url, mediaId, cleanRecord.title);
+        const storedImage = await window.uploadImageToR2(cleanRecord.url, mediaId, cleanRecord.title, mediaOptions);
         preparedRecord = { ...cleanRecord, ...storedImage };
     }
     if (thumbnailDataUrl) {
         // התמונה המקדימה הישנה של סרטון היא קובץ משני; אין טעם בתצוגות לתצוגה.
-        const storedThumbnail = await window.uploadImageToR2(thumbnailDataUrl, `${mediaId}_thumb`, `${cleanRecord.title || 'סרטון'}-תמונה-מקדימה`, { variants: false });
+        const storedThumbnail = await window.uploadImageToR2(thumbnailDataUrl, `${mediaId}_thumb`, `${cleanRecord.title || 'סרטון'}-תמונה-מקדימה`, { variants: false, signal: uploadOptions.signal });
         preparedRecord.thumbnailUrl = storedThumbnail.url;
         preparedRecord.thumbnailR2Key = storedThumbnail.r2Key;
     }
@@ -771,6 +930,9 @@ window.approveImageInR2 = async function(imageRecord) {
     });
     if (!result?.url || !result?.key) throw new Error('שרת האחסון לא השלים את אישור התמונה.');
     const approvedRecord = { ...imageRecord, url: result.url, r2Key: result.key, status: 'active' };
+    // סרטון שאושר נשלח ל-Stream ברגע האישור (כשהוא מוגדר ב-Worker).
+    const stream = streamFromResult(result);
+    if (stream) approvedRecord.stream = stream;
     const thumbnailKey = String(imageRecord?.thumbnailR2Key || '');
     if (thumbnailKey.startsWith('pending/')) {
         const thumbnailResult = await r2Request('/approve', {
@@ -812,7 +974,16 @@ window.deleteFolderCloud = async function(id) {
     await deleteDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'folders', folderId));
 };
 
-window.saveImageToCloud = async function(imgData) {
+// שגיאת העלאה עם הסטטוס והקוד המקוריים: תור ההעלאה מבחין לפיהם בין כשל
+// זמני (ניסיון חוזר) לבין כשל קבוע (סוג קובץ, גודל, הרשאה).
+function uploadFailure(error) {
+    const failure = new Error(error?.message || 'העלאת הקובץ לאחסון נכשלה.');
+    if (error?.status) failure.status = error.status;
+    if (error?.code) failure.code = error.code;
+    return failure;
+}
+
+window.saveImageToCloud = async function(imgData, uploadOptions = {}) {
     if (!window.db) throw new Error('החיבור לענן עדיין לא מוכן. נסה שוב בעוד רגע.');
     const canUploadDirectly = window.state.isAdminLoggedIn || (
         window.state.userApprovalStatus === 'approved' && window.state.userRole === 'uploader'
@@ -823,10 +994,11 @@ window.saveImageToCloud = async function(imgData) {
     if (!imageId) throw new Error('מזהה התמונה אינו תקין.');
     let imageRecord;
     try {
-        imageRecord = await prepareMediaRecordForCloud({ ...imgData, id: imageId }, imageId);
+        imageRecord = await prepareMediaRecordForCloud({ ...imgData, id: imageId }, imageId, uploadOptions);
     } catch(e) {
+        if (e?.name === 'AbortError') throw e;
         console.error('R2 upload failed:', e);
-        throw new Error(e.message || 'העלאת הקובץ לאחסון נכשלה.');
+        throw uploadFailure(e);
     }
 
     const { doc, setDoc } = window.firestoreModules;
@@ -869,7 +1041,7 @@ window.deleteImageCloud = async function(id) {
     await deleteDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'images', imageId));
 };
 
-window.savePendingImageCloud = async function(imgData) {
+window.savePendingImageCloud = async function(imgData, uploadOptions = {}) {
     if (!window.db) throw new Error('החיבור לענן עדיין לא מוכן. נסה שוב בעוד רגע.');
     if (window.state.userApprovalStatus !== 'approved' || window.state.userRole !== 'viewer') {
         throw new Error('העלאה לאישור זמינה רק למשתמש מאושר בדרגה 1.');
@@ -886,10 +1058,11 @@ window.savePendingImageCloud = async function(imgData) {
     };
 
     try {
-        imageRecord = await prepareMediaRecordForCloud(imageRecord, imageId);
+        imageRecord = await prepareMediaRecordForCloud(imageRecord, imageId, uploadOptions);
     } catch(e) {
+        if (e?.name === 'AbortError') throw e;
         console.error('R2 upload failed:', e);
-        throw new Error(e.message || 'העלאת הקובץ לאחסון נכשלה.');
+        throw uploadFailure(e);
     }
 
     const { doc, setDoc } = window.firestoreModules;

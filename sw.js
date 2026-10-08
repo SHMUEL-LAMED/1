@@ -23,6 +23,7 @@ const APP_SHELL = [
   "./gallery.js",
   "./gallery-feed.js",
   "./media-variants.js",
+  "./video-hover-preview.js",
   "./session-auth.js",
   "./popup-announcement.js",
   "./face-search.js",

@@ -3,6 +3,8 @@
 
 // בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
 import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+// תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
+import { installVideoHoverPreview } from './video-hover-preview.js';
 
 let currentFilteredImages = [];
 
@@ -1071,11 +1073,26 @@ function isSupportedMediaFile(file) {
     ));
 }
 
+// טביעת התוכן לזיהוי כפילויות. קובץ גדול (סרטון של מאות מגה) אינו נקרא
+// כולו לזיכרון: נגזרת טביעה מהגודל ומדגימות בתחילתו, באמצעו ובסופו. הקידומת
+// "s1:" מבטיחה שטביעה כזו לעולם אינה שווה לטביעה מלאה של קובץ אחר.
+const FULL_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
+const FINGERPRINT_SAMPLE_BYTES = 1024 * 1024;
+
 async function createFileFingerprint(file) {
     if (!(file instanceof Blob) || !window.crypto?.subtle) return '';
-    const bytes = await file.arrayBuffer();
-    const digest = await window.crypto.subtle.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+    const hex = digest => Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+    if (file.size <= FULL_FINGERPRINT_MAX_BYTES) {
+        return hex(await window.crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+    }
+    const middle = Math.floor(file.size / 2);
+    const samples = await new Blob([
+        String(file.size),
+        file.slice(0, FINGERPRINT_SAMPLE_BYTES),
+        file.slice(middle, middle + FINGERPRINT_SAMPLE_BYTES),
+        file.slice(file.size - FINGERPRINT_SAMPLE_BYTES)
+    ]).arrayBuffer();
+    return `s1:${hex(await window.crypto.subtle.digest('SHA-256', samples))}`;
 }
 
 let duplicateUploadResolver = null;
@@ -1179,16 +1196,63 @@ function formatMediaDuration(seconds) {
     return `${minutes}:${remaining}`;
 }
 
+// --- תור ההעלאה ---
+// כל קובץ שנבחר מקבל שורה עם סרגל התקדמות, מצב וכפתור ביטול. אחרי ההכנה
+// (טביעה, הקטנת תמונה ענקית, בדיקת כפילויות) הקבצים נכנסים לתור של
+// upload-queue.js: שניים במקביל, וכשל זמני (רשת, עומס, שגיאת שרת) מנוסה שוב
+// מאליו אחרי השהיה גדלה — 1, 2, 4 שניות. קובץ גדול עולה בחלקים
+// (upload-resumable.js) וממשיך מהחלק האחרון גם אחרי ניתוק או רענון.
+// המודולים נטענים עצלה, רק כשמישהו באמת מעלה.
+
+// סרטון שעולה בחלקים יכול להגיע עד 1GB (ראו MAX_RESUMABLE_VIDEO_BYTES ב-Worker).
+const MAX_VIDEO_UPLOAD_BYTES = 1024 * 1024 * 1024;
+const UPLOAD_CONCURRENCY = 2;
+
+let uploadModulesPromise = null;
+function loadUploadModules() {
+    uploadModulesPromise ||= Promise.all([
+        import('./upload-queue.js'),
+        import('./upload-resumable.js'),
+        import('./upload-compress.js')
+    ]).then(([queue, resumable, compress]) => ({ queue, resumable, compress })).catch(error => {
+        uploadModulesPromise = null;
+        throw error;
+    });
+    return uploadModulesPromise;
+}
+
+// קבצים שהמשתמש ביטל, לפי מיכל התור ומספר השורה — גם לפני שהתור התחיל.
+const cancelledUploadRows = new Set();
+let activeUploadQueue = null;
+let activeUploadContainer = '';
+// מזהה פריט בתור → { containerId, index, resumeKey }.
+const uploadQueueRows = new Map();
+
+function uploadRowKey(containerId, index) {
+    return `${containerId}:${index}`;
+}
+
+function formatFileSize(size) {
+    return size >= 1024 * 1024 * 1024
+        ? `${(size / (1024 * 1024 * 1024)).toFixed(2)}GB`
+        : size >= 1024 * 1024
+            ? `${(size / (1024 * 1024)).toFixed(1)}MB`
+            : `${Math.max(1, Math.round(size / 1024))}KB`;
+}
+
 window.renderSelectedUploadQueue = function(inputIds, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
     const files = (inputIds || []).flatMap(id => Array.from(document.getElementById(id)?.files || [])).filter(isSupportedMediaFile);
     container.replaceChildren();
     container.classList.toggle('hidden', files.length === 0);
+    for (const key of [...cancelledUploadRows]) if (key.startsWith(`${containerId}:`)) cancelledUploadRows.delete(key);
     files.forEach((file, index) => {
+        const displayName = file.webkitRelativePath || file.name;
         const row = document.createElement('div');
         row.dataset.uploadIndex = String(index);
-        row.className = 'flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2';
+        row.dataset.uploadState = 'queued';
+        row.className = 'upload-queue-row flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2';
         const icon = document.createElement('span');
         icon.className = 'upload-queue-icon text-amber-400';
         icon.innerHTML = `<i data-lucide="${isSupportedVideoFile(file) ? 'video' : 'image'}" class="w-3.5 h-3.5"></i>`;
@@ -1196,52 +1260,131 @@ window.renderSelectedUploadQueue = function(inputIds, containerId) {
         body.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
         name.className = 'text-[10px] font-bold text-slate-200 truncate';
-        name.textContent = file.webkitRelativePath || file.name;
+        name.textContent = displayName;
         const size = document.createElement('p');
-        size.className = 'text-[8px] text-slate-500';
-        size.textContent = file.size >= 1024 * 1024
-            ? `${(file.size / (1024 * 1024)).toFixed(1)}MB`
-            : `${Math.max(1, Math.round(file.size / 1024))}KB`;
-        body.append(name, size);
+        size.className = 'upload-queue-size text-[8px] text-slate-500';
+        size.textContent = formatFileSize(file.size);
+        // האחוז מוצג לעין בלבד: הקוראים שומעים את המצב (aria-live של התור)
+        // ואת ערך סרגל ההתקדמות, בלי הכרזה על כל אחוז.
+        const percent = document.createElement('span');
+        percent.className = 'upload-queue-percent';
+        percent.setAttribute('aria-hidden', 'true');
+        size.appendChild(percent);
+        const track = document.createElement('div');
+        track.className = 'upload-queue-progress';
+        track.setAttribute('role', 'progressbar');
+        track.setAttribute('aria-valuemin', '0');
+        track.setAttribute('aria-valuemax', '100');
+        track.setAttribute('aria-valuenow', '0');
+        track.setAttribute('aria-label', `התקדמות ההעלאה של ${displayName}`);
+        const bar = document.createElement('span');
+        bar.className = 'upload-queue-progress-bar';
+        track.appendChild(bar);
+        body.append(name, size, track);
         const status = document.createElement('span');
         status.className = 'upload-queue-status text-[9px] text-slate-400';
         status.textContent = 'ממתין';
-        row.append(icon, body, status);
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'upload-queue-cancel';
+        cancel.setAttribute('aria-label', `ביטול ההעלאה של ${displayName}`);
+        cancel.title = 'ביטול';
+        cancel.innerHTML = '<i data-lucide="x" class="w-3.5 h-3.5"></i>';
+        cancel.addEventListener('click', () => window.cancelUploadItem(containerId, index));
+        row.append(icon, body, status, cancel);
         container.appendChild(row);
     });
+    updateUploadSummary(null);
     window.scheduleIconRefresh();
 };
 
-function updateUploadQueueItem(containerId, index, state, label) {
+const UPLOAD_STATE_TEXT_CLASS = {
+    success: 'text-emerald-300',
+    error: 'text-red-300',
+    active: 'text-cyan-300',
+    waiting: 'text-amber-300',
+    cancelled: 'text-slate-500'
+};
+const UPLOAD_STATE_ICON = {
+    success: 'circle-check',
+    error: 'circle-x',
+    active: 'loader-circle',
+    waiting: 'timer',
+    cancelled: 'ban'
+};
+
+// progress: 0..1 לסרגל של השורה; בלי ערך — הסרגל נשאר כפי שהיה.
+function updateUploadQueueItem(containerId, index, state, label, progress) {
     const row = document.querySelector(`#${containerId} [data-upload-index="${index}"]`);
     if (!row) return;
     const status = row.querySelector('.upload-queue-status');
     const icon = row.querySelector('.upload-queue-icon');
+    const previousState = row.dataset.uploadState;
+    row.dataset.uploadState = state;
     if (status) {
-        status.textContent = label;
-        status.className = `upload-queue-status text-[9px] ${
-            state === 'success' ? 'text-emerald-300' :
-            state === 'error' ? 'text-red-300' :
-            state === 'active' ? 'text-cyan-300' : 'text-slate-400'
-        }`;
+        if (status.textContent !== label) status.textContent = label;
+        status.className = `upload-queue-status text-[9px] ${UPLOAD_STATE_TEXT_CLASS[state] || 'text-slate-400'}`;
     }
-    if (icon) {
-        icon.className = `upload-queue-icon ${
-            state === 'success' ? 'text-emerald-300' :
-            state === 'error' ? 'text-red-300' :
-            state === 'active' ? 'text-cyan-300' : 'text-amber-400'
-        }`;
-        icon.innerHTML = `<i data-lucide="${
-            state === 'success' ? 'circle-check' :
-            state === 'error' ? 'circle-x' :
-            state === 'active' ? 'loader-circle' : 'image'
-        }" class="w-3.5 h-3.5 ${state === 'active' ? 'animate-spin' : ''}"></i>`;
+    const value = state === 'success' ? 1 : progress;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const percent = Math.round(Math.max(0, Math.min(1, value)) * 100);
+        const track = row.querySelector('.upload-queue-progress');
+        if (track) {
+            track.setAttribute('aria-valuenow', String(percent));
+            track.style.setProperty('--upload-progress', `${percent}%`);
+        }
+        const percentLabel = row.querySelector('.upload-queue-percent');
+        if (percentLabel) percentLabel.textContent = state === 'active' || (percent > 0 && percent < 100) ? ` · ${percent}%` : '';
     }
-    window.scheduleIconRefresh();
+    const cancel = row.querySelector('.upload-queue-cancel');
+    if (cancel) cancel.hidden = ['success', 'cancelled', 'error'].includes(state);
+    // הסמל מתעדכן רק כשהמצב משתנה — לא בכל דיווח התקדמות.
+    if (icon && previousState !== state) {
+        icon.className = `upload-queue-icon ${UPLOAD_STATE_TEXT_CLASS[state] || 'text-amber-400'}`;
+        icon.innerHTML = `<i data-lucide="${UPLOAD_STATE_ICON[state] || 'image'}" class="w-3.5 h-3.5 ${state === 'active' ? 'animate-spin' : ''}"></i>`;
+        window.scheduleIconRefresh();
+    }
 }
 
+// שורת הסיכום שמעל התור והסרגל הכולל. summary=null מאפס אותם.
+function updateUploadSummary(summary, text = '') {
+    const box = document.getElementById('userUploadSummary');
+    const label = document.getElementById('userUploadSummaryText');
+    const track = document.getElementById('userUploadOverall');
+    if (!box) return;
+    if (!summary) {
+        box.classList.add('hidden');
+        if (label) label.textContent = '';
+        if (track) {
+            track.setAttribute('aria-valuenow', '0');
+            track.style.setProperty('--upload-progress', '0%');
+        }
+        return;
+    }
+    box.classList.remove('hidden');
+    if (label && label.textContent !== text) label.textContent = text;
+    if (track) {
+        const percent = Math.round(Math.max(0, Math.min(1, summary.progress || 0)) * 100);
+        track.setAttribute('aria-valuenow', String(percent));
+        track.style.setProperty('--upload-progress', `${percent}%`);
+    }
+}
+
+// ביטול קובץ אחד: לפני ההעלאה הוא פשוט מדולג; באמצע — הבקשה נקטעת, והעלאה
+// בחלקים מבוטלת גם ב-Worker כדי שלא יישארו חלקים יתומים.
+window.cancelUploadItem = function(containerId, index) {
+    const key = uploadRowKey(containerId, index);
+    cancelledUploadRows.add(key);
+    let handled = false;
+    for (const [itemId, row] of uploadQueueRows) {
+        if (row.containerId !== containerId || row.index !== index) continue;
+        handled = activeUploadQueue?.cancel(itemId) || handled;
+        if (row.resumeKey) window.abortResumableUpload?.(row.resumeKey).catch?.(() => {});
+    }
+    if (!handled) updateUploadQueueItem(containerId, index, 'cancelled', 'בוטל');
+};
+
 let uploadPaused = false;
-let failedUploadRecords = [];
 
 function waitWhileUploadPaused() {
     return new Promise(resolve => {
@@ -1255,45 +1398,129 @@ window.toggleUploadPause = function() {
     const button = document.getElementById('userUploadPauseBtn');
     if (button) button.textContent = uploadPaused ? 'המשך העלאה' : 'השהה';
     const text = document.getElementById('userUploadProgressText');
-    if (uploadPaused && text) text.textContent = 'תור ההעלאה מושהה. הקובץ הנוכחי יסתיים בבטחה.';
+    if (uploadPaused && text) text.textContent = 'תור ההעלאה מושהה. הקבצים שכבר בדרך יסתיימו בבטחה.';
 };
+
+function failedUploadCount() {
+    return activeUploadQueue ? activeUploadQueue.summary().error : 0;
+}
 
 function updateUploadControlButtons(running = false) {
     const pause = document.getElementById('userUploadPauseBtn');
     const retry = document.getElementById('userUploadRetryBtn');
     if (pause) pause.classList.toggle('hidden', !running);
-    if (retry) retry.classList.toggle('hidden', running || failedUploadRecords.length === 0);
+    if (retry) retry.classList.toggle('hidden', running || failedUploadCount() === 0);
+}
+
+const UPLOAD_STATE_LABELS = { queued: 'בתור', success: 'הושלם', cancelled: 'בוטל' };
+
+function uploadItemLabel(item, mode) {
+    if (item.state === 'active') {
+        const verb = mode === 'pending' ? 'שולח' : 'מעלה';
+        return `${verb}${item.attempts > 1 ? ` · ניסיון ${item.attempts}` : ''}`;
+    }
+    if (item.state === 'waiting') {
+        const seconds = Math.max(1, Math.ceil((item.nextRetryAt - Date.now()) / 1000));
+        return `ניסיון חוזר בעוד ${seconds} שנ׳`;
+    }
+    if (item.state === 'error') return 'נכשל — נסה שוב';
+    return UPLOAD_STATE_LABELS[item.state] || 'ממתין';
+}
+
+// מריץ את התור על הרשומות שהוכנו. mode: 'direct' (גלריה) או 'pending' (לאישור).
+async function runUploadQueue(records, { containerId, mode }) {
+    const { queue: queueModule } = await loadUploadModules();
+    const text = document.getElementById(containerId === 'adminUploadQueue' ? 'adminUploadProgressText' : 'userUploadProgressText');
+    uploadQueueRows.clear();
+    activeUploadContainer = containerId;
+    activeUploadQueue = queueModule.createUploadQueue({
+        concurrency: UPLOAD_CONCURRENCY,
+        waitWhilePaused: waitWhileUploadPaused,
+        run: async (record, { signal, onProgress }) => {
+            const options = { signal, onProgress, resumeKey: record._resumeKey || '' };
+            if (mode === 'pending') await window.savePendingImageCloud(record, options);
+            else await window.saveImageToCloud(record, options);
+            return true;
+        },
+        onChange: (item, summary) => {
+            const row = uploadQueueRows.get(item.id);
+            if (row) updateUploadQueueItem(row.containerId, row.index, item.state, uploadItemLabel(item, mode), item.progress);
+            const summaryText = queueModule.formatUploadSummary(summary);
+            updateUploadSummary(summary, summaryText);
+            if (text && !uploadPaused) text.textContent = summaryText;
+            if (item.state === 'error' && item.error) {
+                console.warn('Single upload failed:', item.error);
+                window.reportClientError?.(item.error, 'upload');
+            }
+        }
+    });
+    for (const record of records) {
+        const { uploadQueueIndex, ...imageRecord } = record;
+        const [item] = activeUploadQueue.add({
+            id: imageRecord.id,
+            payload: imageRecord,
+            size: Number(imageRecord.sourceFile?.size) || Number(imageRecord.originalSize) || 0
+        });
+        uploadQueueRows.set(item.id, { containerId, index: uploadQueueIndex, resumeKey: imageRecord._resumeKey || '' });
+        // קובץ שבוטל בזמן ההכנה אינו עולה.
+        if (cancelledUploadRows.has(uploadRowKey(containerId, uploadQueueIndex))) activeUploadQueue.cancel(item.id);
+    }
+    return activeUploadQueue.start();
 }
 
 window.retryFailedUploads = async function() {
-    if (!failedUploadRecords.length) return;
-    const pending = [...failedUploadRecords];
-    failedUploadRecords = [];
+    if (!activeUploadQueue || failedUploadCount() === 0) return;
     uploadPaused = false;
+    activeUploadQueue.retryFailed();
     updateUploadControlButtons(true);
+    window.markSiteBusy?.('upload');
     const progress = document.getElementById('userUploadProgress');
-    const text = document.getElementById('userUploadProgressText');
     progress?.classList.remove('hidden');
-    for (let index = 0; index < pending.length; index++) {
-        await waitWhileUploadPaused();
-        const item = pending[index];
-        if (text) text.textContent = `ניסיון חוזר: ${index + 1} מתוך ${pending.length}`;
-        updateUploadQueueItem(item.queueId, item.uploadQueueIndex, 'active', 'מנסה שוב');
-        try {
-            if (item.mode === 'pending') await window.savePendingImageCloud(item.record);
-            else await window.saveImageToCloud(item.record);
-            updateUploadQueueItem(item.queueId, item.uploadQueueIndex, 'success', 'הושלם');
-        } catch (error) {
-            failedUploadRecords.push(item);
-            updateUploadQueueItem(item.queueId, item.uploadQueueIndex, 'error', 'נכשל שוב');
-        }
+    try {
+        const summary = await activeUploadQueue.start();
+        window.showNotification(summary.error ? `${summary.error} קבצים עדיין לא הועלו.` : 'כל הקבצים הועלו בהצלחה.', summary.error === 0);
+    } finally {
+        progress?.classList.add('hidden');
+        updateUploadControlButtons(false);
+        window.clearSiteBusy?.('upload');
     }
-    progress?.classList.add('hidden');
-    updateUploadControlButtons(false);
-    window.showNotification(failedUploadRecords.length ? `${failedUploadRecords.length} קבצים עדיין לא הועלו.` : 'כל הקבצים הועלו בהצלחה.', failedUploadRecords.length === 0);
 };
 
-async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin = false) {
+function canSendOriginalUploads() {
+    return Boolean(window.state.isAdminLoggedIn || ['admin', 'super_admin'].includes(window.state.userRole));
+}
+
+function uploadScope() {
+    return window.state.currentUser?.uid || '';
+}
+
+// בפתיחת חלון ההעלאה: מתג "שלח את המקור" מוצג למנהלים בלבד, ותזכורת
+// להעלאות שנקטעו (אחרי רענון) — בחירה מחודשת של אותו קובץ ממשיכה אותן.
+window.prepareUploadModal = async function() {
+    const toggle = document.getElementById('userUploadOriginalToggle');
+    const allowed = canSendOriginalUploads();
+    if (toggle) toggle.classList.toggle('hidden', !allowed);
+    const checkbox = document.getElementById('userUploadSendOriginal');
+    if (checkbox && !allowed) checkbox.checked = false;
+    const hint = document.getElementById('userUploadResumeHint');
+    if (!hint) return;
+    try {
+        const { resumable } = await loadUploadModules();
+        const saved = await resumable.listSavedUploads({ scope: uploadScope() });
+        if (!saved.length) {
+            hint.classList.add('hidden');
+            hint.textContent = '';
+            return;
+        }
+        const names = saved.slice(0, 3).map(item => item.name || 'קובץ').join(', ');
+        hint.textContent = `${saved.length === 1 ? 'העלאה אחת לא הושלמה' : `${saved.length} העלאות לא הושלמו`}: ${names}${saved.length > 3 ? ' ועוד' : ''}. בחרו שוב את אותם קבצים, וההעלאה תמשיך מהמקום שבו נעצרה.`;
+        hint.classList.remove('hidden');
+    } catch (error) {
+        hint.classList.add('hidden');
+    }
+};
+
+async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin = false, options = {}) {
     const newImages = []; let processedCount = 0;
     const fallbackFolderId = window.safeRecordId(
         window.state.folders.find(folder => window.safeRecordId(folder.id) === '4')?.id
@@ -1302,9 +1529,21 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
     if (!fallbackFolderId) throw new Error('יש ליצור לפחות תיקיית יעד אחת לפני העלאת קבצים.');
     const progressEl = document.getElementById(isAdmin ? 'adminUploadProgressText' : 'userUploadProgressText');
     const queueId = isAdmin ? 'adminUploadQueue' : 'userUploadQueue';
+    const { resumable, compress } = await loadUploadModules();
+    const scope = uploadScope();
+    // העלאה שמורה מריצה קודמת: אותו מזהה מדיה, כדי שה-Worker ימשיך את אותו קובץ.
+    const resumeFor = async (blob, key) => {
+        if (!resumable.shouldUseResumableUpload(blob.size)) return { resumeKey: '', saved: null };
+        const resumeKey = key || await resumable.fingerprintFile(blob, scope);
+        return { resumeKey, saved: await resumable.findSavedUpload(resumeKey) };
+    };
     for (let i = 0; i < files.length; i++) {
         await waitWhileUploadPaused();
         const file = files[i]; let destFolderId = targetFolderId === 'auto' ? null : targetFolderId; let folderName = "כללי";
+        if (cancelledUploadRows.has(uploadRowKey(queueId, i))) {
+            processedCount++;
+            continue;
+        }
         updateUploadQueueItem(queueId, i, 'active', 'מעבד');
         let contentHash = '';
         try {
@@ -1327,43 +1566,90 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
             }
         }
         const isVideo = isSupportedVideoFile(file);
-        if (isVideo && file.size > 100 * 1024 * 1024) {
-            updateUploadQueueItem(queueId, i, 'error', 'מעל 100MB');
+        const readyLabel = saved => (saved ? 'ימשיך מהנקודה שנעצר' : 'מוכן');
+        if (isVideo && file.size > MAX_VIDEO_UPLOAD_BYTES) {
+            updateUploadQueueItem(queueId, i, 'error', 'מעל 1GB');
         } else if (isVideo) {
             const videoMimeType = file.type || (/\.webm$/i.test(file.name) ? 'video/webm' : 'video/mp4');
             const videoFile = file.type ? file : new File([file], file.name, { type: videoMimeType, lastModified: file.lastModified });
+            const { resumeKey, saved } = await resumeFor(videoFile);
             const videoInfo = await inspectVideoFile(videoFile);
             newImages.push({
                 uploadQueueIndex: i,
-                id: `img_${crypto.randomUUID()}`,
+                id: saved?.imageId || `img_${crypto.randomUUID()}`,
                 folderId: destFolderId || fallbackFolderId, title: file.name.replace(/\.[^.]+$/, ''), url: '',
                 sourceFile: videoFile, mediaType: 'video', mimeType: videoMimeType,
                 duration: videoInfo.duration,
                 thumbnailDataUrl: videoInfo.thumbnailDataUrl,
                 contentHash, originalSize: file.size,
+                ...(resumeKey ? { _resumeKey: resumeKey } : {}),
                 date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName
             });
-            updateUploadQueueItem(queueId, i, 'ready', 'מוכן');
+            updateUploadQueueItem(queueId, i, 'ready', readyLabel(saved), saved ? resumableProgress(saved) : 0);
         } else {
-            const base64 = await window.compressAndConvertImage(file, 800, 800, 0.6);
-            if (base64) {
-                newImages.push({
-                    uploadQueueIndex: i,
-                    id: `img_${crypto.randomUUID()}`,
-                    folderId: destFolderId || fallbackFolderId, title: file.name.replace(/\.[^.]+$/, ''), url: base64,
-                    mediaType: 'image', mimeType: 'image/jpeg',
-                    contentHash, originalSize: file.size,
-                    date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName
-                });
-                updateUploadQueueItem(queueId, i, 'ready', 'מוכן');
-            } else {
-                updateUploadQueueItem(queueId, i, 'error', 'עיבוד נכשל');
-            }
+            // תמונה ענקית מוקטנת ל-3840 פיקסלים ומקודדת מחדש (upload-compress.js);
+            // מנהל שבחר "שלח את המקור" מעלה את הקובץ כמות שהוא.
+            const prepared = await compress.prepareImageForUpload(file, { sendOriginal: Boolean(options.sendOriginal) });
+            const blob = prepared.blob;
+            const mimeType = String(blob.type || file.type || 'image/jpeg').toLowerCase();
+            const uploadFile = prepared.compressed
+                ? new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.${mimeType === 'image/webp' ? 'webp' : 'jpg'}`, { type: mimeType, lastModified: file.lastModified })
+                : file;
+            const { resumeKey, saved } = await resumeFor(uploadFile, resumable.shouldUseResumableUpload(uploadFile.size)
+                ? `${await resumable.fingerprintFile(file, scope)}:${prepared.compressed ? 'c' : 'o'}`
+                : '');
+            newImages.push({
+                uploadQueueIndex: i,
+                id: saved?.imageId || `img_${crypto.randomUUID()}`,
+                folderId: destFolderId || fallbackFolderId, title: file.name.replace(/\.[^.]+$/, ''), url: '',
+                sourceFile: uploadFile, mediaType: 'image', mimeType,
+                contentHash, originalSize: file.size,
+                ...(prepared.compressed ? { uploadedSize: uploadFile.size } : {}),
+                ...(prepared.width && prepared.height ? { width: prepared.width, height: prepared.height } : {}),
+                ...(prepared.captureDate ? { capturedAt: prepared.captureDate } : {}),
+                ...(resumeKey ? { _resumeKey: resumeKey } : {}),
+                date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName
+            });
+            const sizeLabel = document.querySelector(`#${queueId} [data-upload-index="${i}"] .upload-queue-size`);
+            if (sizeLabel && prepared.compressed) sizeLabel.textContent = `${formatFileSize(file.size)} ← ${formatFileSize(uploadFile.size)}`;
+            updateUploadQueueItem(queueId, i, 'ready', readyLabel(saved), saved ? resumableProgress(saved) : 0);
         }
         processedCount++;
         if (progressEl) progressEl.innerText = `מעבד: ${Math.round((processedCount / files.length) * 100)}%`;
     }
     return newImages;
+}
+
+// כמה מהקובץ כבר עלה לפי המצב השמור בדפדפן (לפני שה-Worker אישר את הפרטים).
+function resumableProgress(saved) {
+    const size = Number(saved?.size) || 0;
+    const partSize = Number(saved?.partSize) || 0;
+    if (!size || !partSize) return 0;
+    const parts = Array.isArray(saved.completedParts) ? saved.completedParts.length : 0;
+    return Math.min(1, (parts * partSize) / size);
+}
+
+// אחרי שהתור סיים: הודעה, יומן פעילות, ניקוי הבחירה.
+async function reportUploadSummary(summary, { mode, canUploadDirectly, admin = false }) {
+    const uploadedCount = summary.success;
+    const failedCount = summary.error;
+    const cancelledCount = summary.cancelled;
+    if (!uploadedCount && !cancelledCount) throw new Error('העלאת הקבצים נכשלה. ניתן לנסות שוב.');
+    if (uploadedCount) {
+        await window.logActivity('uploaded_images', 'media', '', `${uploadedCount} קבצים`, admin
+            ? (failedCount ? `${failedCount} נכשלו` : 'העלאה דרך לוח הניהול')
+            : `${canUploadDirectly ? 'העלאה ישירה' : 'נשלחו לאישור'}${failedCount ? `; ${failedCount} נכשלו` : ''}`);
+    }
+    const tail = `${failedCount ? `; ${failedCount} נכשלו וניתן לנסות שוב` : ''}${cancelledCount ? `; ${cancelledCount} בוטלו` : ''}`;
+    if (!uploadedCount) {
+        window.showNotification(`לא הועלו קבצים${tail}.`, failedCount === 0);
+        return;
+    }
+    window.showNotification(admin
+        ? `הועלו ${uploadedCount} קבצים לגלריה${tail}.`
+        : (mode === 'pending'
+            ? `${uploadedCount} קבצים נשלחו לאישור מנהל${tail}.`
+            : `${uploadedCount} קבצים הועלו בהצלחה לגלריה${tail}!`), failedCount === 0);
 }
 
 async function handleAddPhotoAdmin(event, confirmed = false) {
@@ -1388,9 +1674,9 @@ async function handleAddPhotoAdmin(event, confirmed = false) {
     const progressContainer = document.getElementById('adminUploadProgress');
     if(progressContainer) progressContainer.classList.remove('hidden');
     const pText = document.getElementById('adminUploadProgressText');
+    window.markSiteBusy?.('upload');
 
     try {
-        failedUploadRecords = [];
         uploadPaused = false;
         if(pText) pText.innerText = 'מכין את הקבצים להעלאה...';
         const newImages = await processFilesWithFolders(allFiles, targetFolderId, true);
@@ -1400,36 +1686,19 @@ async function handleAddPhotoAdmin(event, confirmed = false) {
             window.showNotification('ההעלאה בוטלה או שכל הקבצים הכפולים דולגו.', true);
             return;
         }
-        let uploadedCount = 0;
-        let failedCount = 0;
-        for (let index = 0; index < uploadRecords.length; index++) {
-            await waitWhileUploadPaused();
-            if(pText) pText.innerText = `מעלה לאחסון: ${index + 1} מתוך ${uploadRecords.length}`;
-            const { uploadQueueIndex, ...imageRecord } = uploadRecords[index];
-            updateUploadQueueItem('adminUploadQueue', uploadQueueIndex, 'active', 'מעלה');
-            try {
-                await window.saveImageToCloud(imageRecord);
-                uploadedCount++;
-                updateUploadQueueItem('adminUploadQueue', uploadQueueIndex, 'success', 'הושלם');
-            } catch (error) {
-                failedCount++;
-                failedUploadRecords.push({ record: imageRecord, queueId: 'adminUploadQueue', uploadQueueIndex, mode: 'direct' });
-                updateUploadQueueItem('adminUploadQueue', uploadQueueIndex, 'error', 'נכשל — נסה שוב');
-                console.warn('Single admin upload failed:', error);
-                window.reportClientError?.(error, 'upload');
-            }
+        const summary = await runUploadQueue(uploadRecords, { containerId: 'adminUploadQueue', mode: 'direct' });
+        await reportUploadSummary(summary, { mode: 'direct', canUploadDirectly: true, admin: true });
+        if (!summary.error) {
+            if(filesInput) filesInput.value = '';
+            if(folderInput) folderInput.value = '';
         }
-        if (!uploadedCount) throw new Error('העלאת הקבצים נכשלה. ניתן לנסות שוב.');
-        if(filesInput) filesInput.value = '';
-        if(folderInput) folderInput.value = '';
-        await window.logActivity('uploaded_images', 'media', '', `${uploadedCount} קבצים`, failedCount ? `${failedCount} נכשלו` : 'העלאה דרך לוח הניהול');
-        window.showNotification(`הועלו ${uploadedCount} קבצים לגלריה${failedCount ? `; ${failedCount} נכשלו וניתן לנסות שוב` : ''}.`);
     } catch (error) {
         console.error('Admin upload failed:', error);
         window.reportClientError?.(error, 'upload');
         window.showNotification(error.message || 'העלאת התמונות נכשלה. נסה שוב.', false);
     } finally {
         if(progressContainer) progressContainer.classList.add('hidden');
+        window.clearSiteBusy?.('upload');
     }
 }
 
@@ -1472,48 +1741,34 @@ async function submitUserUpload(confirmed = false) {
     const progressContainer = document.getElementById('userUploadProgress');
     if(progressContainer) progressContainer.classList.remove('hidden');
     const pText = document.getElementById('userUploadProgressText');
+    const sendOriginal = canSendOriginalUploads() && Boolean(document.getElementById('userUploadSendOriginal')?.checked);
+    const mode = canUploadDirectly ? 'direct' : 'pending';
 
     try {
-        failedUploadRecords = [];
         uploadPaused = false;
+        activeUploadQueue = null;
         updateUploadControlButtons(true);
         if(pText) pText.innerText = 'מכין את הקבצים להעלאה...';
-        const newImages = await processFilesWithFolders(allFiles, targetFolderId, false);
-        if (newImages.length === 0) throw new Error('לא נמצאו קובצי מדיה תקינים.');
+        const newImages = await processFilesWithFolders(allFiles, targetFolderId, false, { sendOriginal });
+        if (newImages.length === 0) {
+            if ([...cancelledUploadRows].some(key => key.startsWith('userUploadQueue:'))) {
+                window.showNotification('כל הקבצים בוטלו.', true);
+                return;
+            }
+            throw new Error('לא נמצאו קובצי מדיה תקינים.');
+        }
         const uploadRecords = await resolveDuplicateMedia(newImages);
         if (uploadRecords.length === 0) {
             window.showNotification('ההעלאה בוטלה או שכל הקבצים הכפולים דולגו.', true);
             return;
         }
-        let uploadedCount = 0;
-        let failedCount = 0;
-        for (let index = 0; index < uploadRecords.length; index++) {
-            await waitWhileUploadPaused();
-            if(pText) pText.innerText = `${canUploadDirectly ? 'מעלה לגלריה' : 'שולח לאישור'}: ${index + 1} מתוך ${uploadRecords.length}`;
-            const { uploadQueueIndex, ...imageRecord } = uploadRecords[index];
-            updateUploadQueueItem('userUploadQueue', uploadQueueIndex, 'active', canUploadDirectly ? 'מעלה' : 'שולח');
-            try {
-                if (canUploadDirectly) await window.saveImageToCloud(imageRecord);
-                else await window.savePendingImageCloud(imageRecord);
-                uploadedCount++;
-                updateUploadQueueItem('userUploadQueue', uploadQueueIndex, 'success', 'הושלם');
-            } catch (error) {
-                failedCount++;
-                failedUploadRecords.push({ record: imageRecord, queueId: 'userUploadQueue', uploadQueueIndex, mode: canUploadDirectly ? 'direct' : 'pending' });
-                updateUploadQueueItem('userUploadQueue', uploadQueueIndex, 'error', 'נכשל — נסה שוב');
-                console.warn('Single user upload failed:', error);
-                window.reportClientError?.(error, 'upload');
-            }
+        const summary = await runUploadQueue(uploadRecords, { containerId: 'userUploadQueue', mode });
+        await reportUploadSummary(summary, { mode, canUploadDirectly });
+        if (!summary.error) {
+            if(filesInput) filesInput.value = '';
+            if(folderInput) folderInput.value = '';
         }
-        if (!uploadedCount) throw new Error('העלאת הקבצים נכשלה. ניתן לנסות שוב.');
-        await window.logActivity('uploaded_images', 'media', '', `${uploadedCount} קבצים`, `${canUploadDirectly ? 'העלאה ישירה' : 'נשלחו לאישור'}${failedCount ? `; ${failedCount} נכשלו` : ''}`);
-        window.showNotification(canUploadDirectly
-            ? `${uploadedCount} קבצים הועלו בהצלחה לגלריה${failedCount ? `; ${failedCount} נכשלו` : ''}!`
-            : `${uploadedCount} קבצים נשלחו לאישור מנהל${failedCount ? `; ${failedCount} נכשלו` : ''}.`
-        );
-        if(filesInput) filesInput.value = '';
-        if(folderInput) folderInput.value = '';
-        if (!failedCount) window.closeModal('userUploadModal');
+        if (!summary.error && summary.success) window.closeModal('userUploadModal');
     } catch (error) {
         console.error('User upload failed:', error);
         window.reportClientError?.(error, 'upload');
@@ -1681,6 +1936,7 @@ window.closeLightbox = function() {
         updateSlideshowButton();
     }
     const activeVideo = document.getElementById('lightboxVideo');
+    releaseLightboxStream();
     if (activeVideo) {
         activeVideo.pause();
         activeVideo.removeAttribute('src');
@@ -1688,6 +1944,55 @@ window.closeLightbox = function() {
     }
     window.closeModal('lightboxModal');
 };
+
+// --- ניגון הסרטון בתצוגה המלאה ---
+// סרטון שנשלח ל-Cloudflare Stream (שדה stream ברשומה) מנוגן ב-HLS דרך
+// stream-player.js, שנטען רק כשבאמת יש סרטון כזה. בלי stream — המקור ב-R2,
+// כמו תמיד; וכל תקלה ב-HLS נופלת אליו.
+let lightboxStreamRelease = null;
+let lightboxStreamRequest = 0;
+
+function releaseLightboxStream() {
+    lightboxStreamRequest += 1;
+    const video = document.getElementById('lightboxVideo');
+    if (video) delete video.dataset.streamFor;
+    const release = lightboxStreamRelease;
+    lightboxStreamRelease = null;
+    if (release) {
+        try { release(); } catch (error) { /* כבר נוקה */ }
+    }
+}
+
+function playLightboxVideo(video, record, fallbackUrl) {
+    const hasStream = Boolean(record?.stream?.hls);
+    if (!hasStream) {
+        releaseLightboxStream();
+        if (video.src !== fallbackUrl) {
+            video.src = fallbackUrl;
+            video.load();
+        }
+        return;
+    }
+    const mediaId = window.safeRecordId(record.id);
+    if (video.dataset.streamFor === mediaId && lightboxStreamRelease) return;
+    releaseLightboxStream();
+    const request = lightboxStreamRequest;
+    video.dataset.streamFor = mediaId;
+    import('./stream-player.js')
+        .then(({ attachVideoPlayback }) => attachVideoPlayback(video, { record, fallbackUrl }))
+        .then(release => {
+            if (request !== lightboxStreamRequest) release();
+            else lightboxStreamRelease = release;
+        })
+        .catch(() => {
+            if (request !== lightboxStreamRequest) return;
+            delete video.dataset.streamFor;
+            if (video.src !== fallbackUrl) {
+                video.src = fallbackUrl;
+                video.load();
+            }
+        });
+}
 
 function updateSlideshowButton() {
     const button = document.getElementById('slideshowToggle');
@@ -1906,12 +2211,10 @@ function updateLightbox(immediate = false) {
                 if (Math.floor(lbVideo.currentTime) % 3 === 0) localStorage.setItem(progressKey, String(lbVideo.currentTime));
             };
             lbVideo.onended = () => localStorage.removeItem(progressKey);
-            if (lbVideo.src !== imageUrl) {
-                lbVideo.src = imageUrl;
-                lbVideo.load();
-            }
+            playLightboxVideo(lbVideo, img, imageUrl);
         }
     } else if(lbImage) {
+        releaseLightboxStream();
         if (lbVideo) {
             lbVideo.pause();
             lbVideo.removeAttribute('src');
@@ -2215,4 +2518,6 @@ window.resetUploadPauseState = function() {
 export function initGallery() {
     window.renderFolders?.();
     window.renderImages?.();
+    const grid = document.getElementById('photosGrid');
+    if (grid) installVideoHoverPreview(grid);
 }

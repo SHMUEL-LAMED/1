@@ -84,7 +84,7 @@ export function fitWithin(width, height, maxSide) {
     };
 }
 
-function canvasToBlob(canvas, type, quality) {
+export function canvasToBlob(canvas, type, quality) {
     return new Promise((resolve, reject) => {
         try {
             canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('קידוד התצוגה נכשל.'))), type, quality);
@@ -121,7 +121,7 @@ function drawScaled(source, sourceWidth, sourceHeight, maxSide) {
 // פענוח תמונה תוך שמירת הכיוון שב-EXIF. createImageBitmap מהיר ואינו חוסם
 // את המסך; דפדפן שאינו מכיר את imageOrientation נופל ל-<img>, שממילא
 // מיישם את הכיוון בעצמו.
-async function decodeImageBlob(blob) {
+export async function decodeImageBlob(blob) {
     if (typeof createImageBitmap === 'function') {
         try {
             const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
