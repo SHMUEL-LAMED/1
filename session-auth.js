@@ -6,17 +6,19 @@
 //
 // כל קריאה לפונקציה של מודול הניהול נעשית דרך window ובאופציונלי, כדי
 // שדף הגלריה יעבוד בלעדיו לחלוטין.
-import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject } from "./cloudflare-client.js";
+import { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getRedirectResult, signOut, getFirestore, collection, doc, getDoc, getDocs, getDocsPage, getDocsByIds, getCount, getCounts, setDoc, deleteDoc, updateDoc, increment, query, where, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject } from "./cloudflare-client.js";
 
 // שכבת תאימות: הממשק הקיים נשאר זהה, והנתונים נשמרים ב־Cloudflare D1.
 window.db = null;
 window.appId = typeof __app_id !== 'undefined' ? __app_id : 'org-gallery';
-window.firestoreModules = { collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, increment, query, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject };
+window.firestoreModules = { collection, doc, getDoc, getDocs, getDocsPage, getDocsByIds, getCount, getCounts, setDoc, deleteDoc, updateDoc, increment, query, where, orderBy, limit, mutateConversationMessages, deleteConversationAttachmentObject };
 
 
 // D1 משתמש בבקשות HTTPS רגילות. במקום לסרוק את כל מסד הנתונים
 // כל חמש שניות, כל מקור נטען פעם אחת ומתרענן במרווח חסכוני ורק כשהעמוד פעיל.
 // בשגיאת מכסה מופעלת השהיה ארוכה כדי לא להחריף את התקלה.
+// options.load מחליף את הקריאה הרגילה למסמך או לאוסף: כך הזנת הגלריה
+// (gallery-feed.js) נהנית מאותו תזמון ומאותה הגנה מפני עומס.
 export function onSnapshot(reference, onNext, onError, options = {}) {
     let active = true;
     let requestRunning = false;
@@ -50,9 +52,9 @@ export function onSnapshot(reference, onNext, onError, options = {}) {
         }
         requestRunning = true;
         try {
-            const snapshot = isDocument
-                ? await getDoc(reference)
-                : await getDocs(reference);
+            const snapshot = typeof options.load === 'function'
+                ? await options.load()
+                : (isDocument ? await getDoc(reference) : await getDocs(reference));
             if (active) {
                 lastRefreshAt = Date.now();
                 consecutiveErrors = 0;
@@ -438,6 +440,7 @@ function setupFirestoreListeners(user) {
             try { unsubscribe(); } catch (error) { console.warn('Gallery listener cleanup failed:', error); }
         });
         window.galleryUnsubscribers = [];
+        window.resetGalleryFeed?.();
         window.state.images = [];
         window.state.folders = defaultFolders();
         window.state.gallerySnapshotInitialized = false;
@@ -481,6 +484,16 @@ function setupFirestoreListeners(user) {
             window.renderFolders(); window.populateFolderSelects();
         }
         }, handleFsError));
+
+        // דף הגלריה טוען תמונות לפי תיקייה (gallery-feed.js): העמוד הראשון
+        // של התיקייה הפעילה, המונים והחדשות ביותר — לא את האוסף כולו.
+        // דף הניהול צריך את הרשימה כולה — סטטיסטיקה, גיבוי, סנכרון Drive
+        // ואינדוקס הפנים — ולכן רק הוא ממשיך להוריד את כל האוסף, בעמודים
+        // עם סמני דפדוף.
+        if (window.PAGE_MODE !== 'admin' && typeof window.startGalleryFeed === 'function') {
+            window.galleryUnsubscribers.push(window.startGalleryFeed());
+            return;
+        }
 
         // מאזין לתמונות פעילות רק לאחר קבלת הרשאת צפייה.
         window.galleryUnsubscribers.push(onSnapshot(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'images'), (snapshot) => {
@@ -551,9 +564,16 @@ function setupFirestoreListeners(user) {
             const ids = snapshot.exists() && Array.isArray(snapshot.data()?.mediaIds)
                 ? snapshot.data().mediaIds.map(safeRecordId).filter(Boolean)
                 : [];
+            const previous = window.state.favorites || new Set();
+            const changed = ids.length !== previous.size || ids.some(id => !previous.has(id));
             window.state.favorites = new Set(ids);
             window.renderFolders?.();
             window.renderImages?.();
+            // תצוגת המועדפים נטענת לפי מזהים; שינוי ברשימה (למשל מלשונית
+            // אחרת) מרענן אותה רק כשהיא פתוחה.
+            if (changed && window.safeRecordId(window.state.activeFolderId) === 'favorites') {
+                window.loadFolderImages?.('favorites', { force: true });
+            }
         }, handleFsError));
 
         const preferencesRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userPreferences', user.uid);

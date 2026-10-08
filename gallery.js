@@ -4,9 +4,13 @@
 let currentFilteredImages = [];
 
 // --- 5. New Updates Banner ---
+// "חדש מאז הביקור הקודם" נבדק מול העמוד החדש ביותר של הארכיון
+// (state.latestImages, שאילתת limit קטנה), לא מול הרשימה כולה — היא אינה
+// נטענת עוד בדף הגלריה.
 window.checkNewUpdates = function() {
-    if (window.state.images.length === 0) return;
-    const newest = window.state.images.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
+    const source = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
+    if (!source || source.length === 0) return;
+    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
     const lastSeen = parseInt(localStorage.getItem('yeshiva_last_seen_update') || '0');
     const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
     const banner = document.getElementById('newUpdatesBanner');
@@ -15,12 +19,29 @@ window.checkNewUpdates = function() {
     }
 }
 
-function showNewUpdates() {
+// כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
+const RECENT_UPDATES_LIMIT = 200;
+async function showNewUpdates() {
     localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    window.state.tempSearchResults = window.state.images.filter(img => (img.createdAt || 0) >= weekAgo);
+    // התמונות מהשבוע האחרון מגיעות משאילתה ממוינת מהחדש לישן עם limit,
+    // ולא מהרשימה המלאה. אם השאילתה נכשלת נשארים עם מה שכבר בזיכרון.
+    let recent = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
+    try {
+        const { collection, query, orderBy, limit, getDocsPage } = window.firestoreModules || {};
+        if (window.db && typeof getDocsPage === 'function') {
+            const page = await getDocsPage(
+                query(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'images'), orderBy('createdAt', 'desc'), limit(RECENT_UPDATES_LIMIT)),
+                { pageSize: RECENT_UPDATES_LIMIT }
+            );
+            recent = page.docs.map(item => item.data());
+        }
+    } catch (error) {
+        console.warn('Recent updates query failed:', error);
+    }
+    window.state.tempSearchResults = recent.filter(img => (img.createdAt || 0) >= weekAgo);
 
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) {
@@ -283,7 +304,20 @@ window.openEventPage = function(event, folderId) {
     const id = window.safeRecordId(folderId);
     const folder = window.state.folders.find(item => window.safeRecordId(item.id) === id);
     if (!folder || id === 'all') return;
-    const media = window.state.images.filter(item => window.safeRecordId(item.folderId) === id);
+    // בדף הגלריה הזיכרון מחזיק רק את התיקייה הפעילה: הפריטים מגיעים מהמטמון
+    // לפי תיקייה, והמספר הכולל מהמונים שבשרת. תיקייה שטרם נטענה נמשכת ברקע
+    // והעמוד מצויר שוב כשהיא מגיעה.
+    const media = window.getLoadedFolderImages
+        ? window.getLoadedFolderImages(id)
+        : window.state.images.filter(item => window.safeRecordId(item.folderId) === id);
+    if (!media.length && typeof window.prefetchFolderImages === 'function' && (Number(window.state.folderCounts?.[id]) || 0) > 0) {
+        window.prefetchFolderImages(id).then(items => {
+            const modal = document.getElementById('eventPageModal');
+            if (items.length && window.state.activeEventFolderId === id && modal && !modal.classList.contains('hidden')) {
+                window.openEventPage(null, id);
+            }
+        }).catch(error => console.warn('Event folder prefetch failed:', error));
+    }
     const coverRecord = media.find(item => !window.isVideoRecord(item));
     const cover = document.getElementById('eventPageCover');
     if (cover) {
@@ -295,8 +329,12 @@ window.openEventPage = function(event, folderId) {
     document.getElementById('eventPageTitle').textContent = folder.name || 'אירוע';
     document.getElementById('eventPageDate').textContent = folder.eventDate ? window.formatDate(folder.eventDate) : 'ארכיון שמחת התורה';
     document.getElementById('eventPageDescription').textContent = folder.description || 'לא נוסף עדיין תיאור לאירוע.';
-    const videoCount = media.filter(isVideoRecord).length;
-    document.getElementById('eventPageStats').textContent = `${media.length} פריטים · ${videoCount} סרטונים · ${media.length - videoCount} תמונות`;
+    const videoCount = media.filter(window.isVideoRecord).length;
+    const totalCount = Math.max(media.length, Number(window.state.folderCounts?.[id]) || 0);
+    const fullyLoaded = window.isFolderFullyLoaded ? window.isFolderFullyLoaded(id) : true;
+    document.getElementById('eventPageStats').textContent = fullyLoaded && totalCount === media.length
+        ? `${media.length} פריטים · ${videoCount} סרטונים · ${media.length - videoCount} תמונות`
+        : `${totalCount} פריטים`;
     const openButton = document.getElementById('eventOpenGalleryBtn');
     if (openButton) openButton.onclick = () => {
         setActiveFolder(id);
@@ -380,6 +418,8 @@ function setActiveFolder(folderId) {
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) searchBanner.classList.add('hidden');
     window.state.activeFolderId = safeFolderId; window.renderFolders(); window.renderImages();
+    // התיקייה שנבחרה נטענת לבדה: מהמטמון של הביקור, או העמוד הראשון מהענן.
+    window.loadFolderImages?.(safeFolderId);
 }
 
 window.openFavoritesFromProfile = function() {
@@ -392,7 +432,15 @@ window.openFavoritesFromProfile = function() {
     if (panel) panel.classList.remove('active');
 };
 
-function handleSearch(val) { window.state.searchQuery = val; window.renderImages(); }
+function handleSearch(val) {
+    window.state.searchQuery = val;
+    window.renderImages();
+    // חיפוש בתיקייה שטרם נטענה כולה מושך את שאר העמודים ברקע, כדי שהתוצאות
+    // יכסו גם פריטים ישנים.
+    if (val && window.state.imagesHasMore) {
+        window.loadAllImagesForSearch?.()?.catch(error => console.warn('Search autoload failed:', error));
+    }
+}
 
 window.setGallerySort = function(sort) {
     window.state.gallerySort = ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest';
@@ -458,12 +506,18 @@ function renderArchiveEntryFacts(eventCount, mediaCount) {
         else mediaCountEl.textContent = formatCount(mediaCount);
     }
     if (updatedEl) {
-        const latest = (window.state.images || []).reduce(
+        const latest = latestImagesSource().reduce(
             (newest, item) => Math.max(newest, Number(item?.createdAt) || 0),
             0
         );
         updatedEl.textContent = formatArchiveUpdate(latest);
     }
+}
+
+// החדשות ביותר בכל הארכיון מגיעות משאילתת limit קטנה (state.latestImages);
+// בלעדיה — ממה שטעון, כמו בדף הניהול.
+function latestImagesSource() {
+    return window.state.latestImages?.length ? window.state.latestImages : (window.state.images || []);
 }
 
 // פסיפס הרגעים האחרונים בפוסטר הכניסה: עד חמש תמונות מהחדשות ביותר.
@@ -472,7 +526,7 @@ const HERO_MOSAIC_LIMIT = 5;
 function renderHeroMosaic() {
     const mosaic = document.getElementById('heroMosaic');
     if (!mosaic) return;
-    const tiles = [...(window.state.images || [])]
+    const tiles = [...latestImagesSource()]
         .map(item => {
             const isVideo = window.isVideoRecord(item);
             const url = window.safeImageUrl(isVideo ? item?.thumbnailUrl : item?.url);
@@ -500,7 +554,7 @@ window._doRenderFolders = function() {
     const folderList = document.getElementById('folderList'); if (!folderList) return;
     const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
     const folderParts = [];
-    const favoriteCount = window.state.images.filter(item => window.state.favorites.has(window.safeRecordId(item.id))).length;
+    const favoriteCount = window.state.favorites.size;
     const profileFavoritesCount = document.getElementById('profileFavoritesCount');
     if (profileFavoritesCount) profileFavoritesCount.textContent = String(favoriteCount);
 
@@ -516,7 +570,10 @@ window._doRenderFolders = function() {
     });
 
     const eventCount = Math.max(0, folders.filter(folder => folder.id !== 'all').length);
-    const mediaCount = window.state.images.length;
+    // המונים מגיעים מהשרת בשאילתה אחת (GET /data/images/counts?by=folderId);
+    // בלעדיהם — ממה שטעון בזיכרון, כמו בדף הניהול.
+    const folderCounts = window.state.folderCounts;
+    const mediaCount = folderCounts ? (Number(window.state.imagesTotal) || 0) : window.state.images.length;
     const folderTotalCount = document.getElementById('folderTotalCount');
     const folderMediaCount = document.getElementById('folderMediaCount');
     if (folderTotalCount) folderTotalCount.textContent = String(eventCount);
@@ -533,7 +590,9 @@ window._doRenderFolders = function() {
         );
         const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
         const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
-        const count = folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length;
+        const count = folderCounts
+            ? (folderId === 'all' ? mediaCount : (Number(folderCounts[folderId]) || 0))
+            : (folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length);
         const depth = folder.syncedFromDrive ? Math.max(0, Math.min(12, Number(folder.driveDepth) || 0)) : 0;
         const nestingStyle = depth ? `style="margin-inline-start:${Math.min(depth * 18, 144)}px"` : '';
         const branchIcon = depth ? '<span class="text-slate-600 shrink-0" aria-hidden="true">↳</span>' : '';
@@ -569,13 +628,20 @@ window._doRenderFolders = function() {
 const GALLERY_FIRST_BATCH = 48;
 const GALLERY_PAGE_SIZE = 48;
 // הזקיף מבקש את המנה הבאה הרבה לפני שהמשתמש מגיע אליו, כדי שהגלילה תהיה רציפה.
-const GALLERY_SENTINEL_MARGIN = '900px 0px';
+const GALLERY_SENTINEL_RANGE = 900;
+const GALLERY_SENTINEL_MARGIN = `${GALLERY_SENTINEL_RANGE}px 0px`;
 let galleryPageItems = [];
 let galleryRenderedCards = [];
 let galleryViewSignature = null;
 let galleryPageObserver = null;
 let galleryCloudRequest = null;
 let galleryCloudStalledAt = -1;
+// מעבר לתצוגה אחרת מסומן כאן, והגלילה לראש הרשת מתבצעת בציור הראשון שיש
+// בו כרטיסים — תיקייה שנטענת מהענן מוצגת קודם ריקה („טוען…”).
+let galleryRevealPending = false;
+// על אילו נתונים חושבה galleryPageItems. הציור מושהה ב-50ms אחרי כל שינוי,
+// ובינתיים הזקיף עלול לחשוב שהכול כבר מוצג ולבקש עמוד מהענן לשווא.
+let galleryPageSource = null;
 
 // מה מגדיר „תצוגה”: תיקייה, חיפוש, מיון וסינון זמני. כל עוד אלה לא השתנו,
 // רינדור מחדש הוא עדכון נתונים — תמונה חדשה, לב שנלחץ, חזרה ללשונית — ואז
@@ -608,16 +674,21 @@ window._doRenderImages = function() {
     renderHeroMosaic();
     galleryViewSignature = signature;
     if (!sameView) galleryCloudStalledAt = -1;
+    if (!sameView && hadView) galleryRevealPending = true;
     // פריט בלי מזהה אינו מקבל כרטיס, ולכן אינו נספר — כך המספור ומיקום
     // הכרטיס ברשת נשארים חופפים.
     galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
+    galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
 
     const imageCounter = document.getElementById('imageCounter');
-    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = `${galleryPageItems.length} פריטים`; }
+    if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = galleryCounterLabel(galleryPageItems.length); }
 
     if (galleryPageItems.length === 0) {
         grid.innerHTML = ''; galleryRenderedCards = [];
-        grid.classList.add('hidden'); emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+        grid.classList.add('hidden');
+        // בזמן טעינת תיקייה אין עדיין מה להציג — וגם לא "אין פריטים".
+        const loading = Boolean(window.state.imagesLoading);
+        emptyState.classList.toggle('hidden', loading); emptyState.classList.toggle('flex', !loading);
         updateGalleryLoadMore();
         return;
     }
@@ -627,10 +698,33 @@ window._doRenderImages = function() {
         ? Infinity
         : (sameView ? Math.max(GALLERY_FIRST_BATCH, galleryRenderedCards.length) : GALLERY_FIRST_BATCH);
     syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
-    if (sameView) restoreGalleryScrollAnchor(anchor);
-    else if (hadView) revealGalleryStart(grid);
+    if (galleryRevealPending) {
+        galleryRevealPending = false;
+        revealGalleryStart(grid);
+    } else if (sameView) {
+        restoreGalleryScrollAnchor(anchor);
+    }
     updateGalleryLoadMore();
 };
+
+// הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
+function galleryCounterLabel(shownCount) {
+    const state = window.state;
+    if (state.imagesLoading && shownCount === 0) return 'טוען…';
+    if (state.tempSearchResults !== null || !state.imagesHasMore) return `${shownCount} פריטים`;
+    if (state.searchQuery) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
+    const total = galleryFolderTotal();
+    return total > shownCount ? `${shownCount} מתוך ${total} פריטים` : `${shownCount} פריטים`;
+}
+
+// כמה פריטים יש בתיקייה הפעילה לפי המונים שבשרת; בלעדיהם — מה שטעון.
+function galleryFolderTotal() {
+    const state = window.state;
+    const folderId = window.safeRecordId(state.activeFolderId);
+    if (folderId === 'favorites') return state.favorites.size;
+    if (!state.folderCounts) return state.images.length;
+    return folderId === 'all' ? (Number(state.imagesTotal) || 0) : (Number(state.folderCounts[folderId]) || 0);
+}
 
 // מעבר לתצוגה אחרת (תיקייה, חיפוש, מיון) כשהמשתמש גלל עמוק לתוך הרשת: הרשת
 // מתחילה מחדש במנה הראשונה, ולכן גוללים לראשה. אחרת המשתמש נשאר מתחת לסוף
@@ -740,18 +834,18 @@ function buildGalleryCard(img, isEditBlocked) {
     const durationLabel = formatMediaDuration(img.duration);
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
-           <span class="absolute inset-0 flex items-center justify-center pointer-events-none"><span class="w-14 h-14 rounded-full bg-black/65 border border-white/30 text-white flex items-center justify-center shadow-xl"><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
-           <span class="absolute top-3 right-3 rounded-full bg-black/70 border border-white/20 px-2.5 py-1 text-[9px] font-bold text-white flex items-center gap-1"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
-        : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onerror="window.handleImageError(this)">`;
+           <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
+           <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
+        : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.parentElement.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
-            <button type="button" class="gallery-media" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
                 ${mediaHtml}
                 <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
             ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
-            <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="absolute ${window.state.bulkSelectionMode ? 'top-14' : 'top-3'} left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border bg-black/65 ${isFavorite ? 'text-red-400 border-red-300/50' : 'text-white border-white/25'}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
+            <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="gallery-fav${window.state.bulkSelectionMode ? ' is-stacked' : ''}${isFavorite ? ' is-favorite' : ''}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
             <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
                 <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span><time datetime="${window.escapeHtml(img.date || '')}">${window.formatDate(img.date)}</time></div></div>${actionHtml}
             </div>
@@ -766,6 +860,13 @@ window.renderMoreImages = function(manual = false) {
     if (manual === true) galleryCloudStalledAt = -1;
     const rendered = galleryRenderedCards.length;
     if (rendered >= galleryPageItems.length) {
+        const images = window.state.images;
+        if (galleryPageSource && (galleryPageSource.images !== images || galleryPageSource.length !== (images?.length || 0))) {
+            // הנתונים השתנו וטרם צוירו: קודם הציור, ורק אם גם אחריו הכול
+            // מוצג — בקשה לענן.
+            window._doRenderImages();
+            if (galleryRenderedCards.length < galleryPageItems.length) return;
+        }
         requestMoreImagesFromCloud();
         return;
     }
@@ -777,18 +878,24 @@ window.renderMoreImages = function(manual = false) {
 };
 
 // --- המשך טעינה מהענן ---
-// ענף מקביל מוסיף עימוד בשרת: הוא מסמן ב-state.imagesHasMore שבענן נותרו
-// תמונות שטרם הורדו, ומגדיר window.loadMoreImages שמביאה את העמוד הבא
-// ומחזירה { added, done }. בלעדיהם הגלריה היא רינדור הדרגתי רגיל.
+// gallery-feed.js מחזיק ב-state.images רק את העמודים שכבר הורדו לתיקייה
+// הפעילה, מסמן ב-state.imagesHasMore שבענן נותרו עוד, ומגדיר
+// window.loadMoreImages שמביאה את העמוד הבא בסמן הדפדוף ומחזירה
+// { added, done }. כשהזקיף מגיע לסוף מה שהורד, הגלריה מבקשת את העמוד הבא
+// דרכה — כך הגלילה האינסופית והכפתור הידני עוברים באותו מסלול.
 function canLoadMoreFromCloud() {
-    return window.state.imagesHasMore === true && typeof window.loadMoreImages === 'function';
+    const state = window.state;
+    return state.imagesHasMore === true && typeof window.loadMoreImages === 'function'
+        && state.tempSearchResults === null && !state.imagesLoading;
 }
 
+// מחזירה הבטחה ל-{ added, done }, או null כשאין מה לבקש.
 function requestMoreImagesFromCloud() {
-    if (galleryCloudRequest || !canLoadMoreFromCloud()) return;
+    if (galleryCloudRequest) return galleryCloudRequest;
+    if (!canLoadMoreFromCloud()) return null;
     // בקשה שלא הוסיפה דבר אינה חוזרת על עצמה כל עוד לא השתנה כלום — אחרת
     // הזקיף שנשאר על המסך היה מציף את השרת בבקשות ריקות.
-    if (galleryCloudStalledAt === (window.state.images || []).length) return;
+    if (galleryCloudStalledAt === (window.state.images || []).length) return null;
     let request;
     try {
         request = Promise.resolve(window.loadMoreImages());
@@ -798,38 +905,56 @@ function requestMoreImagesFromCloud() {
     galleryCloudRequest = request
         .then(result => {
             if (result?.done === true) window.state.imagesHasMore = false;
-            return Number(result?.added) || 0;
+            return { added: Number(result?.added) || 0, done: result?.done === true };
         }, error => {
             console.warn('טעינת תמונות נוספות מהענן נכשלה:', error);
-            return 0;
+            return { added: 0, done: false, error };
         })
-        .then(added => {
+        .then(result => {
             galleryCloudRequest = null;
-            if (added <= 0) galleryCloudStalledAt = (window.state.images || []).length;
+            if (result.added <= 0) galleryCloudStalledAt = (window.state.images || []).length;
             // מה שנוסף ל-state.images נכנס לרשימה הממוינת: הרשת מתעדכנת במקום
             // (אותה תצוגה, אותו מספר כרטיסים) ואז מקבלת את המנה הבאה.
             window._doRenderImages();
-            if (added > 0) window.renderMoreImages();
+            if (result.added > 0) window.renderMoreImages();
+            return result;
         });
     updateGalleryLoadMore();
+    return galleryCloudRequest;
 }
 
 function updateGalleryLoadMore() {
     const footer = document.getElementById('galleryLoadMore');
     if (!footer) return;
     const remaining = galleryPageItems.length - galleryRenderedCards.length;
-    const loading = Boolean(galleryCloudRequest);
+    const loading = Boolean(galleryCloudRequest || window.state.imagesLoadingMore);
     const cloudHasMore = canLoadMoreFromCloud();
     const visible = remaining > 0 || loading || cloudHasMore;
     footer.classList.toggle('hidden', !visible);
     footer.classList.toggle('flex', visible);
+    // מוני התיקיות מגיעים מהשרת בבקשה נפרדת, לעתים אחרי שהגלריה כבר צוירה;
+    // לכן גם הכיתוב שליד סרגל הכלים מתעדכן כאן ולא רק בציור המלא.
+    const imageCounter = document.getElementById('imageCounter');
+    if (imageCounter && galleryViewSignature !== null) imageCounter.textContent = galleryCounterLabel(galleryPageItems.length);
     const counter = document.getElementById('galleryLoadMoreCount');
-    if (counter) counter.textContent = remaining > 0 ? `מוצגים ${galleryRenderedCards.length} מתוך ${galleryPageItems.length} פריטים` : '';
+    if (counter) {
+        counter.textContent = remaining > 0
+            ? `מוצגים ${galleryRenderedCards.length} מתוך ${galleryPageItems.length} פריטים`
+            : (cloudHasMore ? `נטענו ${galleryPageItems.length} מתוך ${galleryFolderTotal()} פריטים` : '');
+    }
     // „טוען עוד...” מוצג רק בזמן שבקשה לענן פתוחה; עם סיומה אין מה להציג.
     const status = document.getElementById('galleryLoadingStatus');
     if (status) status.classList.toggle('hidden', !loading);
-    const button = document.getElementById('galleryLoadMoreButton');
-    if (button) button.classList.toggle('hidden', loading || !(remaining > 0 || cloudHasMore));
+    // שני כפתורים ידניים, לגיבוי לזקיף (ובדפדפן בלי IntersectionObserver):
+    // „הצג עוד” מצייר את המנה הבאה מהזיכרון, ו„טען פריטים ישנים יותר” —
+    // כשכל מה שנטען כבר מוצג — מושך את העמוד הבא מהענן.
+    const renderButton = document.getElementById('galleryRenderMoreBtn');
+    if (renderButton) renderButton.classList.toggle('hidden', remaining <= 0);
+    const fetchButton = document.getElementById('galleryFetchMoreBtn');
+    if (fetchButton) {
+        // בזמן הבקשה „טוען עוד...” מחליף אותו.
+        fetchButton.classList.toggle('hidden', remaining > 0 || loading || !cloudHasMore);
+    }
     if (visible) observeGallerySentinel();
 }
 
@@ -837,17 +962,40 @@ function updateGalleryLoadMore() {
 // עדיין בטווח (מסך גבוה, צפיפות גבוהה) המנה הבאה מגיעה בלי גלילה נוספת.
 // בדפדפן בלי IntersectionObserver הרשת נבנתה כבר במלואה, ונשאר רק הכפתור
 // הידני לבקשת תמונות נוספות מהענן.
+// הדיווח של IntersectionObserver מגיע באיחור של פריים, ולעתים מתאר מצב
+// שכבר אינו קיים — למשל רשת שהייתה ריקה רגע לפני שהמנה הראשונה צוירה, או
+// שתי קריאות על אותו מצב. לכן לפני כל מנה המיקום נבדק שוב בפועל, כדי שטעינת
+// הדף לא תבנה מנות נוספות (ולא תבקש עמודים מהענן) בלי שהמשתמש גלל.
+function gallerySentinelInRange() {
+    const sentinel = document.getElementById('gallerySentinel');
+    if (!sentinel || typeof sentinel.getBoundingClientRect !== 'function') return true;
+    if (typeof sentinel.getClientRects === 'function' && sentinel.getClientRects().length === 0) return false;
+    const viewport = window.innerHeight || document.documentElement?.clientHeight || 0;
+    return sentinel.getBoundingClientRect().top <= viewport + GALLERY_SENTINEL_RANGE;
+}
+
 function observeGallerySentinel() {
     const sentinel = document.getElementById('gallerySentinel');
     if (!sentinel || typeof IntersectionObserver !== 'function') return;
     if (!galleryPageObserver) {
         galleryPageObserver = new IntersectionObserver(entries => {
-            if (entries.some(entry => entry.isIntersecting)) window.renderMoreImages();
+            if (entries.some(entry => entry.isIntersecting) && gallerySentinelInRange()) window.renderMoreImages();
         }, { rootMargin: GALLERY_SENTINEL_MARGIN });
     }
     galleryPageObserver.unobserve(sentinel);
     galleryPageObserver.observe(sentinel);
 }
+
+window.updateGalleryLoadMore = updateGalleryLoadMore;
+
+// הכפתור "טען פריטים ישנים יותר": אותו מסלול שהזקיף עובר כשכל מה שנטען
+// כבר מוצג — העמוד הבא מהענן (gallery-feed.js), ומיד אחריו המנה הבאה ממנו.
+window.fetchOlderImages = async function() {
+    galleryCloudStalledAt = -1;
+    const result = await (requestMoreImagesFromCloud() || Promise.resolve({ added: 0, done: true }));
+    if (result.done && !result.added) window.showNotification?.('אלה כל הפריטים בתיקייה.', true);
+    return result;
+};
 
 window.populateFolderSelects = function() {
     ['pendingTargetFolder', 'moveFolderSelect', 'adminTargetFolderSelect', 'userTargetFolderSelect'].forEach(id => {
@@ -1284,6 +1432,8 @@ async function submitUserUpload(confirmed = false) {
     }
     const btn = document.getElementById('userUploadSubmitBtn');
     if(btn) btn.disabled = true;
+    // גרסה חדשה של האתר לא תרענן את הדף באמצע ההעלאה.
+    window.markSiteBusy?.('upload');
 
     const progressContainer = document.getElementById('userUploadProgress');
     if(progressContainer) progressContainer.classList.remove('hidden');
@@ -1338,6 +1488,7 @@ async function submitUserUpload(confirmed = false) {
         if(progressContainer) progressContainer.classList.add('hidden');
         if(btn) btn.disabled = false;
         updateUploadControlButtons(false);
+        window.clearSiteBusy?.('upload');
     }
 }
 
@@ -1391,7 +1542,9 @@ function handleDeleteFolder(event, folderId) {
         });
         return;
     }
-    const mediaCount = window.state.images.filter(item => window.safeRecordId(item.folderId) === folderId).length;
+    const mediaCount = window.state.folderCounts
+        ? (Number(window.state.folderCounts[folderId]) || 0)
+        : window.state.images.filter(item => window.safeRecordId(item.folderId) === folderId).length;
     window.showConfirm('העברת תיקייה לסל', `להעביר את התיקייה ואת ${mediaCount} הפריטים שבתוכה לסל המחזור? יהיה אפשר לשחזר הכול יחד.`, async () => {
         try {
             await window.moveFolderToTrash(folderId);
@@ -1729,7 +1882,7 @@ window.openAiImageSearchModal = function() {
         window.showNotification('חיפוש AI זמין למשתמשים מאושרים בלבד.', false);
         return;
     }
-    if (!Array.isArray(window.state.images) || window.state.images.length === 0) {
+    if (!Array.isArray(window.state.images) || (window.state.images.length === 0 && !(Number(window.state.imagesTotal) > 0))) {
         window.showNotification('הגלריה עדיין ריקה.', false);
         return;
     }

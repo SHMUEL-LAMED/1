@@ -228,14 +228,16 @@
 
             <div id="photosGrid" class="grid"></div>
 
-            <!-- זקיף העימוד: כשהוא מתקרב למסך נטענת המנה הבאה. כשכל מה שהורד כבר
-                 מוצג ובענן נותרו עוד תמונות, הן מתבקשות דרך window.loadMoreImages
-                 ו„טוען עוד...” מוצג עד שהן מגיעות. -->
+            <!-- זקיף העימוד: כשהוא מתקרב למסך מצוירת המנה הבאה מהזיכרון. כשכל מה
+                 שנטען כבר מוצג ובענן נותרו עמודים ישנים יותר, העמוד הבא מתבקש
+                 דרך window.loadMoreImages (gallery-feed.js) ו„טוען עוד...” מוצג
+                 עד שהוא מגיע. שני הכפתורים הם גיבוי ידני לאותו מסלול. -->
             <div id="galleryLoadMore" class="hidden py-8 flex-col items-center gap-3">
                 <span id="gallerySentinel" class="gallery-sentinel" aria-hidden="true"></span>
                 <span id="galleryLoadMoreCount" class="text-[11px] text-slate-400"></span>
                 <span id="galleryLoadingStatus" class="gallery-loading hidden" role="status">טוען עוד...</span>
-                <button type="button" id="galleryLoadMoreButton" onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <button type="button" id="galleryRenderMoreBtn" onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <button type="button" id="galleryFetchMoreBtn" onclick="window.fetchOlderImages()" class="btn-secondary-dark px-5 py-2.5 text-xs hidden">טען פריטים ישנים יותר</button>
             </div>
 
             <div id="emptyState" class="gallery-empty hidden">

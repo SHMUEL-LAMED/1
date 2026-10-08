@@ -1,10 +1,14 @@
-// הגלילה ההדרגתית: הרשת נבנית במנות של 48 כרטיסים, התצוגה המלאה מדפדפת
-// גם אל פריטים שעדיין אין להם כרטיס, השכנים נטענים מראש, רינדור מחדש אינו
-// מזיז את הגלילה, ו-window.loadMoreImages נקרא פעם אחת כשהכול כבר מוצג.
+// הגלילה ההדרגתית: הרשת נבנית במנות של 48 כרטיסים מתוך העמודים שהורדו
+// (120 בכל עמוד, gallery-feed.js); כשהמנות נגמרות הזקיף מבקש את העמוד הבא
+// בסמן הדפדוף. התצוגה המלאה מדפדפת גם אל פריטים שעדיין אין להם כרטיס,
+// השכנים נטענים מראש, רינדור מחדש אינו מזיז את הגלילה, ו-window.loadMoreImages
+// נקרא פעם אחת כשהכול כבר מוצג.
 import { test, expect, seedSession, imageRecord, mediaUrl, DEFAULT_USER, API_ORIGIN, MEDIA_SIZE } from './fixtures.mjs';
 
 const TOTAL = 300;
 const BATCH = 48;
+const FEED_PAGE = 120;
+const cursorRequests = worker => worker.requestsTo('GET', '/data/images?').filter(entry => new URL(entry.path, 'https://fake.invalid').searchParams.has('after'));
 // התמונה 230 היא סרטון עם פוסטר: לשכן שהוא סרטון נטען הפוסטר בלבד.
 const VIDEO_INDEX = 230;
 
@@ -36,11 +40,11 @@ test('רק המנה הראשונה נבנית, כל גלילה לתחתית מו
     await page.goto('/');
 
     await expect(cards(page)).toHaveCount(BATCH);
-    await expect(page.locator('#imageCounter')).toHaveText(`${TOTAL} פריטים`);
+    await expect(page.locator('#imageCounter')).toHaveText(`${FEED_PAGE} מתוך ${TOTAL} פריטים`);
     await expect(cards(page).first().locator('.gallery-title')).toHaveText(`תמונה ${TOTAL}`);
     await expect(cards(page).first().locator('.gallery-number')).toHaveText('01');
     await expect(cards(page).nth(BATCH - 1).locator('.gallery-number')).toHaveText(String(BATCH));
-    await expect(page.locator('#galleryLoadMoreCount')).toHaveText(`מוצגים ${BATCH} מתוך ${TOTAL} פריטים`);
+    await expect(page.locator('#galleryLoadMoreCount')).toHaveText(`מוצגים ${BATCH} מתוך ${FEED_PAGE} פריטים`);
     await expect(page.locator('#gallerySentinel')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#galleryLoadingStatus')).toHaveAttribute('role', 'status');
     await expect(page.locator('#galleryLoadingStatus')).toBeHidden();
@@ -49,11 +53,21 @@ test('רק המנה הראשונה נבנית, כל גלילה לתחתית מו
     await scrollToBottom(page);
     await expect(cards(page)).toHaveCount(BATCH * 2);
     await expect(cards(page).nth(BATCH).locator('.gallery-number')).toHaveText(String(BATCH + 1));
+    expect(cursorRequests(worker), 'העמוד הראשון עוד לא נגמר').toHaveLength(0);
+    // הגלילה הבאה מציגה את שארית העמוד הראשון, והגלילה שאחריה — כשאין עוד
+    // מנות בזיכרון — מבקשת מהענן את העמוד השני בסמן הדפדוף, ומנה ממנו
+    // מצטרפת מיד.
     await scrollToBottom(page);
-    await expect(cards(page)).toHaveCount(BATCH * 3);
-    await expect(page.locator('#galleryLoadMoreCount')).toHaveText(`מוצגים ${BATCH * 3} מתוך ${TOTAL} פריטים`);
+    await expect(cards(page)).toHaveCount(FEED_PAGE);
+    await scrollToBottom(page);
+    const shown = FEED_PAGE + BATCH;
+    await expect(cards(page)).toHaveCount(shown);
+    expect(cursorRequests(worker)).toHaveLength(1);
+    await expect(page.locator('#imageCounter')).toHaveText(`${FEED_PAGE * 2} מתוך ${TOTAL} פריטים`);
+    await expect(page.locator('#galleryLoadMoreCount')).toHaveText(`מוצגים ${shown} מתוך ${FEED_PAGE * 2} פריטים`);
+    await expect(page.locator('#galleryLoadingStatus')).toBeHidden();
     const ids = await cards(page).evaluateAll(nodes => nodes.map(node => node.dataset.mediaId));
-    expect(new Set(ids).size, 'אין כרטיס כפול').toBe(BATCH * 3);
+    expect(new Set(ids).size, 'אין כרטיס כפול').toBe(shown);
 
     // סנאפשוט עם תמונה חדשה בראש הרשימה, באותה תצוגה: מספר הכרטיסים נשמר,
     // הכרטיסים הקיימים נשארים אותם אלמנטים (רק מספרם מתעדכן), ולכן הדפדפן
@@ -72,7 +86,7 @@ test('רק המנה הראשונה נבנית, כל גלילה לתחתית מו
     }, imageRecord(TOTAL + 1, { title: 'תמונה חדשה' }));
     await expect(cards(page).first().locator('.gallery-title')).toHaveText('תמונה חדשה');
     await expect(cards(page).nth(1).locator('.gallery-number')).toHaveText('02');
-    await expect(cards(page)).toHaveCount(BATCH * 3);
+    await expect(cards(page)).toHaveCount(shown);
     await page.waitForTimeout(300);
     const anchorAfter = await page.evaluate(id => {
         const card = document.querySelector(`#photosGrid .gallery-card[data-media-id="${id}"]`);
@@ -89,12 +103,12 @@ test('רק המנה הראשונה נבנית, כל גלילה לתחתית מו
     }, imageRecord(0, { title: 'תמונה ישנה' }));
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => window.scrollY), 'הגלילה לא זזה').toBe(scrollBeforeAppend);
-    await expect(cards(page)).toHaveCount(BATCH * 3);
+    await expect(cards(page)).toHaveCount(shown);
 
     // מעבר תיקייה מחזיר למנה הראשונה וגולל לראש הרשת, כך שהזקיף אינו נראה
     // מיד ואינו בונה מנה אחר מנה מתחת למשתמש.
     await page.locator('#folderList .collection-card-main', { hasText: 'טיולים וסיורים' }).click();
-    await expect(page.locator('#imageCounter')).toHaveText(`${TOTAL / 2} פריטים`);
+    await expect(page.locator('#imageCounter')).toHaveText(`${FEED_PAGE} מתוך ${TOTAL / 2} פריטים`);
     await expect(cards(page)).toHaveCount(BATCH);
     await expect(cards(page).first()).toBeInViewport();
     await page.waitForTimeout(400);
@@ -110,17 +124,19 @@ test('התצוגה המלאה מדפדפת אל פריטים שעדיין לא �
     await cards(page).first().locator('.gallery-media').click();
     const lightbox = page.locator('#lightboxModal');
     await expect(lightbox).toBeVisible();
-    await expect(page.locator('#lightboxCounter')).toHaveText(`1 מתוך ${TOTAL}`);
+    // התצוגה המלאה עוברת על כל מה שהורד (העמוד הראשון), לא רק על הכרטיסים.
+    await expect(page.locator('#lightboxCounter')).toHaveText(`1 מתוך ${FEED_PAGE}`);
     const image = page.locator('#lightboxImage');
     await expect(image).toHaveAttribute('src', mediaUrl(`img_e2e_${TOTAL}`));
-    // השכן הקודם של הפריט הראשון הוא האחרון ברשימה (תמונה 1): אין לו כרטיס,
+    // השכן הקודם של הפריט הראשון הוא האחרון ברשימה שהורדה: אין לו כרטיס,
     // ובכל זאת הוא נטען מראש.
-    await expect.poll(() => worker.requestsTo('GET', mediaPath('img_e2e_1')).length).toBeGreaterThanOrEqual(1);
+    const lastLoaded = TOTAL - FEED_PAGE + 1;
+    await expect.poll(() => worker.requestsTo('GET', mediaPath(`img_e2e_${lastLoaded}`)).length).toBeGreaterThanOrEqual(1);
 
     // 60 לחיצות „הבא” (חץ שמאלה ב-RTL) מגיעות לתמונה 240, הרחק מעבר ל-48 הכרטיסים.
     for (let i = 0; i < 60; i++) await page.keyboard.press('ArrowLeft');
     const current = TOTAL - 60;
-    await expect(page.locator('#lightboxCounter')).toHaveText(`61 מתוך ${TOTAL}`);
+    await expect(page.locator('#lightboxCounter')).toHaveText(`61 מתוך ${FEED_PAGE}`);
     await expect(page.locator('#lightboxTitle')).toHaveText(`תמונה ${current}`);
     await expect(image).toHaveAttribute('src', mediaUrl(`img_e2e_${current}`));
     await expect.poll(() => image.evaluate(element => element.complete && element.naturalWidth)).toBe(MEDIA_SIZE);

@@ -27,6 +27,15 @@ const EMPTY_FOLDER_CLEANUP_AFTER_DELETE_MS = 3 * 1000;
 const EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS = 90 * 1000;
 // גודל העמוד שנשלח ל־Worker. אוסף גדול נטען בכמה עמודים ברצף.
 const DATA_PAGE_SIZE = 1000;
+// שדות ש-where(field, '==', value) מתורגם עבורם לסינון ב-SQL בצד השרת.
+// הרשימה זהה ל-DATA_FILTER_FIELDS שב-Worker.
+const SERVER_FILTER_FIELDS = new Set(["folderId", "status", "mediaType", "uploadedBy"]);
+// כמה מזהים נשלחים בבקשת ?ids= אחת (ה-Worker מקבל עד 200).
+const DATA_IDS_CHUNK = 100;
+// מטמון ETag בזיכרון: כתובת → {etag, payload}. בבקשת GET חוזרת נשלח
+// If-None-Match, ו-304 מחזיר את התשובה השמורה בלי להוריד את הגוף שוב.
+const ETAG_CACHE_LIMIT = 200;
+const etagCache = new Map();
 
 const authState = { currentUser: null, listeners: new Set(), ready: false };
 let emptyFolderCleanupTimer = null;
@@ -334,7 +343,15 @@ async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const method = String(options.method || "GET").toUpperCase();
+  const url = `${API_BASE_URL}${path}`;
+  const cached = method === "GET" ? etagCache.get(url) : null;
+  if (cached) headers.set("If-None-Match", cached.etag);
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 304 && cached) {
+    rememberEtag(url, cached.etag, cached.payload);
+    return cached.payload;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload?.message || `שגיאת מסד נתונים (${response.status}).`);
@@ -342,7 +359,16 @@ async function apiRequest(path, options = {}) {
     error.status = response.status;
     throw error;
   }
+  if (method === "GET") rememberEtag(url, response.headers?.get?.("ETag"), payload);
   return payload;
+}
+
+// הרשומה האחרונה שנגעו בה היא החדשה ביותר במפה; כשהיא מתמלאת נזרקת הישנה.
+function rememberEtag(url, etag, payload) {
+  if (!etag) return;
+  etagCache.delete(url);
+  etagCache.set(url, { etag, payload });
+  while (etagCache.size > ETAG_CACHE_LIMIT) etagCache.delete(etagCache.keys().next().value);
 }
 
 function scheduleEmptyFolderCleanup(delay = EMPTY_FOLDER_CLEANUP_AFTER_WRITE_MS) {
@@ -358,7 +384,7 @@ async function cleanupEmptyGalleryFolders() {
   if (emptyFolderCleanupRunning) return;
 
   const state = window.state;
-  if (!state?.isSuperAdmin || !window.db || !Array.isArray(state.folders) || !Array.isArray(state.images)) return;
+  if (!state?.isSuperAdmin || !window.db || !Array.isArray(state.folders)) return;
 
   const folders = state.folders.filter(folder => {
     const id = String(folder?.id || "").trim();
@@ -368,6 +394,12 @@ async function cleanupEmptyGalleryFolders() {
 
   emptyFolderCleanupRunning = true;
   try {
+    // המונים מגיעים מהשרת ולא מ-state.images: בדף הגלריה הזיכרון מחזיק רק
+    // את התיקייה הפעילה, ותיקייה שעדיין לא נטענה אסור שתיראה ריקה.
+    const [imageCounts, pendingCounts] = await Promise.all([
+      getCounts(collection(window.db, "artifacts", window.appId, "public", "data", "images"), "folderId"),
+      getCounts(collection(window.db, "artifacts", window.appId, "public", "data", "pendingImages"), "folderId")
+    ]);
     const foldersById = new Map(folders.map(folder => [String(folder.id), folder]));
     const usedFolderIds = new Set();
 
@@ -382,8 +414,11 @@ async function cleanupEmptyGalleryFolders() {
       }
     };
 
-    for (const image of state.images || []) markFolderAndParents(image?.folderId);
-    for (const pendingImage of state.pendingImages || []) markFolderAndParents(pendingImage?.folderId);
+    for (const counts of [imageCounts.counts, pendingCounts.counts]) {
+      for (const [folderId, count] of Object.entries(counts)) {
+        if (count > 0) markFolderAndParents(folderId);
+      }
+    }
 
     const emptyFolders = folders
       .filter(folder => !usedFolderIds.has(String(folder.id)))
@@ -441,58 +476,134 @@ export async function getDoc(reference) {
   }
 }
 
-export async function getDocs(reference) {
+// פרמטרי הרשימה מתוך אילוצי השאילתה. where על שדה מהרשימה הסגורה הופך
+// לסינון בשרת; where('id', 'in', [...]) הופך ל-?ids=; כל השאר נשלח כפי
+// שהיה, כמידע בלבד שה-Worker מתעלם ממנו.
+function listRequestParams(reference) {
   const params = new URLSearchParams();
   // בלי limit() מפורש נטענים כל המסמכים באוסף. הקריאה עצמה עדיין מחולקת
   // לעמודים של DATA_PAGE_SIZE כדי שתשובה בודדת לא תגדל בלי גבול.
   let requestedLimit = Infinity;
-
   for (const constraint of reference.constraints || []) {
     if (constraint.kind === "orderBy") {
       params.set("orderBy", constraint.field);
       params.set("direction", constraint.direction);
     } else if (constraint.kind === "limit") {
       requestedLimit = constraint.value;
-      params.set("limit", String(constraint.value));
     } else if (constraint.kind === "where") {
-      params.append("where", JSON.stringify({
-        field: constraint.field,
-        op: constraint.operator,
-        value: constraint.value
-      }));
+      if (constraint.operator === "==" && SERVER_FILTER_FIELDS.has(constraint.field)) {
+        params.set(constraint.field, String(constraint.value ?? ""));
+      } else if (constraint.operator === "in" && constraint.field === "id") {
+        const ids = (Array.isArray(constraint.value) ? constraint.value : []).map(String).filter(Boolean);
+        params.set("ids", ids.join(","));
+      } else {
+        params.append("where", JSON.stringify({
+          field: constraint.field,
+          op: constraint.operator,
+          value: constraint.value
+        }));
+      }
     }
   }
+  return { params, requestedLimit };
+}
 
+function querySnapshot(docs) {
+  return {
+    docs,
+    empty: docs.length === 0,
+    size: docs.length,
+    forEach: callback => docs.forEach(callback)
+  };
+}
+
+async function fetchListPage(name, params) {
+  const payload = await apiRequest(`/data/${name}?${params}`);
+  const docs = (payload.documents || []).map(item => documentSnapshot(item.id, item.data, true));
+  return {
+    docs,
+    hasMore: Boolean(payload.hasMore),
+    nextCursor: typeof payload.nextCursor === "string" && payload.nextCursor ? payload.nextCursor : null
+  };
+}
+
+// עמוד אחד בלבד, עם הסמן להמשך. זה הבסיס לטעינה לפי תיקייה: הגלריה
+// מבקשת את העמוד הראשון מיד ואת הבאים רק כשצריך.
+export async function getDocsPage(reference, { after = null, pageSize = DATA_PAGE_SIZE } = {}) {
+  const { params, requestedLimit } = listRequestParams(reference);
+  params.set("limit", String(Math.max(1, Math.min(DATA_PAGE_SIZE, Number(pageSize) || DATA_PAGE_SIZE, requestedLimit))));
+  if (after) params.set("after", after);
+  const page = await fetchListPage(encodeURIComponent(collectionName(reference)), params);
+  return { ...querySnapshot(page.docs), hasMore: page.hasMore, nextCursor: page.nextCursor };
+}
+
+export async function getDocs(reference) {
+  const { params, requestedLimit } = listRequestParams(reference);
   const name = encodeURIComponent(collectionName(reference));
   const allDocs = [];
-  // כתיבה או מחיקה בין עמוד לעמוד מזיזה את ה־OFFSET, ואז אותה שורה
-  // עלולה לחזור פעמיים. המזהים שכבר נאספו מסננים את החזרות האלה.
+  // העמודים ממשיכים בסמן של השורה האחרונה, ולכן כתיבה בין עמוד לעמוד אינה
+  // מזיזה אותם. המזהים שכבר נאספו נשארים כרשת ביטחון זולה מול כפילויות.
   const seenIds = new Set();
   let offset = 0;
+  let after = null;
 
   while (allDocs.length < requestedLimit) {
     params.set("limit", String(Math.min(DATA_PAGE_SIZE, requestedLimit - allDocs.length)));
-    params.set("offset", String(offset));
+    if (after) params.set("after", after);
+    else if (offset > 0) params.set("offset", String(offset));
 
-    const payload = await apiRequest(`/data/${name}?${params}`);
-    const pageDocs = payload.documents || [];
-
-    for (const item of pageDocs) {
-      if (seenIds.has(item.id)) continue;
-      seenIds.add(item.id);
-      allDocs.push(documentSnapshot(item.id, item.data, true));
+    const page = await fetchListPage(name, params);
+    for (const snapshot of page.docs) {
+      if (seenIds.has(snapshot.id)) continue;
+      seenIds.add(snapshot.id);
+      allDocs.push(snapshot);
     }
 
-    if (!payload.hasMore || pageDocs.length === 0) break;
-    offset += pageDocs.length;
+    if (!page.hasMore || page.docs.length === 0) break;
+    // Worker שעדיין אינו מחזיר סמן — ממשיכים ב-OFFSET כבעבר.
+    if (page.nextCursor) after = page.nextCursor;
+    else offset += page.docs.length;
   }
 
-  return {
-    docs: allDocs,
-    empty: allDocs.length === 0,
-    size: allDocs.length,
-    forEach: callback => allDocs.forEach(callback)
-  };
+  return querySnapshot(allDocs);
+}
+
+function listMetaParams(reference) {
+  const { params } = listRequestParams(reference);
+  params.delete("orderBy");
+  params.delete("direction");
+  return params;
+}
+
+// מספר המסמכים שעונים לסינון, בלי להוריד אותם: GET /data/<אוסף>/count.
+export async function getCount(reference) {
+  const params = listMetaParams(reference);
+  const query = params.toString();
+  const payload = await apiRequest(`/data/${encodeURIComponent(collectionName(reference))}/count${query ? `?${query}` : ""}`);
+  return Number(payload.count) || 0;
+}
+
+// מונים מקובצים לפי שדה, בבקשה אחת: GET /data/<אוסף>/counts?by=folderId.
+export async function getCounts(reference, field = "folderId") {
+  const params = listMetaParams(reference);
+  params.set("by", String(field));
+  const payload = await apiRequest(`/data/${encodeURIComponent(collectionName(reference))}/counts?${params}`);
+  const counts = {};
+  for (const [key, value] of Object.entries(payload.counts || {})) counts[key] = Number(value) || 0;
+  return { total: Number(payload.total) || 0, counts };
+}
+
+// מסמכים לפי רשימת מזהים (למשל המועדפים), בקבוצות שה-Worker מקבל.
+export async function getDocsByIds(reference, ids) {
+  const unique = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
+  const docs = [];
+  for (let index = 0; index < unique.length; index += DATA_IDS_CHUNK) {
+    const chunk = unique.slice(index, index + DATA_IDS_CHUNK);
+    const constraints = [...(reference.constraints || []).filter(item => item.kind !== "limit"), where("id", "in", chunk)];
+    const page = await getDocsPage(makeReference(reference.type, reference.segments, constraints), { pageSize: chunk.length });
+    docs.push(...page.docs);
+  }
+  return querySnapshot(docs);
 }
 
 async function legacyConversationMutation(conversationUid, action, payload = {}) {

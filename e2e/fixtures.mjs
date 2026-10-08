@@ -7,6 +7,7 @@
 // כך הבדיקה מתרגלת את קוד הדפדפן כולו — התחברות, שחזור, הרשאות, גלריה —
 // בלי להיות תלויה בשרת חי ובלי לגעת בנתונים אמיתיים.
 import { test as base, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 
 export const API_ORIGIN = 'https://simchas-gallery-api.0534169095.workers.dev';
@@ -26,6 +27,37 @@ const DATA_COLLECTIONS = new Set([
 ]);
 const DATA_PAGE_MAX_LIMIT = 1000;
 const DATA_PAGE_DEFAULT_LIMIT = 500;
+// שדות הסינון והקיבוץ שה-Worker מקבל (DATA_FILTER_FIELDS), ותקרת ?ids=.
+const DATA_FILTER_FIELDS = ['folderId', 'status', 'mediaType', 'uploadedBy'];
+const DATA_IDS_MAX = 200;
+
+// --- ETag וסמני דפדוף, כמו ב-Worker ---
+
+// ETag חזק: SHA-256 של הגוף, base64url, 22 התווים הראשונים.
+export function computeEtag(body) {
+    return `"${createHash('sha256').update(body).digest('base64url').slice(0, 22)}"`;
+}
+
+function etagMatches(header, etag) {
+    return String(header || '').split(',').some(token => token.trim().replace(/^W\//i, '') === etag);
+}
+
+export function encodeCursor(value, id) {
+    return Buffer.from(JSON.stringify({ v: value, id })).toString('base64url');
+}
+
+export function decodeCursor(raw) {
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(Buffer.from(String(raw), 'base64url').toString('utf8'));
+        const value = Number(parsed?.v);
+        const id = String(parsed?.id || '');
+        if (!Number.isFinite(value) || !id) throw new Error('invalid cursor');
+        return { value, id };
+    } catch {
+        throw apiError('סמן הדפדוף אינו תקין.', 400, 'invalid_cursor');
+    }
+}
 
 export const DEFAULT_USER = { uid: 'google-user-1', email: 'viewer@example.com', name: 'דוד כהן', picture: '' };
 
@@ -328,6 +360,69 @@ export class FakeWorker {
         };
     }
 
+    // רשימה, ספירה או ספירה מקובצת — אותם פרמטרים ואותן צורות כמו ב-Worker:
+    // סינון לפי השדות המותרים, ?ids=, סמן דפדוף (after → nextCursor) לצד
+    // OFFSET הישן, ו-limit + 1 כדי לדעת אם יש המשך.
+    listDocuments(docs, url, kind) {
+        const limit = Math.max(1, Math.min(DATA_PAGE_MAX_LIMIT, Number(url.searchParams.get('limit')) || DATA_PAGE_DEFAULT_LIMIT));
+        const offset = Math.max(0, Math.trunc(Number(url.searchParams.get('offset')) || 0));
+        const orderField = safeDataPart(url.searchParams.get('orderBy') || 'updatedAt', 'שדה המיון');
+        const ascending = url.searchParams.get('direction') === 'asc';
+        const after = decodeCursor(url.searchParams.get('after'));
+
+        let rows = [...docs.entries()];
+        for (const field of DATA_FILTER_FIELDS) {
+            const expected = url.searchParams.get(field);
+            if (expected === null || expected === '') continue;
+            rows = rows.filter(([, data]) => data?.[field] !== undefined && data?.[field] !== null && String(data[field]) === expected);
+        }
+        const rawIds = String(url.searchParams.get('ids') || '').split(',').map(value => value.trim()).filter(Boolean);
+        if (rawIds.length > DATA_IDS_MAX) throw apiError(`אפשר לבקש עד ${DATA_IDS_MAX} מזהים בבקשה אחת.`, 400, 'too_many_ids');
+        if (rawIds.length) {
+            const ids = new Set(rawIds.map(value => safeDataPart(value, 'מזהה המסמך')));
+            rows = rows.filter(([id]) => ids.has(id));
+        }
+
+        if (kind === 'count') return { success: true, count: rows.length };
+        if (kind === 'counts') {
+            const by = safeDataPart(url.searchParams.get('by') || 'folderId', 'שדה הקיבוץ');
+            if (!DATA_FILTER_FIELDS.includes(by)) throw apiError('אי אפשר לקבץ לפי השדה הזה.', 400, 'invalid_group_field');
+            const counts = {};
+            for (const [, data] of rows) {
+                const value = data?.[by] === undefined || data?.[by] === null ? '' : String(data[by]);
+                counts[value] = (counts[value] || 0) + 1;
+            }
+            return { success: true, by, total: rows.length, counts };
+        }
+
+        // כמו ב-SQL של ה-Worker: שדה המיון כמספר, ומזהה המסמך כשובר שוויון.
+        const orderValue = data => Number(data?.[orderField]) || 0;
+        rows.sort(([idA, a], [idB, b]) => {
+            const difference = orderValue(a) - orderValue(b);
+            if (difference) return ascending ? difference : -difference;
+            return idA < idB ? -1 : idA > idB ? 1 : 0;
+        });
+        if (after) {
+            rows = rows.filter(([id, data]) => {
+                const value = orderValue(data);
+                const beyond = ascending ? value > after.value : value < after.value;
+                return beyond || (value === after.value && id > after.id);
+            });
+        }
+        const start = after ? 0 : offset;
+        const page = rows.slice(start, start + limit);
+        const hasMore = rows.length > start + limit;
+        const last = page[page.length - 1];
+        return {
+            success: true,
+            documents: page.map(([id, data]) => ({ id, data: structuredClone(data) })),
+            offset: start,
+            limit,
+            hasMore,
+            nextCursor: hasMore && last ? encodeCursor(orderValue(last[1]), last[0]) : null
+        };
+    }
+
     // /data/<אוסף>[/<מזהה>] — אותן צורות ואותם קודי שגיאה כמו handleDataRequest.
     handleData(request, url) {
         const method = request.method();
@@ -335,35 +430,18 @@ export class FakeWorker {
         const collectionName = safeDataPart(parts[0], 'שם האוסף');
         if (!DATA_COLLECTIONS.has(collectionName)) throw apiError('האוסף המבוקש אינו קיים.', 404, 'collection_not_found');
         const documentId = parts[1] ? safeDataPart(parts[1], 'מזהה המסמך') : '';
+        // /count ו-/counts הם רשימות מקוצרות ונבדקים בהרשאות של רשימת האוסף.
+        const listKind = method === 'GET' && ['count', 'counts'].includes(documentId) ? documentId : '';
         const actor = this.actor(request);
-        assertDataPermission(actor, collectionName, method, documentId);
+        assertDataPermission(actor, collectionName, method, listKind ? '' : documentId);
         const docs = this.collection(collectionName);
 
-        if (method === 'GET' && documentId) {
+        if (method === 'GET' && documentId && !listKind) {
             if (!docs.has(documentId)) throw apiError('המסמך לא נמצא.', 404, 'not_found');
             return { success: true, id: documentId, data: structuredClone(docs.get(documentId)) };
         }
 
-        if (method === 'GET') {
-            const limit = Math.max(1, Math.min(DATA_PAGE_MAX_LIMIT, Number(url.searchParams.get('limit')) || DATA_PAGE_DEFAULT_LIMIT));
-            const offset = Math.max(0, Math.trunc(Number(url.searchParams.get('offset')) || 0));
-            const orderField = safeDataPart(url.searchParams.get('orderBy') || 'updatedAt', 'שדה המיון');
-            const ascending = url.searchParams.get('direction') === 'asc';
-            // כמו ב-SQL של ה-Worker: שדה המיון כמספר, ומזהה המסמך כשובר שוויון.
-            const rows = [...docs.entries()].sort(([idA, a], [idB, b]) => {
-                const difference = (Number(a?.[orderField]) || 0) - (Number(b?.[orderField]) || 0);
-                if (difference) return ascending ? difference : -difference;
-                return idA < idB ? -1 : idA > idB ? 1 : 0;
-            });
-            const page = rows.slice(offset, offset + limit);
-            return {
-                success: true,
-                documents: page.map(([id, data]) => ({ id, data: structuredClone(data) })),
-                offset,
-                limit,
-                hasMore: rows.length > offset + limit
-            };
-        }
+        if (method === 'GET') return this.listDocuments(docs, url, listKind || 'list');
 
         if (method === 'PUT' && documentId) {
             let payload = {};
@@ -411,7 +489,8 @@ export class FakeWorker {
         const cors = {
             'Access-Control-Allow-Origin': request.headers()['origin'] || '*',
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Face-Index-Token',
+            'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Face-Index-Token, If-None-Match',
+            'Access-Control-Expose-Headers': 'ETag',
             'Access-Control-Max-Age': '86400',
             'Vary': 'Origin'
         };
@@ -420,6 +499,19 @@ export class FakeWorker {
             headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
             body: JSON.stringify(data)
         });
+        // GET מ-/data נושא ETag, ו-If-None-Match תואם מקבל 304 ריק — כמו ב-Worker.
+        const etagJson = data => {
+            const body = JSON.stringify(data);
+            const etag = computeEtag(body);
+            if (etagMatches(request.headers()['if-none-match'], etag)) {
+                return route.fulfill({ status: 304, headers: { ...cors, ETag: etag, 'Cache-Control': 'no-store' } });
+            }
+            return route.fulfill({
+                status: 200,
+                headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ETag: etag },
+                body
+            });
+        };
 
         // preflight כמו ב-Worker. בפועל Chromium תחת Playwright משלים בקשות
         // מיורטות בלי סבב OPTIONS, אבל הזיוף עונה עליו נכון אם יגיע.
@@ -430,7 +522,10 @@ export class FakeWorker {
                 return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }, body: this.media });
             }
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
-            if (url.pathname.startsWith('/data/')) return json(this.handleData(request, url));
+            if (url.pathname.startsWith('/data/')) {
+                const payload = this.handleData(request, url);
+                return method === 'GET' ? etagJson(payload) : json(payload);
+            }
             if (method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
                 return json({ success: true, service: 'simchas-gallery-api', databaseConnected: true, bucketConnected: true });
             }

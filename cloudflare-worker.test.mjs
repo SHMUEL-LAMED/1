@@ -2,9 +2,37 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "./cloudflare-worker.js";
 
+// חיקוי של D1 שמפרש את צורות ה-SQL הספורות שה-Worker מנסח לאוספים:
+// סינון json_extract לפי שדה, רשימת מזהים, השוואת הצמד של סמן הדפדוף,
+// ספירה, ספירה מקובצת וגרסאות הנתונים. הסדר וה-LIMIT מחושבים באמת, כדי
+// שהדפדוף ייבדק בפועל ולא יאושר על סמך תשובה קבועה.
 class MockD1 {
-  constructor() { this.rows = new Map(); this.secrets = new Map(); }
+  constructor() { this.rows = new Map(); this.secrets = new Map(); this.meta = new Map(); }
   key(collection, id) { return `${collection}/${id}`; }
+  // שורות האוסף אחרי הסינונים שבשאילתה. מחזיר גם את מיקום הכריכה הבאה.
+  filteredRows(sql, bindings) {
+    const collection = bindings[0];
+    let cursor = 1;
+    let rows = [...this.rows.entries()]
+      .filter(([key]) => key.startsWith(`${collection}/`))
+      .map(([, row]) => ({ ...row }));
+    for (const match of sql.matchAll(/AND CAST\(json_extract\(data_json, '\$\.(\w+)'\) AS TEXT\) = \?/g)) {
+      const field = match[1];
+      const expected = String(bindings[cursor++]);
+      rows = rows.filter(row => {
+        const value = JSON.parse(row.data_json || "{}")?.[field];
+        return value !== undefined && value !== null && String(value) === expected;
+      });
+    }
+    const idList = /AND document_id IN \(([?, ]+)\)/.exec(sql);
+    if (idList) {
+      const count = idList[1].split(",").length;
+      const ids = new Set(bindings.slice(cursor, cursor + count).map(String));
+      cursor += count;
+      rows = rows.filter(row => ids.has(String(row.document_id)));
+    }
+    return { rows, cursor };
+  }
   prepare(sql) {
     const database = this;
     let bindings = [];
@@ -15,6 +43,13 @@ class MockD1 {
         if (sql.includes("FROM auth_secrets")) {
           const secret = database.secrets.get("session_signing");
           return secret ? { secret_value: secret } : null;
+        }
+        if (sql.includes("FROM gallery_schema_meta")) {
+          const key = sql.includes("schema_key = ?") ? String(bindings[0]) : "gallery";
+          return database.meta.has(key) ? { schema_version: database.meta.get(key) } : null;
+        }
+        if (sql.includes("COUNT(*) AS count")) {
+          return { count: database.filteredRows(sql, bindings).rows.length };
         }
         if (sql.includes("json_extract")) {
           const email = String(bindings[0] || "").toLowerCase();
@@ -29,21 +64,41 @@ class MockD1 {
       },
       async all() {
         if (sql.includes("PRAGMA")) return { results: [] };
-        const [collection, rowLimit, offset] = bindings;
-        // מחקה את ORDER BY / LIMIT / OFFSET של D1 כדי שהדפדוף ייבדק באמת.
-        const orderField = /json_extract\(data_json, '\$\.([^']+)'\)/.exec(sql)?.[1] || "updatedAt";
+        if (sql.includes("GROUP BY value")) {
+          // ספירה מקובצת: COALESCE(CAST(json_extract(data_json, '$.שדה') AS TEXT), '')
+          const field = /json_extract\(data_json, '\$\.(\w+)'\) AS TEXT\), ''\)/.exec(sql)?.[1] || "folderId";
+          const grouped = new Map();
+          for (const row of database.filteredRows(sql, bindings).rows) {
+            const value = JSON.parse(row.data_json || "{}")?.[field];
+            const key = value === undefined || value === null ? "" : String(value);
+            grouped.set(key, (grouped.get(key) || 0) + 1);
+          }
+          return { results: [...grouped.entries()].map(([value, count]) => ({ value, count })) };
+        }
+        // מחקה את ORDER BY / סמן / LIMIT / OFFSET של D1 כדי שהדפדוף ייבדק באמת.
+        const { rows: filtered, cursor } = database.filteredRows(sql, bindings);
+        const orderField = /COALESCE\(json_extract\(data_json, '\$\.(\w+)'\), 0\) AS REAL\)/.exec(sql)?.[1] || "updatedAt";
         const descending = /AS REAL\) DESC/.test(sql);
-        const rows = [...database.rows.entries()]
-          .filter(([key]) => key.startsWith(`${collection}/`))
-          .map(([, row]) => ({ ...row }))
+        const orderValue = row => Number(JSON.parse(row.data_json || "{}")?.[orderField]) || 0;
+        let rows = filtered
+          .map(row => ({ ...row, order_value: orderValue(row) }))
           .sort((left, right) => {
-            const a = Number(JSON.parse(left.data_json)?.[orderField]) || 0;
-            const b = Number(JSON.parse(right.data_json)?.[orderField]) || 0;
-            if (a !== b) return descending ? b - a : a - b;
-            return String(left.document_id).localeCompare(String(right.document_id));
+            if (left.order_value !== right.order_value) {
+              return descending ? right.order_value - left.order_value : left.order_value - right.order_value;
+            }
+            return String(left.document_id) < String(right.document_id) ? -1 : 1;
           });
-        const start = Math.max(0, Number(offset) || 0);
-        const size = Number(rowLimit);
+        let next = cursor;
+        const tuple = /AND \(CAST\(.*?\) (<|>) \? OR \(CAST\(.*?\) = \? AND document_id > \?\)\)/.exec(sql);
+        if (tuple) {
+          const afterValue = Number(bindings[next]);
+          const afterId = String(bindings[next + 2]);
+          next += 3;
+          rows = rows.filter(row => (tuple[1] === "<" ? row.order_value < afterValue : row.order_value > afterValue)
+            || (row.order_value === afterValue && String(row.document_id) > afterId));
+        }
+        const size = Number(bindings[next]);
+        const start = Math.max(0, Number(bindings[next + 1]) || 0);
         return { results: Number.isFinite(size) ? rows.slice(start, start + size) : rows.slice(start) };
       },
       async run() {
@@ -52,6 +107,12 @@ class MockD1 {
           if (!database.secrets.has("session_signing")) {
             database.secrets.set("session_signing", String(bindings[0]));
           }
+        } else if (sql.trim().startsWith("INSERT INTO gallery_schema_meta")) {
+          // גרסת הנתונים: MAX(הקודמת + 1, Date.now()); גרסת הסכימה נכתבת כמות שהיא.
+          const key = sql.includes("VALUES ('gallery'") ? "gallery" : String(bindings[0]);
+          const value = Number(sql.includes("VALUES ('gallery'") ? bindings[0] : bindings[1]) || 0;
+          const previous = database.meta.get(key);
+          database.meta.set(key, sql.includes("MAX(") && previous !== undefined ? Math.max(previous + 1, value) : value);
         } else if (sql.trim().startsWith("INSERT INTO gallery_documents")) {
           const hasFixedCollection = sql.includes("VALUES ('userProfiles'");
           const [collection, id, dataJson, ownerUid, createdAt, updatedAt] = hasFixedCollection
@@ -426,11 +487,11 @@ test("the client loads every image of a 1500 image gallery without duplicates", 
 
   // הלקוח פונה ל־Worker דרך fetch; כאן הבקשה מנותבת ישירות אליו.
   const mockedFetch = globalThis.fetch;
-  let requestCount = 0;
+  const requestedUrls = [];
   globalThis.fetch = async (url, options = {}) => {
     const href = String(url);
     if (!href.includes("workers.dev")) return mockedFetch(url, options);
-    requestCount += 1;
+    requestedUrls.push(new URL(href));
     const headers = new Headers(options.headers || {});
     headers.set("Origin", "https://shmuel-lamed.github.io");
     return worker.fetch(new Request(href, { method: options.method || "GET", headers, body: options.body }), env(database));
@@ -447,8 +508,97 @@ test("the client loads every image of a 1500 image gallery without duplicates", 
     assert.equal(new Set(loadedIds).size, LARGE_GALLERY_SIZE);
     assert.deepEqual([...loadedIds].sort(), [...seededIds].sort());
     // 1500 מסמכים בעמודים של 1000: שני עמודים, לא בקשה אחת ולא לולאה אינסופית.
-    assert.equal(requestCount, 2);
+    assert.equal(requestedUrls.length, 2);
+    // העמוד השני ממשיך בסמן של השורה האחרונה, לא ב-OFFSET.
+    assert.equal(requestedUrls[0].searchParams.has("after"), false);
+    assert.equal(typeof requestedUrls[1].searchParams.get("after"), "string");
+    assert.equal(requestedUrls[1].searchParams.has("offset"), false);
   } finally {
     globalThis.fetch = mockedFetch;
   }
+});
+
+test("listing pages through a large collection with cursors, every row exactly once", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  const seededIds = seedImages(database, LARGE_GALLERY_SIZE);
+
+  const seen = [];
+  let after = null;
+  let pages = 0;
+  while (pages < 50) {
+    const url = `/data/images?orderBy=uploadedAt&direction=desc&limit=100${after ? `&after=${encodeURIComponent(after)}` : ""}`;
+    const payload = await (await worker.fetch(request(url), env(database))).json();
+    pages += 1;
+    seen.push(...payload.documents.map(item => item.id));
+    if (!payload.hasMore) {
+      assert.equal(payload.nextCursor, null);
+      break;
+    }
+    after = payload.nextCursor;
+  }
+  assert.equal(pages, 15);
+  assert.equal(seen.length, LARGE_GALLERY_SIZE);
+  assert.equal(new Set(seen).size, LARGE_GALLERY_SIZE);
+  assert.deepEqual([...seen].sort(), [...seededIds].sort());
+});
+
+test("the folderId filter, the count endpoint and the grouped counts run against the mock SQL", async () => {
+  const database = new MockD1();
+  seedApprovedViewer(database);
+  for (let index = 0; index < 30; index += 1) {
+    database.rows.set(`images/img-${index}`, {
+      document_id: `img-${index}`,
+      data_json: JSON.stringify({ id: `img-${index}`, folderId: `folder-${index % 3}`, createdAt: 1000 + index }),
+      owner_uid: "google-user-1", created_at: 1, updated_at: 1
+    });
+  }
+  const filtered = await (await worker.fetch(request("/data/images?folderId=folder-1&orderBy=createdAt&direction=desc"), env(database))).json();
+  assert.equal(filtered.documents.length, 10);
+  assert.ok(filtered.documents.every(item => item.data.folderId === "folder-1"));
+  assert.equal(filtered.documents[0].id, "img-28");
+
+  const count = await (await worker.fetch(request("/data/images/count?folderId=folder-2"), env(database))).json();
+  assert.deepEqual(count, { success: true, count: 10 });
+
+  const counts = await (await worker.fetch(request("/data/images/counts?by=folderId"), env(database))).json();
+  assert.equal(counts.total, 30);
+  assert.deepEqual(counts.counts, { "folder-0": 10, "folder-1": 10, "folder-2": 10 });
+
+  const byIds = await (await worker.fetch(request("/data/images?ids=img-3,img-7,nope"), env(database))).json();
+  assert.deepEqual(byIds.documents.map(item => item.id).sort(), ["img-3", "img-7"]);
+});
+
+test("a pending user still cannot list, filter or count images", async () => {
+  const database = new MockD1();
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "pending", role: "viewer" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+  for (const path of ["/data/images", "/data/images?folderId=1", "/data/images/count", "/data/images/counts"]) {
+    const response = await worker.fetch(request(path), env(database));
+    assert.equal(response.status, 403, path);
+  }
+});
+
+test("a write bumps the data version that the edge cache key is built from", async () => {
+  const database = new MockD1();
+  database.rows.set("userProfiles/google-user-1", {
+    document_id: "google-user-1",
+    data_json: JSON.stringify({ uid: "google-user-1", email: "user@example.com", status: "approved", role: "admin" }),
+    created_at: Date.now(),
+    updated_at: Date.now()
+  });
+  assert.equal(database.meta.has("data_version:images"), false);
+  const first = await worker.fetch(request("/data/images/img-1", "PUT", { data: { id: "img-1", folderId: "1" } }), env(database));
+  assert.equal(first.status, 200);
+  const versionAfterCreate = database.meta.get("data_version:images");
+  assert.ok(versionAfterCreate > 0);
+  const second = await worker.fetch(request("/data/images/img-1", "PUT", { data: { id: "img-1", folderId: "2" } }), env(database));
+  assert.equal(second.status, 200);
+  assert.ok(database.meta.get("data_version:images") > versionAfterCreate);
+  // אוסף אחר אינו מושפע.
+  assert.equal(database.meta.has("data_version:folders"), false);
 });

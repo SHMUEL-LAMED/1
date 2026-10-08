@@ -10,7 +10,7 @@
 //
 // הסריקה כוללת את קובצי ה-JS, משום שחלק ניכר מה-HTML נבנה שם.
 module.exports = {
-  content: ["./index.html", "./admin.html", "./admin-messages.html", "./app.js", "./session-ui.js", "./gallery.js", "./admin.js", "./admin-ui.js", "./admin-app.js", "./popup-announcement.js", "./popup-admin.js", "./chat.js", "./chat-admin.js", "./session-auth.js", "./drive-sync.js", "./face-search.js", "./face-index.js", "./admin-errors.js"],
+  content: ["./index.html", "./admin.html", "./admin-messages.html", "./app.js", "./session-ui.js", "./gallery.js", "./gallery-feed.js", "./admin.js", "./admin-ui.js", "./admin-app.js", "./popup-announcement.js", "./popup-admin.js", "./chat.js", "./chat-admin.js", "./session-auth.js", "./drive-sync.js", "./face-search.js", "./face-index.js", "./admin-errors.js"],
   theme: {
     extend: {
       colors: {

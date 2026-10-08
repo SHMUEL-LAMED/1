@@ -97,7 +97,7 @@ function makeGrid() {
 
 const ELEMENT_IDS = [
     "emptyState", "imageCounter", "galleryLoadMore", "gallerySentinel", "galleryLoadMoreCount",
-    "galleryLoadingStatus", "galleryLoadMoreButton", "heroMosaic",
+    "galleryLoadingStatus", "galleryRenderMoreBtn", "heroMosaic",
     "lightboxImage", "lightboxVideo", "lightboxStage", "lightboxBackdrop", "lightboxTitle",
     "lightboxDetails", "lightboxDownload", "lightboxCounter", "lightboxModal"
 ];
@@ -210,7 +210,7 @@ test("המרקאפ: הזקיף מוסתר מקוראי מסך, והמחוון ה
     const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
     assert.match(html, /id="gallerySentinel"[^>]*aria-hidden="true"/);
     assert.match(html, /id="galleryLoadingStatus"[^>]*role="status"/);
-    assert.ok(html.includes('id="galleryLoadMoreButton"'));
+    assert.ok(html.includes('id="galleryRenderMoreBtn"'));
     assert.ok(html.includes('id="lightboxStage"'));
 });
 
@@ -449,7 +449,7 @@ test("loadMoreImages נקרא רק כש-imagesHasMore דלוק, ופעם אחת 
     intersectSentinel();
     assert.equal(calls, 1);
     assert.ok(!hidden("galleryLoadingStatus"), "„טוען עוד...” מוצג בזמן הבקשה");
-    assert.ok(hidden("galleryLoadMoreButton"));
+    assert.ok(hidden("galleryRenderMoreBtn"));
     intersectSentinel();
     assert.equal(calls, 1, "אין בקשה שנייה כל עוד הראשונה פתוחה");
 
@@ -477,6 +477,32 @@ test("loadMoreImages נקרא רק כש-imagesHasMore דלוק, ופעם אחת 
     await settle();
     delete window.loadMoreImages;
     delete window.state.imagesHasMore;
+});
+
+test("נתונים שהגיעו וטרם צוירו נצבעים קודם, בלי בקשה מיותרת לענן", () => {
+    window.state = freshState(makeImages(10));
+    window.state.imagesHasMore = true;
+    render();
+    let calls = 0;
+    window.loadMoreImages = () => { calls += 1; return new Promise(() => {}); };
+    try {
+        // העמוד הבא כבר בזיכרון, אבל הציור (המושהה) עוד לא רץ.
+        window.state.images = makeImages(130);
+        intersectSentinel();
+        assert.equal(calls, 0, "אין בקשה לענן כשיש עוד מה לצייר");
+        assert.equal(grid.children.length, 48);
+        assert.equal(el("galleryLoadMoreCount").textContent, "מוצגים 48 מתוך 130 פריטים");
+        // אין בקשה גם כשהתצוגה מציגה סינון זמני או כשהתיקייה עדיין נטענת.
+        window.state.images = makeImages(48);
+        window.state.imagesLoading = true;
+        render();
+        intersectSentinel();
+        assert.equal(calls, 0);
+    } finally {
+        delete window.loadMoreImages;
+        window.state = freshState(makeImages(300));
+        render();
+    }
 });
 
 test("בלי IntersectionObserver הכול נבנה בבת אחת", () => {
