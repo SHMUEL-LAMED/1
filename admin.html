@@ -610,6 +610,24 @@
                 </div>
             </section>
 
+            <!-- ============ מסך: תאריכי צילום ============ -->
+            <section id="view-capturedates" class="admin-view" data-view="capturedates" aria-label="תאריכי צילום">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="calendar-clock"></i> תאריכי צילום למדיה הקיימת</h3></div>
+                    <div class="admin-panel-body">
+                        <p>הגלריה ממיינת ומציגה כל פריט לפי יום הצילום שלו (ובתאריך עברי), ולא לפי יום ההעלאה. קובץ חדש מקבל את התאריך בהעלאה, מה-EXIF של התמונה או מהסרטון; הריצה כאן משלימה את מה שהועלה לפני כן. היא קוראת רק את תחילת הקובץ שבאחסון — לא את כולו — ולקבצים שסונכרנו מ-Google Drive, כשהחיבור פעיל, את התאריך ש-Drive שמר. אפשר לעצור ולהמשיך בכל שלב — ההמשך מדלג על מה שכבר נבדק. תמונה שהועלתה מהאתר לפני התכונה נשמרה דחוסה ובלי EXIF, ולכן תישאר לפי יום ההעלאה.</p>
+                        <p id="captureDatesSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">בודק אילו פריטים עדיין לא נבדקו…</p>
+                        <div class="progress-track"><div id="captureDatesProgressBar" class="progress-bar"></div></div>
+                        <p id="captureDatesStatusText" class="field-hint" role="status" aria-live="polite">הריצה עדיין לא הופעלה. אפשר להפעיל אותה בכל עת ולעצור באמצע.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="captureDatesStartBtn" onclick="startCaptureDatesJob()" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך</button>
+                            <button type="button" id="captureDatesStopBtn" onclick="stopCaptureDatesJob()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
+                        </div>
+                        <div id="captureDatesFailures" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ============ מסך: כלי תחזוקה ============ -->
             <section id="view-tools" class="admin-view" data-view="tools" aria-label="כלי תחזוקה">
                 <div class="admin-panel">

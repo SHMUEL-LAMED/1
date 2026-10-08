@@ -2065,6 +2065,35 @@ body textarea { resize: vertical; min-height: 84px; }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* התאריך העברי של יום הצילום; הלועזי בתיאור (title). */
+.gallery-meta .gallery-hebrew-date { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* קיבוץ לפי חודש הצילום: הכרטיס הראשון של כל חודש עברי נושא תווית
+   "תשרי תשפ״ז" על התפר שבין התמונה לכיתוב — במרכז, הרחק מהמספר שבפינת
+   ההתחלה ומכפתור התצוגה המלאה שבפינת הסוף. */
+.gallery-date-group {
+    position: absolute;
+    top: -13px;
+    inset-inline-start: 50%;
+    transform: translateX(50%);
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 12px;
+    border-radius: var(--r-full);
+    background: var(--panel);
+    border: 1px solid var(--gold-line);
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: var(--shadow-2);
+    pointer-events: none;
+}
+.gallery-date-group[hidden] { display: none; }
+[dir="ltr"] .gallery-date-group { transform: translateX(-50%); }
+
 #photosGrid[data-density="compact"] .gallery-caption { padding: 9px 11px 10px; }
 #photosGrid[data-density="compact"] .gallery-title { font-size: 12px; }
 #photosGrid[data-density="compact"] .gallery-meta { display: none; }

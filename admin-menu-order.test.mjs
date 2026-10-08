@@ -42,6 +42,7 @@ const CANONICAL_VIEW_ORDER = [
   "errors",
   "faceindex",
   "variants",
+  "capturedates",
   "tools"
 ];
 
