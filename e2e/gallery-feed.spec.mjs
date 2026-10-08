@@ -68,7 +68,9 @@ test('"טען פריטים ישנים יותר" ממשיך בסמן הדפדוף
     await expect(fetchButton).toHaveText('טען פריטים ישנים יותר');
     await expect(page.locator('#galleryLoadMoreCount')).toHaveText('נטענו 120 מתוך 133 פריטים');
 
-    await fetchButton.click();
+    // לחיצה רגילה הייתה גוללת אל הכפתור, והזקיף שלידו היה מבקש את העמוד
+    // בעצמו (הגלילה האינסופית עוברת באותו מסלול). כאן נבדק הכפתור לבדו.
+    await fetchButton.dispatchEvent('click');
     await expect(cards).toHaveCount(133);
     await expect(page.locator('#imageCounter')).toHaveText('133 פריטים');
     await expect(fetchButton).toBeHidden();

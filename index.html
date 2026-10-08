@@ -228,12 +228,15 @@
 
             <div id="photosGrid" class="grid"></div>
 
-            <!-- זקיף העימוד: כשהוא נכנס למסך מצוירת המנה הבאה מהזיכרון.
-                 כשכל מה שנטען כבר מוצג ויש בענן עמודים ישנים יותר, הכפתור
-                 השני מושך את העמוד הבא (gallery-feed.js). -->
+            <!-- זקיף העימוד: כשהוא מתקרב למסך מצוירת המנה הבאה מהזיכרון. כשכל מה
+                 שנטען כבר מוצג ובענן נותרו עמודים ישנים יותר, העמוד הבא מתבקש
+                 דרך window.loadMoreImages (gallery-feed.js) ו„טוען עוד...” מוצג
+                 עד שהוא מגיע. שני הכפתורים הם גיבוי ידני לאותו מסלול. -->
             <div id="galleryLoadMore" class="hidden py-8 flex-col items-center gap-3">
+                <span id="gallerySentinel" class="gallery-sentinel" aria-hidden="true"></span>
                 <span id="galleryLoadMoreCount" class="text-[11px] text-slate-400"></span>
-                <button type="button" id="galleryRenderMoreBtn" onclick="window.renderMoreImages()" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <span id="galleryLoadingStatus" class="gallery-loading hidden" role="status">טוען עוד...</span>
+                <button type="button" id="galleryRenderMoreBtn" onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
                 <button type="button" id="galleryFetchMoreBtn" onclick="window.fetchOlderImages()" class="btn-secondary-dark px-5 py-2.5 text-xs hidden">טען פריטים ישנים יותר</button>
             </div>
 
@@ -455,7 +458,7 @@
             <button type="button" onclick="navigateLightbox(-1)" class="lightbox-nav w-12 h-12 rounded-full absolute right-3 z-10 grid place-items-center" aria-label="התמונה הקודמת">
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
-            <div class="lightbox-stage w-full h-full flex items-center justify-center p-4">
+            <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
                 <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>

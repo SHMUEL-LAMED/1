@@ -1460,8 +1460,13 @@ body textarea { resize: vertical; min-height: 84px; }
     animation-delay: calc(var(--tile-index, 0) * 90ms);
 }
 .hero-mosaic > *:first-child { grid-column: span 2; grid-row: span 2; }
+/* התמונה ממלאת את האריח במיקום מוחלט, כך שגובה הפסיפס אינו תלוי במידות
+   התמונות: כשתמונה חדשה מגיעה והפסיפס נבנה מחדש, תמונותיו העצלות אינן
+   מכווצות אותו עד שייטענו, ומה שמתחתיו — הרשת — אינו קופץ. */
 .hero-mosaic img,
 .hero-mosaic video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -2130,6 +2135,26 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 
 #galleryLoadMore .btn-secondary-dark { padding-inline: 26px; border-radius: var(--r-full); }
+/* זקיף העימוד: אלמנט ריק שרק נמדד מול המסך. „טוען עוד...” מוצג לצדו בזמן
+   שבקשה לענן פתוחה, עם סמן שמסתובב. */
+.gallery-sentinel { display: block; width: 100%; height: 1px; }
+.gallery-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-3);
+}
+.gallery-loading::before {
+    content: "";
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 2px solid var(--line-strong);
+    border-top-color: var(--gold);
+    animation: spin .9s linear infinite;
+}
 
 /* עמוד האירוע: כרטיס הפעולות נצמד לגובה תוכנו ואינו נמתח לאורך כל העמודה. */
 #eventPageModal aside.admin-panel { align-self: start; position: sticky; top: 0; }
@@ -2297,6 +2322,11 @@ body textarea { resize: vertical; min-height: 84px; }
     border-radius: var(--r-lg);
     box-shadow: var(--cinema-shadow), 0 0 0 1px var(--cinema-line);
 }
+/* בזמן שהתמונה הבאה נטענת ומפוענחת, הקודמת נשארת על המסך ורק מתעמעמת מעט;
+   כך הדפדוף אינו מהבהב על מסך ריק. filter ולא opacity, כי אנימציית הכניסה
+   של התמונה (pop-in, fill-mode: both) ממשיכה לקבוע את ה-opacity שלה. */
+#lightboxImage { transition: filter .25s var(--ease); }
+.lightbox-stage.is-loading #lightboxImage { filter: brightness(.6) saturate(.85); }
 
 /* ==========================================================================
    14. חלונות (modal) — מעטפת אחידה לכל החלונות באתר

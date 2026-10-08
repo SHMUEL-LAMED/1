@@ -19,7 +19,7 @@
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
 
-// גודל עמוד של תיקייה. גדול מהמנה שהגלריה מציירת (60), כדי שגלילה ראשונה
+// גודל עמוד של תיקייה. גדול מהמנה שהגלריה מציירת (48), כדי שגלילה ראשונה
 // לא תחכה לרשת, וקטן מספיק שתשובה אחת תישאר קלה.
 const FEED_PAGE_SIZE = 120;
 // השאילתה הקטנה של "החדשות ביותר": פסיפס הכניסה לוקח ממנה חמש, ההתראה על
