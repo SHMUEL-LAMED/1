@@ -14,6 +14,21 @@ const MEDIA_VARIANT_NAMES = ["thumb", "medium", "poster"];
 const MEDIA_VARIANT_MAX_DIMENSION = 4096;
 const MEDIA_VARIANTS_RATE_LIMIT = 1500;
 const MEDIA_VARIANTS_RATE_WINDOW_MS = 5 * 60 * 1000;
+// העלאה בחלקים (R2 multipart). כל חלק מלבד האחרון חייב להיות באותו גודל, ו-R2
+// דורש לפחות 5MiB לחלק שאינו האחרון. 8MiB הוא איזון בין מספר הבקשות לבין
+// כמה צריך לשלוח מחדש אחרי ניתוק.
+const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
+const MULTIPART_MAX_PARTS = 10000;
+// קובץ שעולה בחלקים יכול להיות גדול מהמגבלה של בקשה אחת: סרטון טלפון ארוך.
+const MAX_RESUMABLE_VIDEO_BYTES = 1024 * 1024 * 1024;
+const MAX_RESUMABLE_IMAGE_BYTES = 50 * 1024 * 1024;
+// R2 מבטל בעצמו העלאה בחלקים שלא הושלמה אחרי שבעה ימים; השורה במסד נמחקת קודם.
+const MULTIPART_SESSION_TTL_MS = 6 * 24 * 60 * 60 * 1000;
+const UPLOAD_PART_RATE_LIMIT = 3000;
+const UPLOAD_PART_RATE_WINDOW_MS = 10 * 60 * 1000;
+// Cloudflare Stream (רשות): פעיל רק כשהוגדרו STREAM_ACCOUNT_ID ו-STREAM_API_TOKEN.
+const STREAM_API_BASE = "https://api.cloudflare.com/client/v4/accounts";
+const STREAM_REQUEST_TIMEOUT_MS = 15000;
 const CHAT_HISTORY_LIMIT = 150;
 const CHAT_HISTORY_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
 const CHAT_MUTATION_MAX_RETRIES = 6;
@@ -34,9 +49,11 @@ const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 //   4 — טביעות הפנים, מצב האינדוקס ושגיאות הלקוח.
 //   5 — media_variant_files: רישום קובצי התצוגות המקדימות.
 //   6 — אינדקס המיון לפי תאריך הצילום (takenAt, ובלעדיו createdAt).
+//   7 — upload_sessions ו-upload_session_parts (העלאה בחלקים שאפשר להמשיך),
+//       ו-stream_videos (העותק ב-Cloudflare Stream, כשהוא מוגדר).
 // גרסאות הנתונים של שכבת הנתונים (data_version:<אוסף>, ראו bumpDataVersion)
 // נשמרות באותה טבלה תחת מפתחות אחרים, והעלאת הסכימה אינה נוגעת בהן.
-const DATABASE_SCHEMA_VERSION = 6;
+const DATABASE_SCHEMA_VERSION = 7;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -720,6 +737,51 @@ async function ensureDatabaseSchema(env) {
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_media_variant_files_image ON media_variant_files (image_id)"
+    ).run();
+    // העלאה בחלקים (R2 multipart): מצב ההעלאה נשמר כאן ולא בדפדפן בלבד, כדי
+    // שהלקוח ימשיך מהחלק האחרון שהתקבל גם אחרי ניתוק או רענון. ראו
+    // createMultipartUpload ואילך.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS upload_sessions (
+        upload_id TEXT PRIMARY KEY,
+        object_key TEXT NOT NULL,
+        owner_uid TEXT NOT NULL,
+        image_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        total_size INTEGER NOT NULL,
+        part_size INTEGER NOT NULL,
+        total_parts INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        original_name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'uploading',
+        result_json TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_upload_sessions_owner ON upload_sessions (owner_uid, updated_at)"
+    ).run();
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS upload_session_parts (
+        upload_id TEXT NOT NULL,
+        part_number INTEGER NOT NULL,
+        etag TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (upload_id, part_number)
+      )`
+    ).run();
+    // Cloudflare Stream (רשות): מזהה העותק ב-Stream לכל סרטון שנשלח אליו.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS stream_videos (
+        image_id TEXT PRIMARY KEY,
+        stream_uid TEXT NOT NULL,
+        object_key TEXT NOT NULL DEFAULT '',
+        hls_url TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      )`
     ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_image_face_descriptors_model ON image_face_descriptors (model_version, image_id, face_index)"
@@ -2006,6 +2068,7 @@ async function uploadImage(request, env) {
   const mediaType = isImage ? "image" : (isVideo ? "video" : (mimeType.startsWith("audio/") ? "audio" : "file"));
   // התצוגות המקדימות נבדקות לפני שנשמר דבר, כדי שבקשה פסולה לא תשאיר קובץ חלקי.
   const variantParts = isChatAttachment ? [] : readVariantParts(form);
+  const capturedAt = isChatAttachment ? "" : sanitizeCapturedAt(form.get("capturedAt"));
 
   await env.GALLERY_BUCKET.put(key, await file.arrayBuffer(), {
     httpMetadata: { contentType: mimeType },
@@ -2019,6 +2082,7 @@ async function uploadImage(request, env) {
       context: isChatAttachment ? "chat" : "gallery",
       conversationUid: isChatAttachment ? conversationUid : "",
       state,
+      ...(capturedAt ? { capturedAt } : {}),
       uploadedAt: new Date().toISOString()
     }
   });
@@ -2035,6 +2099,10 @@ async function uploadImage(request, env) {
     // אל הרשומה שהוא כותב. רשומה שכבר קיימת (העלאה חוזרת) מתעדכנת כאן.
     await attachVariantsToRecords(env, imageId, variants);
   }
+  // Cloudflare Stream (רשות): סרטון מאושר נשלח גם לשם. בלי הסודות — null.
+  const stream = !isChatAttachment && isVideo && state === "approved"
+    ? await sendVideoToStream(request, env, { imageId, key, title })
+    : null;
 
   return json(request, {
     success: true,
@@ -2045,8 +2113,413 @@ async function uploadImage(request, env) {
     fileName: originalName,
     size: file.size,
     url: mediaUrl(request, key, env),
-    ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
+    ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {}),
+    ...(stream ? { stream } : {})
   }, 201);
+}
+
+// --- העלאה בחלקים שאפשר להמשיך (R2 multipart) ---
+// סרטון טלפון גדול אינו עולה בבקשה אחת: ניתוק באמצע היה מאבד את כולו. כאן
+// הקובץ עולה בחלקים של 8MiB, ומצב ההעלאה — אילו חלקים התקבלו — נשמר ב-D1.
+// הלקוח שואל את /upload/multipart/status וממשיך מהחלק הבא, גם אחרי רענון.
+//   POST /upload/multipart/create    { imageId, title, fileName, mimeType, size, capturedAt }
+//   PUT  /upload/multipart/part?uploadId=&partNumber=   גוף: הבייטים של החלק
+//   GET  /upload/multipart/status?uploadId=
+//   POST /upload/multipart/complete  טופס: uploadId ו-variant_* כמו ב-/upload
+//   POST /upload/multipart/abort     { uploadId }
+// ההרשאות זהות ל-/upload: משתמש מאושר; צופה (דרגה 1) מעלה ל-pending/.
+// רק מי שפתח את ההעלאה רשאי להמשיך, להשלים או לבטל אותה.
+
+function sanitizeUploadName(value, fallback = "קובץ") {
+  return String(value || fallback)
+    .replace(/[\r\n"\\/]+/g, "-")
+    .trim()
+    .slice(0, 180) || fallback;
+}
+
+// תאריך הצילום מגיע מהדפדפן (EXIF), משום שקידוד מחדש ב-Canvas מוחק את ה-EXIF.
+function sanitizeCapturedAt(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?)?$/.test(text)) return "";
+  const time = Date.parse(text.length === 10 ? `${text}T00:00:00Z` : `${text}Z`);
+  return Number.isFinite(time) ? text : "";
+}
+
+function multipartPartLength(session, partNumber) {
+  const totalParts = Number(session.total_parts);
+  const partSize = Number(session.part_size);
+  if (partNumber < totalParts) return partSize;
+  return Number(session.total_size) - partSize * (totalParts - 1);
+}
+
+function uploadIdFrom(value) {
+  const uploadId = String(value || "").trim();
+  if (!uploadId || uploadId.length > 1024 || /[\s\0]/.test(uploadId)) {
+    throw apiError("מזהה ההעלאה אינו תקין.", 400, "invalid_upload_id");
+  }
+  return uploadId;
+}
+
+async function readOwnedUploadSession(env, uploadId, user) {
+  await ensureDatabaseSchema(env);
+  const session = await env.GALLERY_DB.prepare(
+    "SELECT * FROM upload_sessions WHERE upload_id = ?"
+  ).bind(uploadId).first();
+  if (!session) throw apiError("ההעלאה לא נמצאה או שפג תוקפה. התחל אותה מחדש.", 404, "upload_session_not_found");
+  if (String(session.owner_uid) !== user.uid) {
+    throw apiError("אין הרשאה להמשיך העלאה של משתמש אחר.", 403, "permission_denied");
+  }
+  return session;
+}
+
+async function readUploadedParts(env, uploadId) {
+  const rows = await env.GALLERY_DB.prepare(
+    "SELECT part_number, etag, size_bytes FROM upload_session_parts WHERE upload_id = ? ORDER BY part_number"
+  ).bind(uploadId).all();
+  return (rows.results || []).map(row => ({
+    partNumber: Number(row.part_number),
+    etag: String(row.etag),
+    size: Number(row.size_bytes) || 0
+  }));
+}
+
+async function forgetUploadSession(env, uploadId) {
+  await env.GALLERY_DB.prepare("DELETE FROM upload_session_parts WHERE upload_id = ?").bind(uploadId).run();
+  await env.GALLERY_DB.prepare("DELETE FROM upload_sessions WHERE upload_id = ?").bind(uploadId).run();
+}
+
+// העלאות של המשתמש שלא נגעו בהן מעבר לתוקף: החלקים ב-R2 מבוטלים (R2 היה
+// מבטל אותם ממילא אחרי שבוע) והשורות נמחקות. כשל כאן אינו עוצר העלאה חדשה.
+async function expireStaleUploadSessions(env, uid, now = Date.now()) {
+  try {
+    const stale = await env.GALLERY_DB.prepare(
+      "SELECT upload_id, object_key, status FROM upload_sessions WHERE owner_uid = ? AND updated_at < ? LIMIT 20"
+    ).bind(uid, now - MULTIPART_SESSION_TTL_MS).all();
+    for (const row of stale.results || []) {
+      if (row.status !== "completed") {
+        try {
+          await env.GALLERY_BUCKET.resumeMultipartUpload(String(row.object_key), String(row.upload_id)).abort();
+        } catch (error) {
+          // כבר בוטלה או הושלמה ב-R2.
+        }
+      }
+      await forgetUploadSession(env, String(row.upload_id));
+    }
+  } catch (error) {
+    console.warn("Stale upload cleanup failed", error);
+  }
+}
+
+function multipartSessionPayload(session, parts) {
+  return {
+    success: true,
+    uploadId: String(session.upload_id),
+    key: String(session.object_key),
+    imageId: String(session.image_id),
+    state: String(session.state),
+    size: Number(session.total_size),
+    partSize: Number(session.part_size),
+    totalParts: Number(session.total_parts),
+    status: String(session.status || "uploading"),
+    parts: parts.map(part => ({ partNumber: part.partNumber, etag: part.etag }))
+  };
+}
+
+async function createMultipartUpload(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  if (typeof env.GALLERY_BUCKET.createMultipartUpload !== "function") {
+    throw apiError("העלאה בחלקים אינה זמינה בדלי הזה.", 501, "multipart_unavailable");
+  }
+  await consumeRateLimit(
+    env,
+    `upload:${user.uid}`,
+    UPLOAD_RATE_LIMIT,
+    UPLOAD_RATE_WINDOW_MS,
+    "הועלו יותר מדי קבצים. המתן כמה דקות ונסה שוב.",
+    "upload_rate_limit_exceeded"
+  );
+  const payload = await request.json().catch(() => ({}));
+  const mimeType = String(payload.mimeType || "").toLowerCase();
+  const isImage = ALLOWED_IMAGE_TYPES.has(mimeType);
+  const isVideo = ALLOWED_VIDEO_TYPES.has(mimeType);
+  const extension = ALLOWED_IMAGE_TYPES.get(mimeType) || ALLOWED_VIDEO_TYPES.get(mimeType);
+  if (!extension) {
+    throw apiError("סוג הקובץ אינו נתמך. אפשר להעלות JPG, PNG, WEBP, GIF, MP4, WEBM או MOV.", 415, "unsupported_file_type");
+  }
+  const size = Number(payload.size);
+  const maximumBytes = isVideo ? MAX_RESUMABLE_VIDEO_BYTES : MAX_RESUMABLE_IMAGE_BYTES;
+  if (!Number.isSafeInteger(size) || size <= 0 || size > maximumBytes) {
+    throw apiError(isVideo ? "גודל הסרטון חייב להיות עד 1GB." : "גודל התמונה חייב להיות עד 50MB.", 413, "file_too_large");
+  }
+  const totalParts = Math.ceil(size / MULTIPART_PART_SIZE);
+  if (totalParts > MULTIPART_MAX_PARTS) throw apiError("הקובץ גדול מדי.", 413, "file_too_large");
+
+  const imageId = safeImageId(payload.imageId);
+  const originalName = sanitizeUploadName(payload.fileName || payload.title);
+  const title = String(payload.title || originalName).trim().slice(0, 120);
+  const capturedAt = sanitizeCapturedAt(payload.capturedAt);
+  const state = user.role === "viewer" ? "pending" : "approved";
+  const key = `${state}/${user.uid}/${imageId}.${extension}`;
+  const mediaType = isImage ? "image" : "video";
+
+  await expireStaleUploadSessions(env, user.uid);
+  const multipart = await env.GALLERY_BUCKET.createMultipartUpload(key, {
+    httpMetadata: { contentType: mimeType },
+    customMetadata: {
+      ownerUid: user.uid,
+      uploaderRole: user.role,
+      imageId,
+      title,
+      originalName,
+      mediaType,
+      context: "gallery",
+      conversationUid: "",
+      state,
+      uploadMode: "multipart",
+      ...(capturedAt ? { capturedAt } : {}),
+      uploadedAt: new Date().toISOString()
+    }
+  });
+  const now = Date.now();
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO upload_sessions (upload_id, object_key, owner_uid, image_id, state, mime_type, total_size, part_size,
+       total_parts, title, original_name, status, result_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'uploading', '', ?, ?)`
+  ).bind(multipart.uploadId, key, user.uid, imageId, state, mimeType, size, MULTIPART_PART_SIZE, totalParts, title, originalName, now, now).run();
+  const session = await readOwnedUploadSession(env, multipart.uploadId, user);
+  return json(request, multipartSessionPayload(session, []), 201);
+}
+
+async function uploadMultipartPart(request, env, url) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  await consumeRateLimit(
+    env,
+    `upload-part:${user.uid}`,
+    UPLOAD_PART_RATE_LIMIT,
+    UPLOAD_PART_RATE_WINDOW_MS,
+    "נשלחו יותר מדי חלקי קבצים. המתן כמה דקות ונסה שוב.",
+    "upload_rate_limit_exceeded"
+  );
+  const uploadId = uploadIdFrom(url.searchParams.get("uploadId"));
+  const session = await readOwnedUploadSession(env, uploadId, user);
+  if (session.status === "completed") throw apiError("ההעלאה כבר הושלמה.", 409, "upload_already_completed");
+  const partNumber = Number(url.searchParams.get("partNumber"));
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > Number(session.total_parts)) {
+    throw apiError("מספר החלק אינו תקין.", 400, "invalid_part_number");
+  }
+  const expectedLength = multipartPartLength(session, partNumber);
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > expectedLength) {
+    throw apiError("גודל החלק אינו תואם להעלאה.", 400, "part_size_mismatch");
+  }
+  const body = await request.arrayBuffer();
+  if (body.byteLength !== expectedLength) {
+    throw apiError("גודל החלק אינו תואם להעלאה.", 400, "part_size_mismatch");
+  }
+  const multipart = env.GALLERY_BUCKET.resumeMultipartUpload(String(session.object_key), uploadId);
+  const uploaded = await multipart.uploadPart(partNumber, body);
+  const now = Date.now();
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO upload_session_parts (upload_id, part_number, etag, size_bytes, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(upload_id, part_number) DO UPDATE SET etag = excluded.etag, size_bytes = excluded.size_bytes, created_at = excluded.created_at`
+  ).bind(uploadId, partNumber, String(uploaded.etag), body.byteLength, now).run();
+  await env.GALLERY_DB.prepare("UPDATE upload_sessions SET updated_at = ? WHERE upload_id = ?").bind(now, uploadId).run();
+  return json(request, { success: true, uploadId, partNumber, etag: String(uploaded.etag) });
+}
+
+async function multipartUploadStatus(request, env, url) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  const uploadId = uploadIdFrom(url.searchParams.get("uploadId"));
+  const session = await readOwnedUploadSession(env, uploadId, user);
+  return json(request, multipartSessionPayload(session, await readUploadedParts(env, uploadId)));
+}
+
+async function completeMultipartUpload(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  const form = await request.formData();
+  const uploadId = uploadIdFrom(form.get("uploadId"));
+  const session = await readOwnedUploadSession(env, uploadId, user);
+  // השלמה חוזרת (התשובה הקודמת אבדה ברשת) מקבלת את אותה תשובה.
+  if (session.status === "completed" && session.result_json) {
+    try {
+      return json(request, JSON.parse(String(session.result_json)), 200);
+    } catch (error) {
+      // תשובה שמורה פגומה: אין מה להחזיר מעבר למה שכבר הושלם.
+      throw apiError("ההעלאה כבר הושלמה.", 409, "upload_already_completed");
+    }
+  }
+  const parts = await readUploadedParts(env, uploadId);
+  const totalParts = Number(session.total_parts);
+  const received = new Set(parts.map(part => part.partNumber));
+  const missing = [];
+  for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+    if (!received.has(partNumber)) missing.push(partNumber);
+  }
+  if (missing.length) {
+    throw apiError(`חלק מהקובץ עדיין לא התקבל (חלקים חסרים: ${missing.slice(0, 10).join(", ")}).`, 409, "upload_incomplete");
+  }
+  // התצוגות נבדקות לפני ההשלמה, כדי שבקשה פסולה לא תשאיר קובץ בלי תשובה.
+  const variantParts = readVariantParts(form);
+  const key = String(session.object_key);
+  const imageId = String(session.image_id);
+  const state = String(session.state);
+  const multipart = env.GALLERY_BUCKET.resumeMultipartUpload(key, uploadId);
+  await multipart.complete(parts.map(part => ({ partNumber: part.partNumber, etag: part.etag })));
+  await bumpDataVersion(env, state === "pending" ? "pendingImages" : "images");
+
+  let variants = null;
+  if (variantParts.length) {
+    variants = await storeMediaVariants(request, env, imageId, variantParts, { ownerUid: user.uid, state });
+    await attachVariantsToRecords(env, imageId, variants);
+  }
+  const mimeType = String(session.mime_type);
+  const mediaType = ALLOWED_VIDEO_TYPES.has(mimeType) ? "video" : "image";
+  const stream = mediaType === "video" && state === "approved"
+    ? await sendVideoToStream(request, env, { imageId, key, title: String(session.title || "") })
+    : null;
+  const result = {
+    success: true,
+    key,
+    state,
+    mediaType,
+    mimeType,
+    fileName: String(session.original_name || ""),
+    size: Number(session.total_size),
+    url: mediaUrl(request, key, env),
+    uploadMode: "multipart",
+    ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {}),
+    ...(stream ? { stream } : {})
+  };
+  // החלקים כבר אינם נחוצים; השורה נשארת "הושלמה" עד שתתיישן, לטובת השלמה חוזרת.
+  await env.GALLERY_DB.prepare("DELETE FROM upload_session_parts WHERE upload_id = ?").bind(uploadId).run();
+  await env.GALLERY_DB.prepare(
+    "UPDATE upload_sessions SET status = 'completed', result_json = ?, updated_at = ? WHERE upload_id = ?"
+  ).bind(JSON.stringify(result), Date.now(), uploadId).run();
+  return json(request, result, 201);
+}
+
+async function abortMultipartUpload(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  const payload = await request.json().catch(() => ({}));
+  const uploadId = uploadIdFrom(payload.uploadId);
+  let session;
+  try {
+    session = await readOwnedUploadSession(env, uploadId, user);
+  } catch (error) {
+    // ביטול של העלאה שכבר אינה קיימת הוא הצלחה: אין מה לבטל.
+    if (error?.code === "upload_session_not_found") return json(request, { success: true, uploadId, aborted: false });
+    throw error;
+  }
+  if (session.status === "completed") {
+    throw apiError("ההעלאה כבר הושלמה ואי אפשר לבטל אותה.", 409, "upload_already_completed");
+  }
+  try {
+    await env.GALLERY_BUCKET.resumeMultipartUpload(String(session.object_key), uploadId).abort();
+  } catch (error) {
+    console.warn("Multipart abort failed", error);
+  }
+  await forgetUploadSession(env, uploadId);
+  return json(request, { success: true, uploadId, aborted: true });
+}
+
+// --- Cloudflare Stream (רשות) ---
+// כשב-Worker מוגדרים הסודות STREAM_ACCOUNT_ID ו-STREAM_API_TOKEN, כל סרטון
+// מאושר נשלח בנוסף ל-Stream ("העתקה מכתובת": Stream מושך את הקובץ מכתובת
+// המדיה הציבורית שלו ב-R2) ומנוגן בתצוגה המלאה ב-HLS — איכות שמתאימה לרשת.
+// סרטון ממתין נשלח רק כשהוא מאושר, כדי שעותק שלו לא יהיה ציבורי לפני כן.
+// בלי הסודות אין שום קריאה ל-Stream, והכול פועל בדיוק כמו קודם. כשל מול
+// Stream לעולם אינו מכשיל העלאה או אישור: המקור ב-R2 ממשיך לשמש לניגון.
+
+function streamConfig(env) {
+  const accountId = String(env?.STREAM_ACCOUNT_ID || "").trim();
+  const token = String(env?.STREAM_API_TOKEN || "").trim();
+  if (!accountId || !token || !/^[a-zA-Z0-9]{1,64}$/.test(accountId)) return null;
+  return { accountId, token };
+}
+
+function safeStreamUid(value) {
+  const uid = String(value || "").trim();
+  return /^[a-zA-Z0-9]{1,64}$/.test(uid) ? uid : "";
+}
+
+// כתובות הניגון: מה ש-Stream החזיר, או הכתובות הכלליות של videodelivery.net.
+function streamPlayback(uid, playback = {}) {
+  const hls = /^https:\/\/[^\s"'<>]+\.m3u8$/i.test(String(playback?.hls || ""))
+    ? String(playback.hls)
+    : `https://videodelivery.net/${uid}/manifest/video.m3u8`;
+  const iframe = hls.endsWith(`/${uid}/manifest/video.m3u8`)
+    ? hls.replace(/\/manifest\/video\.m3u8$/, "/iframe")
+    : `https://iframe.videodelivery.net/${uid}`;
+  return { uid, hls, iframe };
+}
+
+async function streamFetch(config, path, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STREAM_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(`${STREAM_API_BASE}/${config.accountId}/stream${path}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", ...(init.headers || {}) },
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendVideoToStream(request, env, { imageId, key, title }) {
+  const config = streamConfig(env);
+  if (!config) return null;
+  try {
+    const response = await streamFetch(config, "/copy", {
+      method: "POST",
+      body: JSON.stringify({
+        url: mediaUrl(request, key, env),
+        meta: { name: String(title || imageId).slice(0, 120), imageId }
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    const uid = safeStreamUid(payload?.result?.uid);
+    if (!response.ok || !payload?.success || !uid) {
+      console.warn("Stream copy failed", response.status, JSON.stringify(payload?.errors || []));
+      return null;
+    }
+    const stream = streamPlayback(uid, payload.result.playback);
+    await ensureDatabaseSchema(env);
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO stream_videos (image_id, stream_uid, object_key, hls_url, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(image_id) DO UPDATE SET stream_uid = excluded.stream_uid, object_key = excluded.object_key,
+         hls_url = excluded.hls_url, created_at = excluded.created_at`
+    ).bind(imageId, uid, key, stream.hls, Date.now()).run();
+    return stream;
+  } catch (error) {
+    console.warn("Stream copy failed", error);
+    return null;
+  }
+}
+
+// מחיקת הסרטון מהגלריה מוחקת גם את העותק שלו ב-Stream. בלי הסודות — רק השורה.
+async function deleteStreamVideoForDeletedMedia(env, key) {
+  const imageId = faceImageIdFromObjectKey(key);
+  if (!imageId) return;
+  try {
+    if (key.startsWith("pending/") && await hasActiveImageDocument(env, imageId)) return;
+    const row = await env.GALLERY_DB.prepare("SELECT stream_uid FROM stream_videos WHERE image_id = ?").bind(imageId).first();
+    if (!row) return;
+    const config = streamConfig(env);
+    const uid = safeStreamUid(row.stream_uid);
+    if (config && uid) {
+      const response = await streamFetch(config, `/${uid}`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) {
+        console.warn("Stream delete failed", response.status);
+        return;
+      }
+    }
+    await env.GALLERY_DB.prepare("DELETE FROM stream_videos WHERE image_id = ?").bind(imageId).run();
+  } catch (error) {
+    console.warn("Stream delete failed", error);
+  }
 }
 
 async function serveImage(request, env, pathname) {
@@ -2173,12 +2646,21 @@ async function approveImage(request, env) {
   await markMediaVariantsApproved(env, faceImageIdFromObjectKey(approvedKey));
   await ensureDatabaseSchema(env);
   await bumpDataVersions(env, ["images", "pendingImages"]);
+  // סרטון שאושר נשלח עכשיו ל-Stream (כשהוא מוגדר) — לא לפני כן, כשהיה פרטי.
+  const stream = source.customMetadata?.mediaType === "video"
+    ? await sendVideoToStream(request, env, {
+      imageId: faceImageIdFromObjectKey(approvedKey),
+      key: approvedKey,
+      title: String(source.customMetadata?.title || "")
+    })
+    : null;
 
   return json(request, {
     success: true,
     key: approvedKey,
     state: "approved",
-    url: mediaUrl(request, approvedKey, env)
+    url: mediaUrl(request, approvedKey, env),
+    ...(stream ? { stream } : {})
   });
 }
 
@@ -2199,6 +2681,7 @@ async function deleteImage(request, env, pathname) {
   if (!key.startsWith("chat/") && !key.startsWith("variants/")) {
     await deleteFaceIndexForDeletedMedia(env, key);
     await deleteMediaVariantsForDeletedMedia(env, key);
+    await deleteStreamVideoForDeletedMedia(env, key);
     await bumpDataVersions(env, ["images", "pendingImages"]);
   }
   if (key.startsWith("variants/")) await forgetVariantFiles(env, [key]);
@@ -3681,8 +4164,10 @@ export default {
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
             "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates",
-            "data-filters", "cursor-pagination", "etag-304", "edge-cache"
+            "data-filters", "cursor-pagination", "etag-304", "edge-cache",
+            "resumable-uploads", ...(streamConfig(env) ? ["cloudflare-stream"] : [])
           ],
+          streamEnabled: Boolean(streamConfig(env)),
           faceModelVersion: FACE_MODEL_VERSION,
           databaseConnected: true,
           bucketConnected: true,
@@ -3697,6 +4182,21 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/upload") {
         return await uploadImage(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/upload/multipart/create") {
+        return await createMultipartUpload(request, env);
+      }
+      if (request.method === "PUT" && url.pathname === "/upload/multipart/part") {
+        return await uploadMultipartPart(request, env, url);
+      }
+      if (request.method === "GET" && url.pathname === "/upload/multipart/status") {
+        return await multipartUploadStatus(request, env, url);
+      }
+      if (request.method === "POST" && url.pathname === "/upload/multipart/complete") {
+        return await completeMultipartUpload(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/upload/multipart/abort") {
+        return await abortMultipartUpload(request, env);
       }
       if (request.method === "POST" && url.pathname === "/approve") {
         return await approveImage(request, env);

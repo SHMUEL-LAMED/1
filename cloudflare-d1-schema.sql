@@ -101,3 +101,45 @@ CREATE TABLE IF NOT EXISTS media_variant_files (
 );
 CREATE INDEX IF NOT EXISTS idx_media_variant_files_image
   ON media_variant_files (image_id);
+
+-- העלאה בחלקים (R2 multipart): שורה לכל העלאה פתוחה, ושורה לכל חלק שהתקבל.
+-- הלקוח שואל כאן מה כבר עלה וממשיך מהחלק הבא — גם אחרי ניתוק או רענון.
+-- העלאה שהושלמה נשארת עם status = 'completed' ו-result_json, כדי שבקשת
+-- השלמה חוזרת (תשובה שאבדה ברשת) תקבל את אותה תשובה. שורות ישנות נמחקות.
+CREATE TABLE IF NOT EXISTS upload_sessions (
+  upload_id TEXT PRIMARY KEY,
+  object_key TEXT NOT NULL,
+  owner_uid TEXT NOT NULL,
+  image_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  total_size INTEGER NOT NULL,
+  part_size INTEGER NOT NULL,
+  total_parts INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  original_name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'uploading',
+  result_json TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_upload_sessions_owner
+  ON upload_sessions (owner_uid, updated_at);
+CREATE TABLE IF NOT EXISTS upload_session_parts (
+  upload_id TEXT NOT NULL,
+  part_number INTEGER NOT NULL,
+  etag TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (upload_id, part_number)
+);
+
+-- Cloudflare Stream (רשות): לכל סרטון שנשלח ל-Stream — מזהה הסרטון שם,
+-- כדי שמחיקת הסרטון מהגלריה תמחק גם את העותק ב-Stream.
+CREATE TABLE IF NOT EXISTS stream_videos (
+  image_id TEXT PRIMARY KEY,
+  stream_uid TEXT NOT NULL,
+  object_key TEXT NOT NULL DEFAULT '',
+  hls_url TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);

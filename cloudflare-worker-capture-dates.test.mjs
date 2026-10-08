@@ -74,6 +74,8 @@ function databaseAtVersion5() {
   const d1 = new D1();
   d1.database.exec(readFileSync(new URL("./cloudflare-d1-schema.sql", import.meta.url), "utf8"));
   d1.database.exec("DROP INDEX idx_gallery_documents_taken_at");
+  // גם הטבלאות של גרסה 7 (העלאה בחלקים ו-Stream) לא היו קיימות אז.
+  for (const table of ["upload_sessions", "upload_session_parts", "stream_videos"]) d1.database.exec(`DROP TABLE ${table}`);
   d1.database.exec("CREATE TABLE gallery_schema_meta (schema_key TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
   d1.database.exec("CREATE TABLE user_email_index (normalized_email TEXT PRIMARY KEY, document_id TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const insertMeta = d1.database.prepare("INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES (?, ?, 1)");
@@ -141,13 +143,13 @@ test.after(() => { globalThis.fetch = originalFetch; });
 
 const SEPT_28 = Date.UTC(2026, 8, 28, 16, 30);
 
-test("מסד בגרסה 5 עולה לגרסה 6: אינדקס המיון נוצר, גרסאות הנתונים והרשומות נשמרות", async () => {
+test("מסד בגרסה 5 עולה לגרסה הנוכחית (7): אינדקס המיון נוצר, גרסאות הנתונים והרשומות נשמרות", async () => {
   putDocument("images", "old-1", { id: "old-1", title: "ישנה", createdAt: 5 });
   const first = await call("/data/images", { token: "viewer-token" });
   assert.equal(first.status, 200);
   const indexes = d1.database.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map(row => row.name);
   assert.ok(indexes.includes("idx_gallery_documents_taken_at"));
-  assert.equal(meta("gallery"), 6);
+  assert.equal(meta("gallery"), 7);
   assert.equal(meta("data_version:images"), 1000);
   assert.equal(meta("data_version:pendingImages"), 500);
   assert.deepEqual(readDocument("images", "old-1"), { id: "old-1", title: "ישנה", createdAt: 5 });

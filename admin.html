@@ -773,7 +773,7 @@
                 <button type="button" onclick="closeModal('userUploadModal')" class="modal-close" aria-label="סגירת חלון ההעלאה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
-                <p id="userUploadModeText" class="field-hint rounded-xl p-3 bg-white/5 border border-white/10">בחר תיקיית יעד ולאחר מכן תמונות, סרטוני MP4/WebM או תיקייה שלמה. גודל סרטון מרבי: 100MB.</p>
+                <p id="userUploadModeText" class="field-hint rounded-xl p-3 bg-white/5 border border-white/10">בחר תיקיית יעד ולאחר מכן תמונות, סרטוני MP4/WebM או תיקייה שלמה. גודל סרטון מרבי: 1GB. קובץ גדול עולה בחלקים וממשיך מאותה נקודה אחרי ניתוק.</p>
                 <label class="block"><span class="field-label">תיקיית יעד בגלריה:</span><select id="userTargetFolderSelect"></select></label>
                 <label class="block"><span class="field-label">1. תמונות או סרטונים בודדים:</span>
                     <input type="file" id="userMultiFiles" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
@@ -782,6 +782,15 @@
                 <label class="block"><span class="field-label">2. העלאת תיקייה שלמה (מומלץ):</span>
                     <input type="file" id="userFolderUpload" webkitdirectory directory multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
                 </label>
+                <label id="userUploadOriginalToggle" class="hidden upload-original-toggle">
+                    <input type="checkbox" id="userUploadSendOriginal">
+                    <span>שליחת הקבצים המקוריים, בלי הקטנה<small class="field-hint">למנהלים בלבד. בלי הסימון, תמונה גדולה מ־3840 פיקסלים מוקטנת לפני השליחה.</small></span>
+                </label>
+                <p id="userUploadResumeHint" class="hidden upload-resume-hint" role="note"></p>
+                <div id="userUploadSummary" class="hidden upload-summary">
+                    <div id="userUploadOverall" class="upload-queue-progress upload-summary-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="ההתקדמות הכוללת של ההעלאה"><span class="upload-queue-progress-bar"></span></div>
+                    <p id="userUploadSummaryText" class="upload-summary-text" role="status" aria-live="polite"></p>
+                </div>
                 <div id="userUploadQueue" class="hidden admin-list max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/10 p-2" aria-live="polite"></div>
                 <div id="userUploadProgress" class="hidden text-center rounded-xl p-3 border border-white/10 bg-white/5">
                     <div class="spinner mx-auto mb-2"></div>
