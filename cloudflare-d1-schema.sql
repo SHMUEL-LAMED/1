@@ -52,3 +52,12 @@ CREATE TABLE IF NOT EXISTS face_people (
   PRIMARY KEY (image_id, face_index)
 );
 CREATE INDEX IF NOT EXISTS idx_face_people_person ON face_people(person_id);
+
+-- סימון הסביבה של המסד: ה-Worker הראשון שרץ מולו כותב כאן 'production' או
+-- 'staging', וכל Worker שמוצא ערך של הסביבה האחרת מסרב לשרת בקשות. כך Worker
+-- של הניסוי שחובר בטעות למסד הייצור נעצר לפני שהוא נוגע בנתונים.
+CREATE TABLE IF NOT EXISTS gallery_environment (
+  marker_key TEXT PRIMARY KEY,
+  environment TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);

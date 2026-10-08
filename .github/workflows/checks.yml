@@ -3,7 +3,8 @@ name: Repository checks
 on:
   pull_request:
   push:
-    branches: [main]
+    # staging הוא ענף האינטגרציה של סביבת הניסוי; גם הוא נבדק בכל דחיפה.
+    branches: [main, staging]
 
 permissions:
   contents: read

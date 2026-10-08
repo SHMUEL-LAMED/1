@@ -10,6 +10,9 @@ import { test as base, expect } from '@playwright/test';
 import zlib from 'node:zlib';
 
 export const API_ORIGIN = 'https://simchas-gallery-api.0534169095.workers.dev';
+// באתר שמוגש מ-127.0.0.1 הקוד פונה ל-Worker של סביבת הניסוי (ראו api-environment.js);
+// שני המקורות מופנים לאותו זיוף, כך שהבדיקות אינן תלויות בסביבה שנבחרה.
+export const STAGING_API_ORIGIN = 'https://simchas-gallery-api-staging.0534169095.workers.dev';
 export const TOKEN_KEY = 'simchas_gallery_google_id_token';
 export const GOOGLE_CLIENT_ID = '601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com';
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -476,7 +479,7 @@ export async function installRoutes(context, worker) {
     await context.route(url => url.hostname === 'fonts.googleapis.com', route => route.fulfill({ status: 200, contentType: 'text/css; charset=utf-8', body: '' }));
     await context.route(url => url.hostname === 'unpkg.com', script(LUCIDE_STUB));
     await context.route(url => url.hostname === 'accounts.google.com', script(GIS_STUB));
-    await context.route(url => url.origin === API_ORIGIN, route => worker.handle(route));
+    await context.route(url => url.origin === API_ORIGIN || url.origin === STAGING_API_ORIGIN, route => worker.handle(route));
 }
 
 // --- עזרים לבדיקות ---
