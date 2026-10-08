@@ -192,6 +192,14 @@
                         <option value="oldest">הישן ביותר</option>
                         <option value="name">לפי שם</option>
                     </select>
+                    <!-- סינון לפי התאריך העברי של יום הצילום. האפשרויות נגזרות מהפריטים
+                         שבתיקייה (gallery.js, renderHebrewDateFilters). -->
+                    <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter w-auto text-xs py-2">
+                        <option value="">כל השנים</option>
+                    </select>
+                    <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter w-auto text-xs py-2">
+                        <option value="">כל החודשים</option>
+                    </select>
                     <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
                     </button>

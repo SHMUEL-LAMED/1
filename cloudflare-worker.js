@@ -33,9 +33,10 @@ const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 //   3 — אינדקס האימייל (user_email_index) ומילוי חד-פעמי שלו.
 //   4 — טביעות הפנים, מצב האינדוקס ושגיאות הלקוח.
 //   5 — media_variant_files: רישום קובצי התצוגות המקדימות.
+//   6 — אינדקס המיון לפי תאריך הצילום (takenAt, ובלעדיו createdAt).
 // גרסאות הנתונים של שכבת הנתונים (data_version:<אוסף>, ראו bumpDataVersion)
 // נשמרות באותה טבלה תחת מפתחות אחרים, והעלאת הסכימה אינה נוגעת בהן.
-const DATABASE_SCHEMA_VERSION = 5;
+const DATABASE_SCHEMA_VERSION = 6;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -43,6 +44,18 @@ const DATA_PAGE_DEFAULT_LIMIT = 500;
 // שדות שאפשר לסנן ולקבץ לפיהם ב-SQL (json_extract). הרשימה סגורה כדי
 // ששם שדה מהכתובת לעולם לא ייכנס לשאילתה כמות שהוא.
 const DATA_FILTER_FIELDS = ["folderId", "status", "mediaType", "uploadedBy"];
+// מיון לפי תאריך הצילום: takenAt, ולרשומה שאין לה — זמן ההעלאה.
+const TAKEN_AT_ORDER_SQL = "CAST(COALESCE(json_extract(data_json, '$.takenAt'), json_extract(data_json, '$.createdAt'), 0) AS REAL)";
+// תאריך הצילום (takenAt) נבדק בכל כתיבה של רשומת מדיה: מספר בין 1971 לעכשיו
+// (ועוד יומיים לשעון מצלמה שמקדים). ערך פסול נמחק, והרשומה ממוינת לפי זמן
+// ההעלאה כמו קודם.
+const TAKEN_AT_MIN = Date.UTC(1971, 0, 1);
+const TAKEN_AT_FUTURE_SLACK_MS = 2 * 24 * 60 * 60 * 1000;
+const TAKEN_AT_SOURCES = new Set(["exif", "video", "drive", "none"]);
+const CAPTURE_FIELDS = ["takenAt", "takenDate", "takenAtOffset", "takenAtSource"];
+// ריצת ההשלמה: גודל קריאת טווח מקובץ ב-R2, וכמה רשומות בבקשת עדכון אחת.
+const MEDIA_PROBE_MAX_BYTES = 256 * 1024;
+const TAKEN_AT_BATCH_MAX = 50;
 // מספר המזהים המרבי בבקשה אחת של ?ids= (למשל רשימת המועדפים).
 const DATA_IDS_MAX = 200;
 // רשימות ומונים נשמרים במטמון הקצה (Cache API) לחמש דקות. המפתח כולל את
@@ -720,6 +733,11 @@ async function ensureDatabaseSchema(env) {
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_gallery_documents_owner ON gallery_documents (collection_name, owner_uid)"
     ).run();
+    // מיון לפי תאריך הצילום (?orderBy=takenAt). הביטוי זהה בדיוק לזה של
+    // orderExpression, כדי ש-SQLite ישתמש באינדקס.
+    await env.GALLERY_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_gallery_documents_taken_at ON gallery_documents (collection_name, ${TAKEN_AT_ORDER_SQL})`
+    ).run();
     const versionRow = await env.GALLERY_DB.prepare(
       "SELECT schema_version FROM gallery_schema_meta WHERE schema_key = 'gallery'"
     ).first();
@@ -1280,6 +1298,7 @@ function decodeCursor(raw) {
 }
 
 function orderExpression(orderField) {
+  if (orderField === "takenAt") return TAKEN_AT_ORDER_SQL;
   return `CAST(COALESCE(json_extract(data_json, '$.${orderField}'), 0) AS REAL)`;
 }
 
@@ -1463,6 +1482,59 @@ async function serveCachedList(request, env, ctx, collectionName, actor, query) 
   return conditionalJson(request, body, etag);
 }
 
+// שדות תאריך הצילום ברשומת מדיה (images / pendingImages). הלקוח קורא אותם
+// מה-EXIF או מהסרטון; כאן הם רק נבדקים ומנורמלים:
+//   takenAt       — מספר (ms) בין 1971 לעכשיו + יומיים; אחרת נמחק עם שאר השדות.
+//   takenDate     — "YYYY-MM-DD" של שעון המצלמה; חייב להתאים ל-takenAt בטווח
+//                   אזורי הזמן (‎-14 עד ‎+14 שעות), ואחרת נגזר ממנו.
+//   takenAtOffset — "+03:00" או נמחק.
+//   takenAtSource — exif / video / drive, או none ("נבדק ולא נמצא") בלי takenAt.
+// כתיבה של רשומה מעותק ישן, בלי אף אחד מהשדות, משאירה את מה שכבר נשמר.
+export function normalizeCaptureFields(data, existing = {}, now = Date.now()) {
+  const next = { ...data };
+  const hasOwn = field => Object.prototype.hasOwnProperty.call(data || {}, field);
+  if (!CAPTURE_FIELDS.some(hasOwn)) {
+    for (const field of CAPTURE_FIELDS) {
+      if (existing?.[field] !== undefined) next[field] = existing[field];
+    }
+    if (!CAPTURE_FIELDS.some(field => next[field] !== undefined)) return next;
+  }
+  const rawTakenAt = next.takenAt;
+  const takenAt = typeof rawTakenAt === "number" || (typeof rawTakenAt === "string" && /^\d{10,16}$/.test(rawTakenAt))
+    ? Number(rawTakenAt)
+    : NaN;
+  const validTakenAt = Number.isFinite(takenAt) && takenAt >= TAKEN_AT_MIN && takenAt <= now + TAKEN_AT_FUTURE_SLACK_MS;
+  if (!validTakenAt) {
+    const checkedWithoutDate = next.takenAtSource === "none";
+    for (const field of CAPTURE_FIELDS) delete next[field];
+    if (checkedWithoutDate) next.takenAtSource = "none";
+    return next;
+  }
+  next.takenAt = Math.round(takenAt);
+
+  const offsetMatch = /^([+-])(0\d|1[0-4]):([0-5]\d)$/.exec(String(next.takenAtOffset || ""));
+  if (offsetMatch) next.takenAtOffset = offsetMatch[0];
+  else delete next.takenAtOffset;
+
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(next.takenDate || ""));
+  let dateOk = false;
+  if (dateMatch) {
+    const dayStart = Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]));
+    const roundTrip = new Date(dayStart).toISOString().slice(0, 10) === dateMatch[0];
+    const hour = 60 * 60 * 1000;
+    dateOk = roundTrip && next.takenAt >= dayStart - 14 * hour && next.takenAt < dayStart + 38 * hour;
+  }
+  if (!dateOk) {
+    const offsetMinutes = offsetMatch
+      ? (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3])) * (offsetMatch[1] === "-" ? -1 : 1)
+      : 0;
+    next.takenDate = new Date(next.takenAt + offsetMinutes * 60000).toISOString().slice(0, 10);
+  }
+
+  if (!TAKEN_AT_SOURCES.has(next.takenAtSource) || next.takenAtSource === "none") delete next.takenAtSource;
+  return next;
+}
+
 async function handleDataRequest(request, env, url, ctx) {
   await ensureDatabaseSchema(env);
   const parts = url.pathname.slice("/data/".length).split("/").filter(Boolean).map(decodeURIComponent);
@@ -1503,6 +1575,9 @@ async function handleDataRequest(request, env, url, ctx) {
     // שריצת ההשלמה כבר רשמה; הקבצים עצמם נשארים ב-R2 בכל מקרה.
     if (["images", "pendingImages"].includes(collectionName) && existing.variants && nextData.variants === undefined) {
       nextData = { ...nextData, variants: existing.variants, variantsVersion: existing.variantsVersion };
+    }
+    if (["images", "pendingImages"].includes(collectionName)) {
+      nextData = normalizeCaptureFields(nextData, existing);
     }
 
     if (collectionName === "activityLogs") {
@@ -2426,6 +2501,97 @@ async function mediaVariantsStats(request, env) {
     byFormat,
     variantsVersion: MEDIA_VARIANTS_VERSION
   });
+}
+
+// --- תאריך הצילום: ריצת ההשלמה למדיה הקיימת ---
+
+// הרשומה של פריט — הפעילה, ואם אין כזו הממתינה — ומפתח הקובץ שלה ב-R2.
+async function readMediaRecordForProbe(env, imageId) {
+  for (const collectionName of ["images", "pendingImages"]) {
+    const row = await readGalleryDocumentRow(env, collectionName, imageId);
+    if (row) return parseDocumentData(row);
+  }
+  return null;
+}
+
+// GET /media/probe/<imageId>?offset=&length= — טווח בתים מקובץ המקור, כדי
+// שהדפדפן של המנהל יקרא את ה-EXIF או את mvhd בלי להוריד את הקובץ כולו.
+// מנהלים בלבד; עד 256KB בבקשה; X-Media-Size מחזירה את גודל הקובץ המלא.
+async function probeMediaBytes(request, env, url) {
+  await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const imageId = safeImageId(decodeURIComponent(url.pathname.slice("/media/probe/".length)));
+  const record = await readMediaRecordForProbe(env, imageId);
+  if (!record) throw apiError("רשומת המדיה לא נמצאה.", 404, "not_found");
+  const key = String(record.r2Key || "");
+  if (!/^(approved|pending)\//.test(key)) throw apiError("הפריט אינו מאוחסן ב-R2 של הגלריה.", 404, "not_stored");
+  validateObjectKey(key);
+  const offset = Math.max(0, Math.trunc(Number(url.searchParams.get("offset")) || 0));
+  const length = Math.max(1, Math.min(MEDIA_PROBE_MAX_BYTES, Math.trunc(Number(url.searchParams.get("length")) || MEDIA_PROBE_MAX_BYTES)));
+  const head = await env.GALLERY_BUCKET.head(key);
+  if (!head) throw apiError("קובץ המדיה לא נמצא.", 404, "not_found");
+  const size = Number(head.size) || 0;
+  let bytes = new Uint8Array(0);
+  if (offset < size) {
+    const object = await env.GALLERY_BUCKET.get(key, { range: { offset, length: Math.min(length, size - offset) } });
+    if (!object) throw apiError("קובץ המדיה לא נמצא.", 404, "not_found");
+    const all = new Uint8Array(await new Response(object.body).arrayBuffer());
+    // R2 מחזיר בדיוק את הטווח; מאגר שמתעלם מהטווח מחזיר את הכול, ואז חותכים.
+    bytes = all.length > length ? all.subarray(offset, offset + length) : all;
+  }
+  const headers = new Headers(corsHeaders(request));
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Media-Size", String(size));
+  headers.set("Access-Control-Expose-Headers", "ETag, X-Media-Size");
+  return new Response(bytes, { status: 200, headers });
+}
+
+// POST /media/taken-at — { updates: [{ imageId, takenAt, takenDate, takenAtOffset,
+// takenAtSource }] } עד 50 בבקשה. כל עדכון נבדק כמו בכתיבה רגילה, נרשם ב-images
+// וגם ב-pendingImages, וגרסאות הנתונים מתקדמות כדי שה-ETag ומטמון הקצה יתיישנו.
+// "none" (נבדק ולא נמצא) אינו מוחק תאריך שכבר נשמר.
+async function updateMediaTakenAt(request, env) {
+  await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const updates = Array.isArray(payload?.updates) ? payload.updates : [];
+  if (!updates.length) throw apiError("לא נשלחו עדכונים.", 400, "no_updates");
+  if (updates.length > TAKEN_AT_BATCH_MAX) {
+    throw apiError(`אפשר לעדכן עד ${TAKEN_AT_BATCH_MAX} פריטים בבקשה אחת.`, 400, "too_many_updates");
+  }
+  const touched = new Set();
+  const results = [];
+  for (const update of updates) {
+    const imageId = safeImageId(update?.imageId);
+    const fields = {};
+    for (const field of CAPTURE_FIELDS) if (update?.[field] !== undefined) fields[field] = update[field];
+    const normalized = normalizeCaptureFields(fields, {});
+    if (normalized.takenAt === undefined && normalized.takenAtSource !== "none") {
+      results.push({ imageId, status: "invalid" });
+      continue;
+    }
+    let found = false;
+    for (const collectionName of ["images", "pendingImages"]) {
+      const row = await readGalleryDocumentRow(env, collectionName, imageId);
+      if (!row) continue;
+      found = true;
+      const data = parseDocumentData(row);
+      if (normalized.takenAt === undefined && Number.isFinite(Number(data.takenAt)) && data.takenAtSource !== "none") continue;
+      const next = { ...data };
+      for (const field of CAPTURE_FIELDS) delete next[field];
+      Object.assign(next, normalized);
+      const updatedAt = Math.max(Date.now(), (Number(row.updated_at) || 0) + 1);
+      await env.GALLERY_DB.prepare(
+        "UPDATE gallery_documents SET data_json = ?, updated_at = ? WHERE collection_name = ? AND document_id = ?"
+      ).bind(JSON.stringify(next), updatedAt, collectionName, imageId).run();
+      touched.add(collectionName);
+    }
+    results.push({ imageId, status: found ? "updated" : "not_found", ...normalized });
+  }
+  await bumpDataVersions(env, [...touched]);
+  return json(request, { success: true, updated: results.filter(result => result.status === "updated").length, results });
 }
 
 async function sendEmail(request, env) {
@@ -3514,7 +3680,7 @@ export default {
           version: "2026-10-08-data-layer-cursors-etag-cache",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index", "media-variants",
+            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates",
             "data-filters", "cursor-pagination", "etag-304", "edge-cache"
           ],
           faceModelVersion: FACE_MODEL_VERSION,
@@ -3573,6 +3739,12 @@ export default {
       }
       if (request.method === "POST" && url.pathname === "/media/variants") {
         return await attachMediaVariants(request, env);
+      }
+      if (request.method === "GET" && url.pathname.startsWith("/media/probe/")) {
+        return await probeMediaBytes(request, env, url);
+      }
+      if (request.method === "POST" && url.pathname === "/media/taken-at") {
+        return await updateMediaTakenAt(request, env);
       }
       if (request.method === "GET" && url.pathname === "/media/variants/stats") {
         return await mediaVariantsStats(request, env);

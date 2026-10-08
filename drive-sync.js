@@ -12,6 +12,7 @@
 import { collection, query, orderBy, limit } from "./cloudflare-client.js";
 import { onSnapshot, reportFirestoreError, getAuthInstance, dismissGoogleOneTap } from "./session-auth.js";
 import { resolveApiBaseUrl } from "./api-environment.js";
+import { captureFromDriveMetadata, captureFields, hasCaptureDate } from "./capture-date.js";
 
 // מצב חיבור ה-Drive. שלושת המשתנים האלה נקראו ונכתבו בכל הקובץ בלי שהוצהרו
 // אי־פעם: מודול ES רץ תמיד ב-strict mode, ולכן כל קריאה אליהן זרקה
@@ -244,13 +245,24 @@ async function getDriveFileMetadata(fileId) {
     return response.json();
 }
 
+// ריצת ההשלמה של תאריכי הצילום (capture-dates-admin.js) שואלת את Drive על
+// קובץ שסונכרן ממנו — רק כשהחיבור פעיל; אחרת היא קוראת את הקובץ מ-R2.
+window.getDriveCaptureDate = async function(fileId) {
+    if (!driveAccessToken || !fileId) return null;
+    const fields = encodeURIComponent('id,imageMediaMetadata(time)');
+    const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=${fields}&supportsAllDrives=true`);
+    return captureFromDriveMetadata(await response.json());
+};
+
 async function listDriveFolderChildren(folderId) {
     const results = [];
     let pageToken = '';
     do {
         const params = new URLSearchParams({
             q: `'${folderId}' in parents and trashed = false`,
-            fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,size)',
+            // imageMediaMetadata.time הוא תאריך הצילום של תמונה כפי ש-Drive קרא
+            // מה-EXIF. לסרטון אין שדה כזה ב-API, והתאריך נקרא מהקובץ עצמו.
+            fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,size,imageMediaMetadata(time))',
             pageSize: '1000',
             orderBy: 'folder,name',
             spaces: 'drive',
@@ -390,10 +402,15 @@ async function syncDriveMediaFiles(folder, mediaFiles) {
         );
 
         try {
+            const driveCapture = captureFromDriveMetadata(driveMedia);
             if (existing && existing.driveModifiedTime === driveMedia.modifiedTime) {
-                if (existing.folderId !== folderId) {
+                // קובץ שלא השתנה אינו יורד שוב; תאריך צילום שחסר ברשומה
+                // (רשומה מלפני התכונה) נלקח מהמטא-דאטה של Drive בלי הורדה.
+                const missingCapture = driveCapture && !hasCaptureDate(existing);
+                if (existing.folderId !== folderId || missingCapture) {
                     await window.saveImageToCloud({
                         ...existing,
+                        ...(missingCapture ? captureFields(driveCapture) : {}),
                         folderId,
                         driveFolderId: folder.id
                     });
@@ -420,7 +437,10 @@ async function syncDriveMediaFiles(folder, mediaFiles) {
                 driveFolderId: folder.id,
                 driveRootFolderId: driveFolderPickerState.rootFolderId || folder.id,
                 driveModifiedTime: driveMedia.modifiedTime || '',
-                syncedFromDrive: true
+                syncedFromDrive: true,
+                // תאריך הצילום של Drive הוא נקודת המוצא; prepareMediaRecordForCloud
+                // מעדיף את ה-EXIF של הקובץ שירד (שיש בו גם אזור זמן) כשהוא קיים.
+                ...(driveCapture ? captureFields(driveCapture) : {})
             });
             addedOrUpdated++;
         } catch (error) {
