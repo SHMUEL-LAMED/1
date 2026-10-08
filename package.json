@@ -7,7 +7,7 @@
     "check:css": "npm run build:css && git diff --exit-code --stat -- tailwind.generated.css",
     "test": "node --test",
     "test:e2e": "playwright test",
-    "check:syntax": "node --check cloudflare-worker.js && node --check cloudflare-client.js && node --check api-environment.js && node --check app.js && node --check session-ui.js && node --check gallery.js && node --check session-auth.js && node --check drive-sync.js && node --check admin.js && node --check admin-ui.js && node --check admin-app.js && node --check popup-announcement.js && node --check popup-admin.js && node --check chat.js && node --check chat-admin.js && node --check face-search.js && node --check face-index.js && node --check error-monitor.js && node --check admin-errors.js && node --check sw.js"
+    "check:syntax": "node --check cloudflare-worker.js && node --check cloudflare-client.js && node --check api-environment.js && node --check app.js && node --check session-ui.js && node --check gallery.js && node --check gallery-feed.js && node --check session-auth.js && node --check drive-sync.js && node --check admin.js && node --check admin-ui.js && node --check admin-app.js && node --check popup-announcement.js && node --check popup-admin.js && node --check chat.js && node --check chat-admin.js && node --check face-search.js && node --check face-index.js && node --check error-monitor.js && node --check admin-errors.js && node --check sw.js"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

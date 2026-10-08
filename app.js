@@ -6,6 +6,9 @@
 
 import { initSession } from './session-auth.js';
 import { initGallery } from './gallery.js';
+// טעינת התמונות לפי תיקייה. נרשם על window ומופעל רק בדף הגלריה, אחרי
+// אישור הצפייה; בדף הניהול הוא נטען אך אינו מופעל.
+import './gallery-feed.js';
 import { initSessionUI } from './session-ui.js';
 import './popup-announcement.js';
 import { installErrorMonitor } from './error-monitor.js';
@@ -20,7 +23,7 @@ window.PAGE_MODE = PAGE_MODE;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v44';
+const SITE_VERSION = 'v45';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -793,6 +796,9 @@ window.saveImageToCloud = async function(imgData) {
         window.state.images = [imageRecord, ...(window.state.images || [])];
         window.state.images.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
+    // גם המטמון לפי תיקייה של דף הגלריה מתעדכן, כדי שהעמוד הבא לא יחזיר
+    // את הרשומה הישנה.
+    window.noteGalleryImageUpserted?.(imageRecord);
     window.renderImages();
     window.renderFolders();
     // הפקת טביעות הפנים לתמונה חדשה רצה ברקע. היא לעולם אינה מעכבת את
@@ -927,6 +933,7 @@ window.moveRecordToTrash = async function(type, record, options = {}) {
     // Update local state immediately so the UI reflects the deletion without waiting for the next snapshot
     if (type === 'image') {
         window.state.images = (window.state.images || []).filter(item => safeRecordId(item.id) !== originalId);
+        window.noteGalleryImageRemoved?.(originalId);
         window.renderImages();
         window.renderFolders();
     } else if (type === 'pendingImage') {
@@ -960,8 +967,18 @@ window.moveFolderToTrash = async function(id) {
     const folderId = safeRecordId(id);
     const folder = (window.state.folders || []).find(item => safeRecordId(item.id) === folderId);
     if (!folder) throw new Error('התיקייה לא נמצאה.');
-    const relatedImages = (window.state.images || []).filter(image => safeRecordId(image.folderId) === folderId);
-    const { doc, setDoc } = window.firestoreModules;
+    // כל התמונות של התיקייה נמשכות מהשרת: בדף הגלריה הזיכרון מחזיק רק את
+    // התיקייה הפעילה, ותיקייה שנמחקת חייבת לקחת איתה את כל הפריטים שלה.
+    // הסינון חוזר גם כאן, למקרה של Worker ישן שעדיין מתעלם מהסינון בשרת.
+    const { doc, setDoc, collection, query, where, getDocs } = window.firestoreModules;
+    let relatedImages;
+    try {
+        const snapshot = await getDocs(query(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'images'), where('folderId', '==', folderId)));
+        relatedImages = snapshot.docs.map(item => item.data()).filter(image => safeRecordId(image.folderId) === folderId);
+    } catch (error) {
+        console.warn('Folder images lookup failed, falling back to the loaded list:', error);
+        relatedImages = (window.state.images || []).filter(image => safeRecordId(image.folderId) === folderId);
+    }
     await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'systemMeta', 'gallery'), {
         foldersInitialized: true,
         updatedAt: Date.now()
@@ -1017,6 +1034,7 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
             window.state.images = [item.record, ...(window.state.images || [])];
             window.state.images.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         }
+        window.noteGalleryImageUpserted?.(item.record);
         window.renderImages();
         window.renderFolders();
     } else if (item.originalType === 'folder' && item.record) {
@@ -1030,6 +1048,7 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
                 if (child?.record && !(window.state.images || []).some(img => safeRecordId(img.id) === safeRecordId(child.originalId))) {
                     window.state.images = [{ ...child.record, folderId: item.originalId }, ...(window.state.images || [])];
                 }
+                if (child?.record) window.noteGalleryImageUpserted?.({ ...child.record, folderId: item.originalId });
             }
             window.state.images.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
             window.state.trashItems = (window.state.trashItems || []).filter(entry => !item.relatedTrashIds.includes(entry.id));

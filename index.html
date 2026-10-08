@@ -228,10 +228,13 @@
 
             <div id="photosGrid" class="grid"></div>
 
-            <!-- זקיף העימוד: כשהוא נכנס למסך נטענת המנה הבאה. -->
+            <!-- זקיף העימוד: כשהוא נכנס למסך מצוירת המנה הבאה מהזיכרון.
+                 כשכל מה שנטען כבר מוצג ויש בענן עמודים ישנים יותר, הכפתור
+                 השני מושך את העמוד הבא (gallery-feed.js). -->
             <div id="galleryLoadMore" class="hidden py-8 flex-col items-center gap-3">
                 <span id="galleryLoadMoreCount" class="text-[11px] text-slate-400"></span>
-                <button type="button" onclick="window.renderMoreImages()" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <button type="button" id="galleryRenderMoreBtn" onclick="window.renderMoreImages()" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <button type="button" id="galleryFetchMoreBtn" onclick="window.fetchOlderImages()" class="btn-secondary-dark px-5 py-2.5 text-xs hidden">טען פריטים ישנים יותר</button>
             </div>
 
             <div id="emptyState" class="gallery-empty hidden">
