@@ -629,6 +629,10 @@ let galleryRenderedCount = 0;
 let galleryPageObserver = null;
 
 let galleryRenderKey = '';
+// כשהמשתמש לוחץ "טען פריטים ישנים יותר" הוא מצפה לראות את מה שהגיע מיד,
+// ולא לחכות שהזקיף בתחתית יזהה שוב את הגלילה (מה שלא קורה כשהזקיף
+// נשאר גלוי לאורך כל הטעינה). הציור הבא באותה תצוגה מציג לפחות מנה נוספת.
+let galleryRevealAtLeast = 0;
 
 window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
@@ -640,7 +644,9 @@ window._doRenderImages = function() {
     // באותה תצוגה (תיקייה, חיפוש, מיון) מצוירות מחדש כל המנות שכבר הוצגו,
     // כדי שעמוד נוסף שמגיע מהענן לא יקפיץ את הגלילה חזרה להתחלה.
     const renderKey = [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults !== null].join('|');
-    const previouslyRendered = renderKey === galleryRenderKey ? galleryRenderedCount : 0;
+    const sameView = renderKey === galleryRenderKey;
+    const previouslyRendered = sameView ? Math.max(galleryRenderedCount, galleryRevealAtLeast) : 0;
+    galleryRevealAtLeast = 0;
     galleryRenderKey = renderKey;
     galleryRenderedCount = 0;
 
@@ -748,6 +754,10 @@ function updateGalleryLoadMore() {
         fetchButton.disabled = Boolean(window.state.imagesLoadingMore);
         fetchButton.textContent = window.state.imagesLoadingMore ? 'טוען…' : 'טען פריטים ישנים יותר';
     }
+    // מוני התיקיות מגיעים מהשרת בבקשה נפרדת, לעתים אחרי שהגלריה כבר צוירה;
+    // לכן גם הכיתוב שליד סרגל הכלים מתעדכן כאן ולא רק בציור המלא.
+    const imageCounter = document.getElementById('imageCounter');
+    if (imageCounter && galleryRenderKey) imageCounter.textContent = galleryCounterLabel(galleryPageItems.length);
     const counter = document.getElementById('galleryLoadMoreCount');
     if (counter) {
         counter.textContent = remaining > 0
@@ -770,7 +780,9 @@ window.updateGalleryLoadMore = updateGalleryLoadMore;
 // הכפתור "טען פריטים ישנים יותר": מושך את העמוד הבא של התיקייה מהענן.
 // loadMoreImages מצייר את הגלריה מחדש בעצמו כשהעמוד מגיע.
 window.fetchOlderImages = async function() {
+    galleryRevealAtLeast = galleryRenderedCount + GALLERY_PAGE_SIZE;
     const result = await window.loadMoreImages?.();
+    if (!result?.added) galleryRevealAtLeast = 0;
     if (result?.done && !result.added) window.showNotification('אלה כל הפריטים בתיקייה.', true);
     return result;
 };
