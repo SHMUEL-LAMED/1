@@ -1,6 +1,9 @@
 // gallery.js — הצגת הגלריה, מדיה, ניווט ותיקיות
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
+// בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
+import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+
 let currentFilteredImages = [];
 
 // --- 5. New Updates Banner ---
@@ -235,6 +238,18 @@ function safeDownloadFileName(name, fallback = 'תמונה') {
     return sanitized || fallback;
 }
 
+// סיומת לפי סוג הקובץ שהורד, כדי שהקובץ ייפתח במחשב בתוכנה הנכונה. שם
+// שכבר מסתיים בסיומת מוכרת נשאר כפי שהוא.
+const DOWNLOAD_EXTENSIONS = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'image/avif': 'avif', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov'
+};
+function withDownloadExtension(name, mimeType) {
+    const extension = DOWNLOAD_EXTENSIONS[String(mimeType || '').split(';')[0].trim().toLowerCase()];
+    if (!extension || /\.(?:jpe?g|png|webp|gif|avif|heic|mp4|webm|mov)$/i.test(name)) return name;
+    return `${name}.${extension}`;
+}
+
 async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
     const url = window.safeImageUrl(item?.url);
     if (!url) throw new Error('כתובת הקובץ אינה תקינה.');
@@ -255,7 +270,7 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = safeDownloadFileName(item?.title, fallbackName);
+    link.download = withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
@@ -528,8 +543,7 @@ function renderHeroMosaic() {
     if (!mosaic) return;
     const tiles = [...latestImagesSource()]
         .map(item => {
-            const isVideo = window.isVideoRecord(item);
-            const url = window.safeImageUrl(isVideo ? item?.thumbnailUrl : item?.url);
+            const url = pickCardSource(item, window.safeImageUrl).url;
             return url ? { id: window.safeRecordId(item.id), url, createdAt: Number(item?.createdAt) || 0 } : null;
         })
         .filter(Boolean)
@@ -695,13 +709,16 @@ function buildGalleryCard(img, index, isEditBlocked) {
     const isFavorite = window.state.favorites.has(imageId);
     const isSelected = window.state.selectedMediaIds.has(imageId);
     const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
-    const videoPoster = window.safeImageUrl(img.thumbnailUrl);
+    // הכרטיס מציג את התצוגה הקטנה (thumb) כשקיימת; סרטון מקבל אותה כפוסטר
+    // במקום ריבוע שחור. אם התצוגה לא נטענת — נופלים אל המקור.
+    const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
+    const cardSource = pickCardSource(img, window.safeImageUrl);
     const durationLabel = formatMediaDuration(img.duration);
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
-        : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.parentElement.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+        : buildCardPicture(cardSource, title);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `
         <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" style="--card-index:${Math.min(index, 12)}">
@@ -716,6 +733,17 @@ function buildGalleryCard(img, index, isEditBlocked) {
                 <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span><time datetime="${window.escapeHtml(img.date || '')}">${window.formatDate(img.date)}</time></div></div>${actionHtml}
             </div>
         </article>`;
+}
+
+// תמונת הכרטיס: <img> עם srcset של thumb ו-medium כשיש שתיהן, ועטופה
+// ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
+// ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
+// is-loaded נקבע על .gallery-media ולא על ההורה הישיר, שעשוי להיות <picture>.
+function buildCardPicture(source, title) {
+    const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.closest('.gallery-media')?.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+    if (!source.avifSrcset) return image;
+    return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
 
 // מוסיפה את המנה הבאה בלבד, ומרעננת אייקונים רק על מה שנוסף.
@@ -1492,11 +1520,11 @@ function updateLightbox() {
     const imageUrl = window.safeImageUrl(img.url);
     const isVideo = window.isVideoRecord(img);
     document.getElementById('lightboxImageFallback')?.remove();
-    // ההשתקפות ברקע: התמונה עצמה, או תמונת הפוסטר של סרטון. בלי אחת מהן
-    // הרקע נשאר כהה ואחיד.
+    // ההשתקפות ברקע: התצוגה הקטנה ביותר שקיימת (היא ממילא מטושטשת), ואם אין —
+    // התמונה עצמה או תמונת הפוסטר של סרטון. בלי אחת מהן הרקע נשאר כהה ואחיד.
     const lbBackdrop = document.getElementById('lightboxBackdrop');
     if (lbBackdrop) {
-        const backdropUrl = isVideo ? window.safeImageUrl(img.thumbnailUrl) : imageUrl;
+        const backdropUrl = pickBackdropSource(img, window.safeImageUrl);
         lbBackdrop.hidden = !backdropUrl;
         if (backdropUrl && lbBackdrop.src !== backdropUrl) lbBackdrop.src = backdropUrl;
         lbBackdrop.onerror = () => { lbBackdrop.hidden = true; };
@@ -1505,7 +1533,7 @@ function updateLightbox() {
         if (lbImage) lbImage.hidden = true;
         if (lbVideo) {
             lbVideo.classList.remove('hidden');
-            const posterUrl = window.safeImageUrl(img.thumbnailUrl);
+            const posterUrl = pickPosterSource(img, window.safeImageUrl);
             if (posterUrl) lbVideo.poster = posterUrl;
             else lbVideo.removeAttribute('poster');
             const progressKey = `simchat_video_progress_${window.safeRecordId(img.id)}`;
@@ -1532,7 +1560,35 @@ function updateLightbox() {
         }
         lbImage.hidden = false;
         lbImage.onerror = () => window.handleImageError(lbImage);
-        lbImage.src = imageUrl;
+        // medium עם srcset של thumb ו-medium: טלפון מקבל את הקטנה ומסך גדול
+        // את הבינונית. ההורדה נשארת על המקור, וכך גם הנפילה אם התצוגה לא נטענת.
+        const source = pickLightboxSource(img, window.safeImageUrl);
+        if (source.fallbackUrl) lbImage.dataset.fallbackSrc = source.fallbackUrl;
+        else delete lbImage.dataset.fallbackSrc;
+        // מקור ה-AVIF שב-<picture> של התצוגה המלאה: בלי srcset הדפדפן מתעלם ממנו.
+        const lbAvif = document.getElementById('lightboxImageAvif');
+        if (lbAvif) {
+            if (source.avifSrcset) {
+                lbAvif.srcset = source.avifSrcset;
+                if (source.sizes) lbAvif.sizes = source.sizes;
+                else lbAvif.removeAttribute('sizes');
+            } else {
+                lbAvif.removeAttribute('srcset');
+                lbAvif.removeAttribute('sizes');
+            }
+        }
+        if (source.srcset) {
+            lbImage.srcset = source.srcset;
+            lbImage.sizes = source.sizes;
+        } else {
+            lbImage.removeAttribute('sizes');
+            // srcset מפורש ב-1x ולא הסרה בלבד: אחרי תמונה עם srcset של רוחבים
+            // Chromium שומר את צפיפות הפיקסלים הקודמת, והתמונה הייתה מוצגת
+            // בממדים שגויים.
+            if (source.url) lbImage.srcset = `${source.url} 1x`;
+            else lbImage.removeAttribute('srcset');
+        }
+        lbImage.src = source.url;
     }
 
     const lbTitle = document.getElementById('lightboxTitle');

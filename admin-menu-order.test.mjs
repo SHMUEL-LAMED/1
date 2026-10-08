@@ -41,6 +41,7 @@ const CANONICAL_VIEW_ORDER = [
   "health",
   "errors",
   "faceindex",
+  "variants",
   "tools"
 ];
 

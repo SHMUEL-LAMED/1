@@ -9,6 +9,8 @@
 // המודול נשען על התשתית המשותפת שב-app.js (state, showNotification,
 // openModal, showConfirm, r2Request), ולכן admin-app.js טוען קודם אותה.
 
+import { pickCardSource } from './media-variants.js';
+
 const { checkAdminPermission, checkSuperAdminPermission, canViewSuperAdminData } = window;
 const { openModal, closeModal, showConfirm, scheduleIconRefresh } = window;
 const { escapeHtml, safeRecordId, safeIconName, safeImageUrl, isVideoRecord, formatDate, formatBytes, r2Request } = window;
@@ -151,6 +153,14 @@ const ADMIN_VIEWS = [
         description: 'הצגת הפרצופים שזוהו, איחוד אותו אדם בלוקים שונים והכנת חיפוש פנים.',
         icon: 'scan-face',
         keywords: 'פנים אינדוקס חיפוש ai'
+    },
+    {
+        id: 'variants',
+        group: 'כלי מערכת',
+        title: 'תצוגות מקדימות',
+        description: 'יצירת תמונות מוקטנות ופוסטרים לסרטונים עבור המדיה הקיימת, כדי שהגלריה תיטען מהר.',
+        icon: 'images',
+        keywords: 'תצוגה מקדימה ממוזערות thumbnails webp פוסטר סרטון מהירות'
     },
     {
         id: 'tools',
@@ -321,6 +331,15 @@ function runViewHook(viewId) {
                 return window.refreshFaceIndexSummary?.();
             })
             .catch(error => console.error('Face index module failed to load:', error));
+    }
+    if (viewId === 'variants') {
+        // גם מודול התצוגות נטען עצלה; המונה והכפתורים מצוירים רק אחרי שהוא הגיע.
+        window.ensureMediaVariantsModule?.()
+            .then(() => {
+                window.renderMediaVariantsPanel?.();
+                return window.refreshMediaVariantsSummary?.();
+            })
+            .catch(error => console.error('Media variants module failed to load:', error));
     }
 }
 
@@ -756,6 +775,17 @@ window.runSystemHealthCheck = async function() {
             }
         },
         {
+            label: 'תצוגות מקדימות',
+            run: async () => {
+                await window.ensureMediaVariantsModule?.();
+                const summary = await window.refreshMediaVariantsSummary?.();
+                if (!summary) throw new Error('רשימת המדיה אינה זמינה');
+                return summary.missing
+                    ? `נותרו ${summary.missing} פריטים בלי תצוגות — הפעילו את הריצה במסך "תצוגות מקדימות"`
+                    : `מוכן — ${summary.total} פריטים עם תצוגות`;
+            }
+        },
+        {
             label: 'Google Drive',
             run: async () => window.driveConnectionActive ? 'מחובר כעת' : 'לא מחובר — חברו בעת הצורך'
         }
@@ -924,7 +954,7 @@ function renderAnalyticsMedia(stats) {
         rank.className = 'analytics-media-rank';
         rank.textContent = String(index + 1);
 
-        const previewUrl = safeImageUrl(media?.thumbnailUrl || media?.url);
+        const previewUrl = pickCardSource(media || {}, safeImageUrl).url;
         let preview;
         if (previewUrl && !isVideoRecord(media || {})) {
             preview = document.createElement('img');
