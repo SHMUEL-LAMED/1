@@ -36,16 +36,28 @@ function makeElement(id) {
 }
 
 // הרשת: innerHTML ו-insertAdjacentHTML מפורקים לכרטיסים (לפי <article>),
-// וכל כרטיס יודע להחליף את עצמו דרך outerHTML — בדיוק מה ש-gallery.js עושה.
+// וכל כרטיס תומך בדיוק במה ש-gallery.js עושה לו: הוספה לפניו, הסרה, כתיבת
+// המספר ו---card-index, ובדיקת isConnected.
 function makeCard(grid, html) {
     const card = {
         tagName: "ARTICLE", html,
         mediaId: html.match(/data-media-id="([^"]*)"/)?.[1] || "",
         number: html.match(/<span class="gallery-number">([^<]*)<\/span>/)?.[1] || "",
-        get outerHTML() { return html; },
-        set outerHTML(value) {
+        style: { values: {}, setProperty(name, value) { this.values[name] = String(value); } },
+        get isConnected() { return grid.children.includes(card); },
+        getBoundingClientRect() { return grid.geometry ? grid.geometry(card) : { top: 0 }; },
+        get previousElementSibling() {
             const index = grid.children.indexOf(card);
-            if (index >= 0) grid.children.splice(index, 1, ...parseCards(grid, value));
+            return index > 0 ? grid.children[index - 1] : null;
+        },
+        querySelector(selector) {
+            if (selector !== ".gallery-number") return null;
+            return { get textContent() { return card.number; }, set textContent(value) { card.number = String(value); } };
+        },
+        insertAdjacentHTML(position, value) {
+            assert.equal(position, "beforebegin");
+            const index = grid.children.indexOf(card);
+            grid.children.splice(index, 0, ...parseCards(grid, value));
         },
         remove() {
             const index = grid.children.indexOf(card);
@@ -71,6 +83,14 @@ function makeGrid() {
     grid.insertAdjacentHTML = (position, html) => {
         assert.equal(position, "beforeend");
         grid.children.push(...parseCards(grid, html));
+    };
+    grid.insertBefore = (node, reference) => {
+        const current = grid.children.indexOf(node);
+        if (current >= 0) grid.children.splice(current, 1);
+        const target = reference ? grid.children.indexOf(reference) : -1;
+        if (target >= 0) grid.children.splice(target, 0, node);
+        else grid.children.push(node);
+        return node;
     };
     return grid;
 }
@@ -248,13 +268,25 @@ test("רינדור מחדש באותה תצוגה שומר את מספר הכר�
     assert.ok(grid.children[1].html.includes("fill-current"));
     assert.ok(grid.children.every((card, index) => index === 1 || card === before[index]));
 
-    // תמונה חדשה בראש הרשימה: הכרטיסים זזים, המספר נשמר.
+    // תמונה חדשה בראש הרשימה: הכרטיסים הקיימים נשארים אותם אלמנטים — רק
+    // מספרם ומיקומם מתעדכנים — ומספר הכרטיסים נשמר.
+    const beforeInsert = [...grid.children];
     window.state.images = [{ id: "img-new", title: "חדשה", folderId: "fold-a", createdAt: BASE_TIME + 1, date: "2026-10-02", url: "https://cdn.test/new.jpg" }, ...window.state.images];
     render();
     assert.equal(grid.children.length, 96);
     assert.equal(grid.children[0].mediaId, "img-new");
     assert.equal(grid.children[0].number, "01");
+    assert.equal(grid.children[0].style.values["--card-index"], "0");
     assert.equal(grid.children[1].mediaId, "img-0");
+    assert.equal(grid.children[1].number, "02");
+    assert.ok(beforeInsert.slice(0, 95).every((card, index) => grid.children[index + 1] === card), "הכרטיסים הקיימים לא נבנו מחדש");
+    assert.equal(grid.children[13].style.values["--card-index"], "12", "ההשהיה של האנימציה נכתבת על האלמנט");
+
+    // תמונה ישנה שמצטרפת מעבר לכרטיסים שצוירו: שום כרטיס אינו משתנה.
+    const beforeAppend = [...grid.children];
+    window.state.images = [...window.state.images, { id: "img-old", title: "ישנה", folderId: "fold-a", createdAt: 1000, date: "2020-01-01", url: "https://cdn.test/old.jpg" }];
+    render();
+    assert.ok(grid.children.length === 96 && grid.children.every((card, index) => card === beforeAppend[index]));
 
     window.state.searchQuery = "תמונה 1";
     render();
@@ -264,6 +296,59 @@ test("רינדור מחדש באותה תצוגה שומר את מספר הכר�
     window.state.images = makeImages(300);
     render();
     assert.equal(grid.children.length, 48);
+});
+
+test("תמונה חדשה בראש הרשימה אינה מזיזה את הכרטיס שבראש המסך", () => {
+    // רשת של 4 עמודות ושורות בגובה 300: כל כרטיס זז תא אחד קדימה, וכרטיס
+    // שבסוף שורה יורד לשורה הבאה — הגלילה צריכה להתקן בדיוק בהפרש הזה.
+    const COLUMNS = 4, ROW = 300;
+    const scrolls = [];
+    const newImage = n => ({ id: `img-new-${n}`, title: `חדשה ${n}`, folderId: "fold-a", createdAt: BASE_TIME + n, date: "2026-10-02", url: `https://cdn.test/new${n}.jpg` });
+    grid.geometry = card => ({ top: Math.floor(grid.children.indexOf(card) / COLUMNS) * ROW - window.scrollY });
+    window.scrollY = 0;
+    window.scrollBy = ({ top }) => { scrolls.push(top); window.scrollY += top; };
+    try {
+        window.state = freshState(makeImages(300));
+        render();
+        intersectSentinel();
+        assert.equal(grid.children.length, 96);
+
+        // בראש המסך שורה 5, והכרטיס הראשון בה (אינדקס 20) זז לעמודה הבאה
+        // באותה שורה: אין צורך בתיקון.
+        window.scrollY = 5 * ROW;
+        const inRow = grid.children[20];
+        window.state.images = [newImage(1), ...window.state.images];
+        render();
+        assert.equal(grid.children[21], inRow);
+        assert.deepEqual(scrolls, []);
+        assert.equal(inRow.getBoundingClientRect().top, 0);
+
+        // הכרטיס האחרון בשורה הוא הראשון שנראה (מה שלפניו כבר מעל המסך):
+        // תמונה חדשה מורידה אותו שורה, והגלילה מתוקנת בגובה שורה אחת.
+        const last = grid.children[23];
+        const hiddenAbove = new Set(grid.children.slice(0, 23));
+        grid.geometry = card => hiddenAbove.has(card)
+            ? { top: -1 }
+            : { top: Math.floor(grid.children.indexOf(card) / COLUMNS) * ROW - window.scrollY };
+        window.state.images = [newImage(2), ...window.state.images];
+        render();
+        assert.equal(grid.children[24], last);
+        assert.deepEqual(scrolls, [ROW], "הגלילה תוקנה בגובה שורה אחת");
+        assert.equal(last.getBoundingClientRect().top, 0, "הכרטיס נשאר בראש המסך");
+
+        // בראש הדף אין תיקון: שם רוצים לראות את התמונה החדשה.
+        window.scrollY = 0;
+        scrolls.length = 0;
+        window.state.images = [newImage(3), ...window.state.images];
+        render();
+        assert.deepEqual(scrolls, []);
+    } finally {
+        delete grid.geometry;
+        delete window.scrollY;
+        delete window.scrollBy;
+        window.state = freshState(makeImages(300));
+        render();
+    }
 });
 
 test("חיפוש בלי תוצאות מציג את המצב הריק, ואחריו הרשת חוזרת", () => {

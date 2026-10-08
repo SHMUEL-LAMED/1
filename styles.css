@@ -1368,8 +1368,13 @@ body textarea { resize: vertical; min-height: 84px; }
     animation-delay: calc(var(--tile-index, 0) * 90ms);
 }
 .hero-mosaic > *:first-child { grid-column: span 2; grid-row: span 2; }
+/* התמונה ממלאת את האריח במיקום מוחלט, כך שגובה הפסיפס אינו תלוי במידות
+   התמונות: כשתמונה חדשה מגיעה והפסיפס נבנה מחדש, תמונותיו העצלות אינן
+   מכווצות אותו עד שייטענו, ומה שמתחתיו — הרשת — אינו קופץ. */
 .hero-mosaic img,
 .hero-mosaic video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;

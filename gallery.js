@@ -591,18 +591,21 @@ function sameViewSignature(first, second) {
         && first.every((value, index) => value === second[index]);
 }
 
-function buildGalleryCards(from, to) {
-    const isEditBlocked = window.state.isLocked && !window.state.isAdminLoggedIn;
-    return galleryPageItems.slice(from, to).map((img, offset) => buildGalleryCard(img, from + offset, isEditBlocked).trim());
+function galleryEditBlocked() {
+    return window.state.isLocked && !window.state.isAdminLoggedIn;
 }
 
 window._doRenderImages = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const grid = document.getElementById('photosGrid'); const emptyState = document.getElementById('emptyState');
     if (!grid || !emptyState) return;
-    renderHeroMosaic();
     const signature = currentViewSignature();
     const sameView = sameViewSignature(signature, galleryViewSignature);
+    const hadView = galleryViewSignature !== null;
+    // העוגן נרשם לפני כל שינוי בדף — גם הפסיפס שמעל הרשת נבנה מחדש כשמגיעה
+    // תמונה חדשה, ותמונותיו העצלות מקטינות אותו עד שהן נטענות.
+    const anchor = sameView ? captureGalleryScrollAnchor() : null;
+    renderHeroMosaic();
     galleryViewSignature = signature;
     if (!sameView) galleryCloudStalledAt = -1;
     // פריט בלי מזהה אינו מקבל כרטיס, ולכן אינו נספר — כך המספור ומיקום
@@ -623,43 +626,108 @@ window._doRenderImages = function() {
     const keep = typeof IntersectionObserver !== 'function'
         ? Infinity
         : (sameView ? Math.max(GALLERY_FIRST_BATCH, galleryRenderedCards.length) : GALLERY_FIRST_BATCH);
-    syncGalleryCards(grid, buildGalleryCards(0, Math.min(keep, galleryPageItems.length)));
+    syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
+    if (sameView) restoreGalleryScrollAnchor(anchor);
+    else if (hadView) revealGalleryStart(grid);
     updateGalleryLoadMore();
 };
 
-// מיישם את רשימת הכרטיסים על הרשת בשינויים מינימליים: כרטיס שהמרקאפ שלו
-// לא השתנה נשאר ב-DOM כמות שהוא (התמונה שבו אינה נטענת מחדש), כרטיס שהשתנה
-// מוחלף במקומו, וכרטיסים חסרים נוספים בסוף. כך רענון נתונים שלא שינה דבר
-// אינו נוגע בדף כלל, ולחיצה על לב מחליפה כרטיס אחד בלבד.
-function syncGalleryCards(grid, cards) {
-    const previous = galleryRenderedCards;
-    galleryRenderedCards = cards;
-    // הרשת כבר אינה תואמת את מה שצוייר (למשל אחרי ניקוי חיצוני): בנייה מלאה.
-    if (grid.children.length !== previous.length) {
-        grid.innerHTML = cards.join('');
-        window.scheduleIconRefresh(grid);
-        return;
-    }
-    const common = Math.min(previous.length, cards.length);
-    for (let i = 0; i < common; i++) {
-        if (previous[i] === cards[i]) continue;
-        grid.children[i].outerHTML = cards[i];
-        window.scheduleIconRefresh(grid.children[i]);
-    }
-    while (grid.children.length > cards.length) grid.lastElementChild.remove();
-    if (cards.length > common) appendGalleryCards(grid, cards.slice(common));
+// מעבר לתצוגה אחרת (תיקייה, חיפוש, מיון) כשהמשתמש גלל עמוק לתוך הרשת: הרשת
+// מתחילה מחדש במנה הראשונה, ולכן גוללים לראשה. אחרת המשתמש נשאר מתחת לסוף
+// המנה, הזקיף נראה מיד, ומנה אחר מנה נבנות בלי שראה את תחילת התצוגה.
+function revealGalleryStart(grid) {
+    if (typeof grid.getBoundingClientRect !== 'function' || typeof grid.scrollIntoView !== 'function') return;
+    if (grid.getBoundingClientRect().top < 0) grid.scrollIntoView({ block: 'start', behavior: 'instant' });
 }
 
-// מוסיפה כרטיסים בסוף הרשת ומרעננת אייקונים רק על מה שנוסף.
-function appendGalleryCards(grid, cards) {
+// עוגן הגלילה של הדפדפן אינו מספיק ברשת: תמונה חדשה בראש הרשימה מזיזה כל
+// כרטיס תא אחד קדימה, וכרטיס שבסוף שורה יורד לשורה הבאה. לכן לפני רינדור
+// מחדש באותה תצוגה נרשם הכרטיס הראשון שנראה בראש המסך, ואחריו הגלילה
+// מתוקנת בדיוק בהפרש שבו הוא זז. בראש הדף אין תיקון — שם רוצים לראות את
+// התמונה החדשה.
+function captureGalleryScrollAnchor() {
+    if (!(window.scrollY > 0) || typeof window.scrollBy !== 'function') return null;
+    for (const card of galleryRenderedCards) {
+        const node = card.node;
+        if (!node?.isConnected || typeof node.getBoundingClientRect !== 'function') continue;
+        const top = node.getBoundingClientRect().top;
+        if (top >= 0) return { node, top };
+    }
+    return null;
+}
+
+function restoreGalleryScrollAnchor(anchor) {
+    if (!anchor || !anchor.node.isConnected) return;
+    const delta = anchor.node.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) >= 1) window.scrollBy({ top: delta, left: 0, behavior: 'instant' });
+}
+
+// מיישם את רשימת הפריטים על הרשת לפי מזהה, בשינויים מינימליים: פריט שכבר
+// מוצג ושהמרקאפ שלו לא השתנה שומר את אותו אלמנט ב-DOM — רק מספרו ומיקומו
+// מתעדכנים — ולכן התמונה שבו אינה נטענת מחדש, אנימציית הכניסה אינה רצה שוב,
+// ועוגן הגלילה של הדפדפן נשמר גם כשתמונה חדשה נכנסת בראש הרשימה. כרטיס
+// שהשתנה (לב, בחירה) נבנה מחדש במקומו, פריט חדש מקבל כרטיס במקום הנכון,
+// ומה שאינו ברשימה עוד מוסר. רענון שלא שינה דבר אינו נוגע בדף כלל.
+function syncGalleryCards(grid, items) {
+    const isEditBlocked = galleryEditBlocked();
+    const previous = new Map(galleryRenderedCards.map(card => [card.id, card]));
+    const next = [];
+    items.forEach((img, index) => {
+        const id = window.safeRecordId(img.id);
+        const html = buildGalleryCard(img, isEditBlocked);
+        const known = previous.get(id);
+        previous.delete(id);
+        let node = known && known.html === html && known.node.isConnected ? known.node : null;
+        if (!node) {
+            known?.node.remove();
+            node = insertGalleryCard(grid, html, grid.children[index] || null);
+            window.scheduleIconRefresh(node);
+        } else if (grid.children[index] !== node) {
+            grid.insertBefore(node, grid.children[index] || null);
+        }
+        placeGalleryCard(node, index);
+        next.push({ id, html, node });
+    });
+    for (const stale of previous.values()) stale.node.remove();
+    while (grid.children.length > items.length) grid.lastElementChild.remove();
+    galleryRenderedCards = next;
+}
+
+// מוסיפה מנה שלמה בסוף הרשת בפעולת DOM אחת, ומרעננת אייקונים רק על מה שנוסף.
+function appendGalleryCards(grid, items, startIndex) {
+    const isEditBlocked = galleryEditBlocked();
+    const cards = items.map(img => ({ id: window.safeRecordId(img.id), html: buildGalleryCard(img, isEditBlocked), node: null }));
     const firstNewCard = grid.children.length;
-    grid.insertAdjacentHTML('beforeend', cards.join(''));
-    for (let i = firstNewCard; i < grid.children.length; i++) window.scheduleIconRefresh(grid.children[i]);
+    grid.insertAdjacentHTML('beforeend', cards.map(card => card.html).join(''));
+    cards.forEach((card, offset) => {
+        card.node = grid.children[firstNewCard + offset];
+        placeGalleryCard(card.node, startIndex + offset);
+        window.scheduleIconRefresh(card.node);
+    });
+    galleryRenderedCards = galleryRenderedCards.concat(cards);
 }
 
-// בונה כרטיס אחד. הוצא מהלולאה כדי שגם המנה הראשונה וגם כל מנה נוספת
-// ייבנו מאותו קוד בדיוק.
-function buildGalleryCard(img, index, isEditBlocked) {
+function insertGalleryCard(grid, html, before) {
+    if (before) {
+        before.insertAdjacentHTML('beforebegin', html);
+        return before.previousElementSibling;
+    }
+    grid.insertAdjacentHTML('beforeend', html);
+    return grid.lastElementChild;
+}
+
+// המספר ומיקום הכרטיס ברשת אינם חלק מהמרקאפ שמושווה: הם נכתבים על האלמנט
+// עצמו, ולכן תמונה חדשה בראש הרשימה מזיזה את שאר הכרטיסים בלי לבנותם מחדש.
+// ההשהיה של אנימציית הכניסה נמדדת מתחילת המנה, כדי שכל מנה תעלה בהדרגה משלה.
+function placeGalleryCard(node, index) {
+    node.style.setProperty('--card-index', String(Math.min(index % GALLERY_PAGE_SIZE, 12)));
+    const number = node.querySelector('.gallery-number');
+    if (number) number.textContent = String(index + 1).padStart(2, '0');
+}
+
+// בונה כרטיס אחד, בלי מספרו ומיקומו (אלה נכתבים ב-placeGalleryCard). הוצא
+// מהלולאה כדי שגם המנה הראשונה וגם כל מנה נוספת ייבנו מאותו קוד בדיוק.
+function buildGalleryCard(img, isEditBlocked) {
     const imageId = window.safeRecordId(img.id);
     if (!imageId) return '';
     const folder = window.state.folders.find(f => f.id === img.folderId);
@@ -676,13 +744,10 @@ function buildGalleryCard(img, index, isEditBlocked) {
            <span class="absolute top-3 right-3 rounded-full bg-black/70 border border-white/20 px-2.5 py-1 text-[9px] font-bold text-white flex items-center gap-1"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
         : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onerror="window.handleImageError(this)">`;
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
-    // ההשהיה של אנימציית הכניסה נמדדת מתחילת המנה, כדי שכל מנה תעלה בהדרגה
-    // משלה במקום להמתין את ההשהיה המרבית כולה.
-    return `
-        <article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:${Math.min(index % GALLERY_PAGE_SIZE, 12)}">
+    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
             <button type="button" class="gallery-media" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
                 ${mediaHtml}
-                <span class="gallery-number">${String(index + 1).padStart(2, '0')}</span>
+                <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
             ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
@@ -704,9 +769,10 @@ window.renderMoreImages = function(manual = false) {
         requestMoreImagesFromCloud();
         return;
     }
-    const cards = buildGalleryCards(rendered, Math.min(rendered + GALLERY_PAGE_SIZE, galleryPageItems.length));
-    appendGalleryCards(grid, cards);
-    galleryRenderedCards = galleryRenderedCards.concat(cards);
+    const nextCount = Math.min(rendered + GALLERY_PAGE_SIZE, galleryPageItems.length);
+    // הרשת כבר אינה תואמת את מה שצויר (ניקוי חיצוני): סנכרון מלא במקום הוספה.
+    if (grid.children.length !== rendered) syncGalleryCards(grid, galleryPageItems.slice(0, nextCount));
+    else appendGalleryCards(grid, galleryPageItems.slice(rendered, nextCount), rendered);
     updateGalleryLoadMore();
 };
 
