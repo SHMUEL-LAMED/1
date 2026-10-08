@@ -1210,6 +1210,8 @@ async function submitUserUpload(confirmed = false) {
     }
     const btn = document.getElementById('userUploadSubmitBtn');
     if(btn) btn.disabled = true;
+    // גרסה חדשה של האתר לא תרענן את הדף באמצע ההעלאה.
+    window.markSiteBusy?.('upload');
 
     const progressContainer = document.getElementById('userUploadProgress');
     if(progressContainer) progressContainer.classList.remove('hidden');
@@ -1264,6 +1266,7 @@ async function submitUserUpload(confirmed = false) {
         if(progressContainer) progressContainer.classList.add('hidden');
         if(btn) btn.disabled = false;
         updateUploadControlButtons(false);
+        window.clearSiteBusy?.('upload');
     }
 }
 

@@ -13,6 +13,7 @@ import { initSessionUI } from './session-ui.js';
 import './popup-announcement.js';
 import { installErrorMonitor } from './error-monitor.js';
 import { resolveApiBaseUrl, resolveApiEnvironment } from './api-environment.js';
+import { installSiteUpdateWatcher } from './auto-update.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -1281,9 +1282,15 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduleIconRefresh();
         initSessionUI();
         initGallery();
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Service worker registration failed:', error));
-        }
+        // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
+        // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
+        const serviceWorkerRegistration = 'serviceWorker' in navigator
+            ? navigator.serviceWorker.register('./sw.js').catch(error => {
+                console.warn('Service worker registration failed:', error);
+                return null;
+            })
+            : Promise.resolve(null);
+        installSiteUpdateWatcher({ registration: serviceWorkerRegistration });
     } catch (error) {
         console.error('UI initialization error:', error);
         window.reportClientError?.(error, 'init');

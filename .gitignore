@@ -1,3 +1,5 @@
 node_modules/
 test-results/
 playwright-report/
+# עותקי עבודה זמניים של סוכני Claude Code
+.claude/worktrees/
