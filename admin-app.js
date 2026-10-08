@@ -73,5 +73,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.setTimeout(() => window.clearInterval(timer), 15000);
     } catch (error) {
         console.error('Admin page initialization error:', error);
+        window.reportClientError?.(error, 'admin-init');
     }
 });

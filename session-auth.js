@@ -194,6 +194,8 @@ export function reportFirestoreError(err) {
     } else {
         console.error("Cloudflare data error:", err);
     }
+    // ניתוק רשת אינו תקלה באתר; כל השאר נרשם ליומן השגיאות שבלוח הניהול.
+    if (err?.code !== 'unavailable') window.reportClientError?.(err, 'data-listener');
 }
 
 async function syncGoogleUserProfile(user) {
@@ -407,6 +409,7 @@ async function initFirebase() {
         });
     } catch (e) {
         console.error("Cloudflare Init Error:", e);
+        window.reportClientError?.(e, 'cloud-init');
         window.showNotification("שגיאה בחיבור לענן. הנתונים לא יסונכרנו.", false);
     }
 }
