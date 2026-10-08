@@ -153,6 +153,40 @@ export function mediaUrl(id) {
     return `${API_ORIGIN}/media/approved/${DEFAULT_USER.uid}/${id}.jpg`;
 }
 
+// תצוגות מקדימות (ראו media-variants.js): אותם מפתחות וכתובות שה-Worker רושם.
+export const MEDIA_VARIANTS_VERSION = 1;
+const VARIANT_NAMES = ['thumb', 'medium', 'poster'];
+const VARIANT_TYPES = new Map([['image/webp', 'webp'], ['image/jpeg', 'jpg']]);
+const MAX_VARIANT_BYTES = 2 * 1024 * 1024;
+
+export function variantUrl(id, name, extension = 'webp') {
+    return `${API_ORIGIN}/media/variants/${id}/${name}.${extension}`;
+}
+
+export function variantAvifUrl(id, name) {
+    return variantUrl(id, name, 'avif');
+}
+
+// מוסיף לכל תצוגה עותק AVIF, כפי שה-Worker רושם אותו כשהדפדפן שלח כזה.
+export function withAvif(variants, id) {
+    return Object.fromEntries(Object.entries(variants).map(([name, entry]) => [name, {
+        ...entry,
+        avif: { key: `variants/${id}/${name}.avif`, url: variantAvifUrl(id, name), type: 'image/avif' }
+    }]));
+}
+
+// שדה variants של רשומה שכבר יש לה תצוגות, כפי שהעלאה או ריצת ההשלמה רושמות אותו.
+export function variantEntries(id, names = ['thumb', 'medium'], extension = 'webp') {
+    const dimensions = { thumb: [480, 320], medium: [1280, 853], poster: [1280, 720] };
+    return Object.fromEntries(names.map(name => [name, {
+        key: `variants/${id}/${name}.${extension}`,
+        url: variantUrl(id, name, extension),
+        width: dimensions[name][0],
+        height: dimensions[name][1],
+        type: extension === 'jpg' ? 'image/jpeg' : 'image/webp'
+    }]));
+}
+
 // רשומת תמונה בדיוק כפי שמסלול ההעלאה כותב אותה (ראו prepareMediaRecordForCloud
 // ו-uploadMediaToR2 ב-app.js). התמונה ה-n היא החדשה ביותר.
 export function imageRecord(index, overrides = {}) {
@@ -246,6 +280,8 @@ export class FakeWorker {
         this.collections = new Map(); // שם אוסף → Map(מזהה → נתונים)
         this.requests = [];           // יומן הבקשות שהגיעו, לאימות בבדיקות
         this.media = makePng();
+        this.objects = new Map();     // R2 מדומה: מפתח → { bytes, contentType, metadata }
+        this.missingMedia = new Set(); // מפתחות /media/ שהזיוף עונה להם 404 (קובץ שנמחק)
     }
 
     collection(name) {
@@ -474,6 +510,157 @@ export class FakeWorker {
         throw apiError('הפעולה אינה נתמכת.', 405, 'method_not_allowed');
     }
 
+    // --- מדיה: העלאה ותצוגות מקדימות (ראו uploadImage ו-attachMediaVariants ב-Worker) ---
+
+    // הטופס כפי שהדפדפן שולח אותו: הקבצים כ-File, שאר השדות כמחרוזות.
+    async formData(request) {
+        const body = request.postDataBuffer();
+        const contentType = request.headers()['content-type'] || '';
+        if (!body || !contentType.startsWith('multipart/form-data')) throw apiError('לא צורף קובץ.', 400, 'file_missing');
+        return new Response(body, { headers: { 'content-type': contentType } }).formData();
+    }
+
+    // כמו readVariantParts ב-Worker: חלק פסול מכשיל את הבקשה לפני שנשמר דבר.
+    async readVariantParts(form) {
+        let meta = {};
+        try { meta = JSON.parse(String(form.get('variantsMeta') || '{}')); } catch { meta = {}; }
+        const parts = [];
+        for (const name of VARIANT_NAMES) {
+            const part = form.get(`variant_${name}`);
+            if (part === null || part === '') continue;
+            if (typeof part.arrayBuffer !== 'function') throw apiError(`התצוגה ${name} אינה קובץ.`, 400, 'invalid_variant');
+            const extension = VARIANT_TYPES.get(String(part.type || '').toLowerCase());
+            if (!extension) throw apiError('תצוגה מקדימה חייבת להיות WebP או JPEG.', 415, 'unsupported_variant_type');
+            if (!part.size || part.size > MAX_VARIANT_BYTES) throw apiError('גודל תצוגה מקדימה חייב להיות עד 2MB.', 413, 'variant_too_large');
+            const avifPart = form.get(`variant_${name}_avif`);
+            let avif = null;
+            if (avifPart !== null && avifPart !== '') {
+                if (String(avifPart.type || '').toLowerCase() !== 'image/avif') throw apiError('עותק AVIF של תצוגה חייב להיות image/avif.', 415, 'unsupported_variant_type');
+                if (!avifPart.size || avifPart.size > MAX_VARIANT_BYTES) throw apiError('גודל תצוגה מקדימה חייב להיות עד 2MB.', 413, 'variant_too_large');
+                avif = Buffer.from(await avifPart.arrayBuffer());
+            }
+            parts.push({
+                name,
+                type: String(part.type).toLowerCase(),
+                extension,
+                bytes: Buffer.from(await part.arrayBuffer()),
+                width: Number(meta?.[name]?.width) || 0,
+                height: Number(meta?.[name]?.height) || 0,
+                avif
+            });
+        }
+        for (const name of VARIANT_NAMES) {
+            const orphan = form.get(`variant_${name}_avif`);
+            if (orphan !== null && orphan !== '' && !parts.some(part => part.name === name)) {
+                throw apiError(`עותק ה-AVIF של ${name} נשלח בלי התצוגה הרגילה.`, 400, 'avif_without_variant');
+            }
+        }
+        return parts;
+    }
+
+    storeVariants(imageId, parts, { ownerUid, state }) {
+        const variants = {};
+        for (const part of parts) {
+            const key = `variants/${imageId}/${part.name}.${part.extension}`;
+            this.objects.set(key, { bytes: part.bytes, contentType: part.type, metadata: { imageId, variant: part.name, ownerUid, state } });
+            variants[part.name] = { key, url: `${API_ORIGIN}/media/${key}`, width: part.width, height: part.height, type: part.type };
+            const avifKey = `variants/${imageId}/${part.name}.avif`;
+            if (part.avif) {
+                this.objects.set(avifKey, { bytes: part.avif, contentType: 'image/avif', metadata: { imageId, variant: part.name, ownerUid, state } });
+                variants[part.name].avif = { key: avifKey, url: `${API_ORIGIN}/media/${avifKey}`, type: 'image/avif' };
+            } else {
+                this.objects.delete(avifKey);
+            }
+        }
+        return variants;
+    }
+
+    attachVariantsToRecords(imageId, variants) {
+        const updated = [];
+        let merged = variants;
+        for (const name of ['images', 'pendingImages']) {
+            const docs = this.collection(name);
+            const record = docs.get(imageId);
+            if (!record) continue;
+            merged = { ...(record.variants || {}), ...variants };
+            docs.set(imageId, { ...record, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION });
+            updated.push(name);
+        }
+        return { variants: merged, updated };
+    }
+
+    // POST /upload — קובצי גלריה בלבד: המקור נשמר, והתצוגות שצורפו נשמרות לצדו.
+    async handleUpload(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
+        const form = await this.formData(request);
+        const file = form.get('file');
+        if (!file || typeof file.arrayBuffer !== 'function') throw apiError('לא צורף קובץ.', 400, 'file_missing');
+        const imageId = safeDataPart(form.get('imageId'), 'מזהה התמונה');
+        const mimeType = String(file.type || 'application/octet-stream').toLowerCase();
+        const isVideo = mimeType.startsWith('video/');
+        const extension = { 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'video/webm': 'webm', 'video/mp4': 'mp4' }[mimeType] || 'jpg';
+        const variantParts = await this.readVariantParts(form);
+        const state = actor.role === 'viewer' ? 'pending' : 'approved';
+        const key = `${state}/${actor.uid}/${imageId}.${extension}`;
+        this.objects.set(key, { bytes: Buffer.from(await file.arrayBuffer()), contentType: mimeType, metadata: { ownerUid: actor.uid, state } });
+        const variants = variantParts.length ? this.storeVariants(imageId, variantParts, { ownerUid: actor.uid, state }) : null;
+        if (variants) this.attachVariantsToRecords(imageId, variants);
+        return {
+            success: true,
+            key,
+            state,
+            mediaType: isVideo ? 'video' : 'image',
+            mimeType,
+            fileName: file.name || '',
+            size: file.size,
+            url: `${API_ORIGIN}/media/${key}`,
+            ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
+        };
+    }
+
+    // POST /media/variants — צירוף תצוגות לפריט קיים: מנהל לכל פריט, המעלה לפריט שלו.
+    async handleAttachVariants(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
+        const form = await this.formData(request);
+        const imageId = safeDataPart(form.get('imageId'), 'מזהה התמונה');
+        const active = this.collection('images').get(imageId);
+        const pending = active ? null : this.collection('pendingImages').get(imageId);
+        const record = active || pending;
+        if (!record) throw apiError('רשומת המדיה לא נמצאה.', 404, 'not_found');
+        const ownerUid = String(record.uploadedBy || record.r2OwnerUid || '');
+        if (!['admin', 'super_admin'].includes(actor.role) && ownerUid !== actor.uid) {
+            throw apiError('רק מי שהעלה את הפריט, או מנהל, רשאי לצרף לו תצוגות.', 403, 'permission_denied');
+        }
+        const parts = await this.readVariantParts(form);
+        if (!parts.length) throw apiError('לא צורפה אף תצוגה מקדימה.', 400, 'variant_missing');
+        const variants = this.storeVariants(imageId, parts, { ownerUid: ownerUid || actor.uid, state: active ? 'approved' : 'pending' });
+        const attached = this.attachVariantsToRecords(imageId, variants);
+        return { success: true, imageId, variants: attached.variants, variantsVersion: MEDIA_VARIANTS_VERSION, updated: attached.updated };
+    }
+
+    // GET /media/variants/stats — כמו ב-Worker: סיכום הקבצים שנשמרו, לפי פורמט.
+    variantStats(request) {
+        const actor = this.actor(request);
+        if (!['admin', 'super_admin'].includes(actor.role)) throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        const byFormat = {};
+        const images = new Set();
+        let files = 0;
+        let bytes = 0;
+        for (const [key, stored] of this.objects) {
+            if (!key.startsWith('variants/')) continue;
+            const format = key.slice(key.lastIndexOf('.') + 1);
+            byFormat[format] ||= { files: 0, bytes: 0 };
+            byFormat[format].files += 1;
+            byFormat[format].bytes += stored.bytes.length;
+            images.add(key.split('/')[1]);
+            files += 1;
+            bytes += stored.bytes.length;
+        }
+        return { success: true, files, bytes, images: images.size, byFormat, variantsVersion: MEDIA_VARIANTS_VERSION };
+    }
+
     async handle(route) {
         const request = route.request();
         const url = new URL(request.url());
@@ -518,9 +705,20 @@ export class FakeWorker {
         if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
 
         try {
+            if (method === 'GET' && url.pathname === '/media/variants/stats') return json(this.variantStats(request));
             if (method === 'GET' && url.pathname.startsWith('/media/')) {
-                return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }, body: this.media });
+                // קובץ שהועלה בבדיקה מוגש כפי שנשמר; כל כתובת אחרת מקבלת את תמונת הבסיס.
+                const key = decodeURIComponent(url.pathname.slice('/media/'.length));
+                if (this.missingMedia.has(key)) throw apiError('קובץ המדיה לא נמצא.', 404, 'not_found');
+                const stored = this.objects.get(key);
+                return route.fulfill({
+                    status: 200,
+                    headers: { ...cors, 'Content-Type': stored?.contentType || 'image/png', 'Cache-Control': 'no-store' },
+                    body: stored?.bytes || this.media
+                });
             }
+            if (method === 'POST' && url.pathname === '/upload') return json(await this.handleUpload(request), 201);
+            if (method === 'POST' && url.pathname === '/media/variants') return json(await this.handleAttachVariants(request));
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
             if (url.pathname.startsWith('/data/')) {
                 const payload = this.handleData(request, url);

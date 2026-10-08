@@ -3,7 +3,7 @@
 // בסמן הדפדוף. התצוגה המלאה מדפדפת גם אל פריטים שעדיין אין להם כרטיס,
 // השכנים נטענים מראש, רינדור מחדש אינו מזיז את הגלילה, ו-window.loadMoreImages
 // נקרא פעם אחת כשהכול כבר מוצג.
-import { test, expect, seedSession, imageRecord, mediaUrl, DEFAULT_USER, API_ORIGIN, MEDIA_SIZE } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, mediaUrl, DEFAULT_USER, API_ORIGIN, MEDIA_SIZE, variantEntries, variantAvifUrl, withAvif } from './fixtures.mjs';
 
 const TOTAL = 300;
 const BATCH = 48;
@@ -156,6 +156,32 @@ test('התצוגה המלאה מדפדפת אל פריטים שעדיין לא �
     await page.keyboard.press('Escape');
     await expect(lightbox).toBeHidden();
     await expect(cards(page)).toHaveCount(BATCH);
+});
+
+test('הטעינה המוקדמת מביאה את התצוגה שהתצוגה המלאה תציג, לא את המקור', async ({ page, worker }) => {
+    worker.seedFolders();
+    worker.seedImages([1, 2, 3].map(index => imageRecord(index, {
+        variants: withAvif(variantEntries(`img_e2e_${index}`), `img_e2e_${index}`),
+        variantsVersion: 1
+    })));
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(cards(page)).toHaveCount(3);
+
+    await cards(page).first().locator('.gallery-media').click();
+    const image = page.locator('#lightboxImage');
+    await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 3');
+    await expect.poll(() => image.evaluate(element => element.complete && element.currentSrc)).toBe(variantAvifUrl('img_e2e_3', 'medium'));
+    // שני השכנים: אותו קובץ שהתצוגה המלאה בוחרת (medium ב-AVIF), והמקור לא.
+    for (const id of ['img_e2e_2', 'img_e2e_1']) {
+        await expect.poll(() => worker.requestsTo('GET', `/media/variants/${id}/medium.avif`).length).toBeGreaterThanOrEqual(1);
+        expect(worker.requestsTo('GET', mediaPath(id)), 'המקור לא התבקש').toEqual([]);
+    }
+
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 2');
+    await expect.poll(() => image.evaluate(element => element.complete && element.currentSrc)).toBe(variantAvifUrl('img_e2e_2', 'medium'));
+    expect(worker.requestsTo('GET', mediaPath('img_e2e_2')), 'גם בהצגה המקור לא התבקש').toEqual([]);
 });
 
 test('כשכל מה שהורד מוצג, window.loadMoreImages נקרא פעם אחת ו„טוען עוד...” מוצג עד שהתמונות מגיעות', async ({ page, worker }) => {

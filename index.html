@@ -459,7 +459,7 @@
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
             <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
-                <img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)">
+                <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
             <button type="button" onclick="navigateLightbox(1)" class="lightbox-nav w-12 h-12 rounded-full absolute left-3 z-10 grid place-items-center" aria-label="התמונה הבאה">

@@ -24,7 +24,7 @@ window.PAGE_MODE = PAGE_MODE;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v51';
+const SITE_VERSION = 'v53';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -61,8 +61,13 @@ const ensureFaceSearchModule = defineLazyModule(() => import('./face-search.js')
 const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), [
     'startFaceIndexing', 'stopFaceIndexing', 'resetFaceIndex'
 ]);
+// ריצת ההשלמה של התצוגות המקדימות היא כלי ניהול, ונטענת רק ממסך "תצוגות מקדימות".
+const ensureMediaVariantsModule = defineLazyModule(() => import('./media-variants-admin.js'), [
+    'startMediaVariantsJob', 'stopMediaVariantsJob'
+]);
 window.ensureFaceSearchModule = ensureFaceSearchModule;
 window.ensureFaceIndexModule = ensureFaceIndexModule;
+window.ensureMediaVariantsModule = ensureMediaVariantsModule;
 
 // chat.js אינו נטען בפתיחת האתר אלא בייבוא דינמי. מבקר שאינו מחובר לעולם
 // אינו מוריד אותו, ולמי שכן מחובר הוא יורד אחרי הציור הראשון במקום לעכב
@@ -166,6 +171,22 @@ function isVideoRecord(record) {
 
 // פונקציית שגיאה מובנית המציגה תמונה חלופית אסתטית במידה והקישור נשבר
 function handleImageError(imgElement) {
+    // תצוגה מקדימה שלא נטענה (למשל קובץ שנמחק) נופלת קודם אל המקור,
+    // ורק אם גם הוא נכשל — אל ממלא המקום.
+    const fallbackSrc = imgElement.dataset?.fallbackSrc;
+    if (fallbackSrc && imgElement.src !== fallbackSrc) {
+        delete imgElement.dataset.fallbackSrc;
+        imgElement.removeAttribute('sizes');
+        // srcset מפורש של המקור ב-1x ולא הסרה בלבד: Chromium שומר אחרת את
+        // צפיפות הפיקסלים של התצוגה הקודמת, והמקור היה מוצג בממדים שגויים.
+        imgElement.srcset = `${fallbackSrc} 1x`;
+        // מקור AVIF שב-<picture> גובר על src, ולכן גם ממנו מוותרים.
+        if (imgElement.parentElement?.tagName === 'PICTURE') {
+            imgElement.parentElement.querySelectorAll('source').forEach(source => source.removeAttribute('srcset'));
+        }
+        imgElement.src = fallbackSrc;
+        return;
+    }
     imgElement.onerror = null;
     const fallback = document.createElement('div');
     fallback.className = `${imgElement.className} image-fallback`;
@@ -660,7 +681,20 @@ window.recordMediaView = async function(mediaId) {
     }
 };
 
-window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מדיה') {
+// התצוגות המקדימות (thumb/medium לתמונה, poster/thumb לסרטון) נוצרות בדפדפן
+// ונשלחות באותו טופס עם המקור. כישלון ביצירה — מודול שלא נטען, קובץ שאי
+// אפשר לפענח, זיכרון — לעולם אינו עוצר את ההעלאה: הקובץ עולה בלעדיהן,
+// וריצת "תצוגות מקדימות" בלוח הניהול משלימה אותן אחר כך.
+async function appendMediaVariantsToForm(form, mediaBlob) {
+    try {
+        const { generateMediaVariants, appendVariantParts } = await import('./media-variants-generate.js');
+        appendVariantParts(form, await generateMediaVariants(mediaBlob));
+    } catch (error) {
+        console.warn('יצירת תצוגות מקדימות נכשלה; הקובץ יועלה בלעדיהן:', error);
+    }
+}
+
+window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מדיה', options = {}) {
     if (!(mediaBlob instanceof Blob)) throw new Error('קובץ המדיה אינו תקין.');
     const isVideo = String(mediaBlob.type || '').startsWith('video/');
     if (isVideo && mediaBlob.size > 100 * 1024 * 1024) throw new Error('גודל הסרטון חייב להיות עד 100MB.');
@@ -670,12 +704,13 @@ window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מד
     form.append('file', mediaBlob, `${safeRecordId(imgId) || 'media'}.${extension}`);
     form.append('imageId', safeRecordId(imgId));
     form.append('title', cleanTitle);
+    if (options.variants !== false) await appendMediaVariantsToForm(form, mediaBlob);
     const result = await r2Request('/upload', {
         method: 'POST',
         body: form
     });
     if (!result?.url || !result?.key) throw new Error('שרת האחסון לא החזיר כתובת לקובץ.');
-    return {
+    const storedMedia = {
         url: result.url,
         r2Key: result.key,
         r2OwnerUid: window.state.currentUser?.uid || '',
@@ -683,10 +718,16 @@ window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מד
         mediaType: result.mediaType || (isVideo ? 'video' : 'image'),
         mimeType: result.mimeType || mediaBlob.type || ''
     };
+    // הרשומה נכתבת אחרי ההעלאה, ולכן התצוגות שה-Worker שמר מועתקות מהתשובה אליה.
+    if (result.variants && typeof result.variants === 'object') {
+        storedMedia.variants = result.variants;
+        storedMedia.variantsVersion = Number(result.variantsVersion) || 1;
+    }
+    return storedMedia;
 };
 
-window.uploadImageToR2 = async function(base64Data, imgId, title = 'תמונה') {
-    return window.uploadMediaToR2(dataUrlToBlob(base64Data), imgId, title);
+window.uploadImageToR2 = async function(base64Data, imgId, title = 'תמונה', options = {}) {
+    return window.uploadMediaToR2(dataUrlToBlob(base64Data), imgId, title, options);
 };
 
 async function prepareMediaRecordForCloud(record, mediaId) {
@@ -700,7 +741,8 @@ async function prepareMediaRecordForCloud(record, mediaId) {
         preparedRecord = { ...cleanRecord, ...storedImage };
     }
     if (thumbnailDataUrl) {
-        const storedThumbnail = await window.uploadImageToR2(thumbnailDataUrl, `${mediaId}_thumb`, `${cleanRecord.title || 'סרטון'}-תמונה-מקדימה`);
+        // התמונה המקדימה הישנה של סרטון היא קובץ משני; אין טעם בתצוגות לתצוגה.
+        const storedThumbnail = await window.uploadImageToR2(thumbnailDataUrl, `${mediaId}_thumb`, `${cleanRecord.title || 'סרטון'}-תמונה-מקדימה`, { variants: false });
         preparedRecord.thumbnailUrl = storedThumbnail.url;
         preparedRecord.thumbnailR2Key = storedThumbnail.r2Key;
     }
@@ -905,6 +947,12 @@ const trashCollectionByType = {
     user: 'userProfiles'
 };
 
+function withoutMediaVariants(record) {
+    if (!record || typeof record !== 'object') return record;
+    const { variants, variantsVersion, ...rest } = record;
+    return rest;
+}
+
 window.moveRecordToTrash = async function(type, record, options = {}) {
     if (!checkSuperAdminPermission()) return;
     const collectionName = trashCollectionByType[type];
@@ -1015,14 +1063,17 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
     const collectionName = trashCollectionByType[item.originalType];
     if (!collectionName || !item.record) throw new Error('נתוני השחזור אינם תקינים.');
     const { doc, setDoc, deleteDoc } = window.firestoreModules;
-    await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', collectionName, safeRecordId(item.originalId)), item.record);
+    // קובצי התצוגות המקדימות נמחקו יחד עם הרשומה (כמו טביעות הפנים), ולכן
+    // הרשומה חוזרת בלעדיהם ונאספת שוב בריצת "תצוגות מקדימות" הבאה.
+    const restoredRecord = ['image', 'pendingImage'].includes(item.originalType) ? withoutMediaVariants(item.record) : item.record;
+    await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', collectionName, safeRecordId(item.originalId)), restoredRecord);
     if (item.originalType === 'folder' && Array.isArray(item.relatedTrashIds)) {
         for (const childTrashId of item.relatedTrashIds) {
             const child = (window.state.trashItems || []).find(entry => safeRecordId(entry.id) === safeRecordId(childTrashId));
             if (!child?.record) continue;
             await setDoc(
                 doc(window.db, 'artifacts', window.appId, 'public', 'data', 'images', safeRecordId(child.originalId)),
-                { ...child.record, folderId: item.originalId }
+                withoutMediaVariants({ ...child.record, folderId: item.originalId })
             );
             await deleteDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'trashItems', safeRecordId(child.id)));
         }
@@ -1032,7 +1083,7 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
     // Update local state immediately so restored items appear without waiting for the next snapshot
     if (item.originalType === 'image' && item.record) {
         if (!(window.state.images || []).some(img => safeRecordId(img.id) === safeRecordId(item.originalId))) {
-            window.state.images = [item.record, ...(window.state.images || [])];
+            window.state.images = [restoredRecord, ...(window.state.images || [])];
             window.state.images.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         }
         window.noteGalleryImageUpserted?.(item.record);
@@ -1047,7 +1098,7 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
             for (const childTrashId of item.relatedTrashIds) {
                 const child = (window.state.trashItems || []).find(entry => safeRecordId(entry.id) === safeRecordId(childTrashId));
                 if (child?.record && !(window.state.images || []).some(img => safeRecordId(img.id) === safeRecordId(child.originalId))) {
-                    window.state.images = [{ ...child.record, folderId: item.originalId }, ...(window.state.images || [])];
+                    window.state.images = [withoutMediaVariants({ ...child.record, folderId: item.originalId }), ...(window.state.images || [])];
                 }
                 if (child?.record) window.noteGalleryImageUpserted?.({ ...child.record, folderId: item.originalId });
             }

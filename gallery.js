@@ -1,6 +1,9 @@
 // gallery.js — הצגת הגלריה, מדיה, ניווט ותיקיות
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
+// בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
+import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+
 let currentFilteredImages = [];
 
 // --- 5. New Updates Banner ---
@@ -235,6 +238,18 @@ function safeDownloadFileName(name, fallback = 'תמונה') {
     return sanitized || fallback;
 }
 
+// סיומת לפי סוג הקובץ שהורד, כדי שהקובץ ייפתח במחשב בתוכנה הנכונה. שם
+// שכבר מסתיים בסיומת מוכרת נשאר כפי שהוא.
+const DOWNLOAD_EXTENSIONS = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'image/avif': 'avif', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov'
+};
+function withDownloadExtension(name, mimeType) {
+    const extension = DOWNLOAD_EXTENSIONS[String(mimeType || '').split(';')[0].trim().toLowerCase()];
+    if (!extension || /\.(?:jpe?g|png|webp|gif|avif|heic|mp4|webm|mov)$/i.test(name)) return name;
+    return `${name}.${extension}`;
+}
+
 async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
     const url = window.safeImageUrl(item?.url);
     if (!url) throw new Error('כתובת הקובץ אינה תקינה.');
@@ -255,7 +270,7 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = safeDownloadFileName(item?.title, fallbackName);
+    link.download = withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
@@ -528,8 +543,7 @@ function renderHeroMosaic() {
     if (!mosaic) return;
     const tiles = [...latestImagesSource()]
         .map(item => {
-            const isVideo = window.isVideoRecord(item);
-            const url = window.safeImageUrl(isVideo ? item?.thumbnailUrl : item?.url);
+            const url = pickCardSource(item, window.safeImageUrl).url;
             return url ? { id: window.safeRecordId(item.id), url, createdAt: Number(item?.createdAt) || 0 } : null;
         })
         .filter(Boolean)
@@ -642,6 +656,8 @@ let galleryRevealPending = false;
 // על אילו נתונים חושבה galleryPageItems. הציור מושהה ב-50ms אחרי כל שינוי,
 // ובינתיים הזקיף עלול לחשוב שהכול כבר מוצג ולבקש עמוד מהענן לשווא.
 let galleryPageSource = null;
+// ציור שהתבקש (renderImages) וטרם רץ.
+let galleryRenderPending = false;
 
 // מה מגדיר „תצוגה”: תיקייה, חיפוש, מיון וסינון זמני. כל עוד אלה לא השתנו,
 // רינדור מחדש הוא עדכון נתונים — תמונה חדשה, לב שנלחץ, חזרה ללשונית — ואז
@@ -679,6 +695,7 @@ window._doRenderImages = function() {
     // הכרטיס ברשת נשארים חופפים.
     galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
+    galleryRenderPending = false;
 
     const imageCounter = document.getElementById('imageCounter');
     if (imageCounter) { imageCounter.classList.remove('hidden'); imageCounter.textContent = galleryCounterLabel(galleryPageItems.length); }
@@ -830,13 +847,16 @@ function buildGalleryCard(img, isEditBlocked) {
     const isFavorite = window.state.favorites.has(imageId);
     const isSelected = window.state.selectedMediaIds.has(imageId);
     const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
-    const videoPoster = window.safeImageUrl(img.thumbnailUrl);
+    // הכרטיס מציג את התצוגה הקטנה (thumb) כשקיימת; סרטון מקבל אותה כפוסטר
+    // במקום ריבוע שחור. אם התצוגה לא נטענת — נופלים אל המקור.
+    const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
+    const cardSource = pickCardSource(img, window.safeImageUrl);
     const durationLabel = formatMediaDuration(img.duration);
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
-        : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.parentElement.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+        : buildCardPicture(cardSource, title);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
             <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
@@ -852,6 +872,17 @@ function buildGalleryCard(img, isEditBlocked) {
         </article>`;
 }
 
+// תמונת הכרטיס: <img> עם srcset של thumb ו-medium כשיש שתיהן, ועטופה
+// ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
+// ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
+// is-loaded נקבע על .gallery-media ולא על ההורה הישיר, שעשוי להיות <picture>.
+function buildCardPicture(source, title) {
+    const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.closest('.gallery-media')?.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+    if (!source.avifSrcset) return image;
+    return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
+}
+
 // מוסיפה את המנה הבאה בלבד. כשכל מה שהורד כבר מוצג ובענן נותרו עוד תמונות,
 // הן מתבקשות מהענף שמטפל בעימוד בשרת. manual=true מגיע מכפתור „הצג עוד”.
 window.renderMoreImages = function(manual = false) {
@@ -861,7 +892,9 @@ window.renderMoreImages = function(manual = false) {
     const rendered = galleryRenderedCards.length;
     if (rendered >= galleryPageItems.length) {
         const images = window.state.images;
-        if (galleryPageSource && (galleryPageSource.images !== images || galleryPageSource.length !== (images?.length || 0))) {
+        const stale = galleryRenderPending || !galleryPageSource
+            || galleryPageSource.images !== images || galleryPageSource.length !== (images?.length || 0);
+        if (stale) {
             // הנתונים השתנו וטרם צוירו: קודם הציור, ורק אם גם אחריו הכול
             // מוצג — בקשה לענן.
             window._doRenderImages();
@@ -1012,6 +1045,7 @@ window.populateFolderSelects = function() {
 (function() {
     let _imgTimer, _folderTimer;
     window.renderImages = function() {
+        galleryRenderPending = true;
         clearTimeout(_imgTimer);
         _imgTimer = setTimeout(window._doRenderImages, 50);
     };
@@ -1705,27 +1739,95 @@ const lightboxPreloads = new Map();
 // מונה שמזהה את הבקשה האחרונה להצגת תמונה: דפדוף מהיר משאיר רק את האחרונה.
 let lightboxImageRequest = 0;
 
-// מה התצוגה המלאה מציגה עבור פריט: התמונה עצמה, ולסרטון רק הפוסטר.
-function lightboxPreviewUrl(item) {
-    return item ? window.safeImageUrl(window.isVideoRecord(item) ? item.thumbnailUrl : item.url) : '';
+// מה התצוגה המלאה מציגה עבור פריט — אותו מקור בדיוק, כדי שהטעינה המוקדמת
+// תביא את הקובץ שיוצג ולא קובץ אחר: לתמונה התצוגה הבינונית עם srcset (ועותק
+// AVIF כשיש), ולסרטון רק הפוסטר.
+function lightboxPreviewSource(item) {
+    if (!item) return { url: '', srcset: '', avifSrcset: '', sizes: '', fallbackUrl: '' };
+    if (window.isVideoRecord(item)) {
+        return { url: pickPosterSource(item, window.safeImageUrl), srcset: '', avifSrcset: '', sizes: '', fallbackUrl: '' };
+    }
+    return pickLightboxSource(item, window.safeImageUrl);
+}
+
+function lightboxSourceKey(source) {
+    return [source.url, source.srcset, source.sizes, source.avifSrcset].join('\n');
+}
+
+// מציב מקור על תמונת התצוגה המלאה (ועל ה-<source> של AVIF שב-<picture>).
+function applyLightboxImageSource(lbImage, source) {
+    if (source.fallbackUrl) lbImage.dataset.fallbackSrc = source.fallbackUrl;
+    else delete lbImage.dataset.fallbackSrc;
+    // מקור ה-AVIF שב-<picture> של התצוגה המלאה: בלי srcset הדפדפן מתעלם ממנו.
+    const lbAvif = document.getElementById('lightboxImageAvif');
+    if (lbAvif) {
+        if (source.avifSrcset) {
+            lbAvif.srcset = source.avifSrcset;
+            if (source.sizes) lbAvif.sizes = source.sizes;
+            else lbAvif.removeAttribute('sizes');
+        } else {
+            lbAvif.removeAttribute('srcset');
+            lbAvif.removeAttribute('sizes');
+        }
+    }
+    if (source.srcset) {
+        lbImage.srcset = source.srcset;
+        lbImage.sizes = source.sizes;
+    } else {
+        lbImage.removeAttribute('sizes');
+        // srcset מפורש ב-1x ולא הסרה בלבד: אחרי תמונה עם srcset של רוחבים
+        // Chromium שומר את צפיפות הפיקסלים הקודמת, והתמונה הייתה מוצגת
+        // בממדים שגויים.
+        if (source.url) lbImage.srcset = `${source.url} 1x`;
+        else lbImage.removeAttribute('srcset');
+    }
+    lbImage.src = source.url;
 }
 
 function dataSaverEnabled() {
     return typeof navigator !== 'undefined' && navigator?.connection?.saveData === true;
 }
 
-function startLightboxImageLoad(url) {
-    const existing = lightboxPreloads.get(url);
+// הטוען הוא <img> מנותק עם אותם srcset ו-sizes, כך שהדפדפן בוחר את אותו
+// קובץ שיבחר בתצוגה המלאה. כשיש עותק AVIF הוא יושב בתוך <picture> מנותק עם
+// <source type="image/avif">, ודפדפן שמפענח AVIF טוען אותו בדיוק כמו בתצוגה.
+function createLightboxLoader(source) {
+    let loader;
+    if (source.avifSrcset && typeof document.createElement === 'function') {
+        const picture = document.createElement('picture');
+        const avif = document.createElement('source');
+        avif.type = 'image/avif';
+        avif.srcset = source.avifSrcset;
+        if (source.sizes) avif.sizes = source.sizes;
+        picture.appendChild(avif);
+        loader = document.createElement('img');
+        picture.appendChild(loader);
+    } else {
+        loader = new Image();
+    }
+    loader.decoding = 'async';
+    if (source.srcset) {
+        loader.sizes = source.sizes;
+        loader.srcset = source.srcset;
+    }
+    loader.src = source.url;
+    return loader;
+}
+
+function startLightboxImageLoad(source) {
+    const key = lightboxSourceKey(source);
+    const existing = lightboxPreloads.get(key);
     if (existing) return existing;
     while (lightboxPreloads.size >= LIGHTBOX_PRELOAD_LIMIT) {
-        const [oldestUrl, oldest] = lightboxPreloads.entries().next().value;
-        lightboxPreloads.delete(oldestUrl);
-        if (!oldest.complete) oldest.src = '';
+        const [oldestKey, oldest] = lightboxPreloads.entries().next().value;
+        lightboxPreloads.delete(oldestKey);
+        if (!oldest.complete) {
+            oldest.removeAttribute?.('srcset');
+            oldest.src = '';
+        }
     }
-    const loader = new Image();
-    loader.decoding = 'async';
-    loader.src = url;
-    lightboxPreloads.set(url, loader);
+    const loader = createLightboxLoader(source);
+    lightboxPreloads.set(key, loader);
     return loader;
 }
 
@@ -1738,16 +1840,16 @@ function preloadLightboxNeighbours() {
     if (total < 2) return;
     const current = window.state.currentLightboxIndex;
     for (const step of [1, -1]) {
-        const url = lightboxPreviewUrl(currentFilteredImages[(current + step + total) % total]);
-        if (url && !lightboxPreloads.has(url)) startLightboxImageLoad(url);
+        const source = lightboxPreviewSource(currentFilteredImages[(current + step + total) % total]);
+        if (source.url) startLightboxImageLoad(source);
     }
 }
 
 // מבטיחה שהתמונה הורדה ופוענחה לפני שהיא מוצגת. ממתינה לכל היותר זמן קצוב,
 // ובדפדפן בלי decode() מסתפקת בטעינה.
-function loadDecodedImage(url) {
+function loadDecodedImage(source) {
     if (typeof Image !== 'function') return Promise.resolve();
-    const loader = startLightboxImageLoad(url);
+    const loader = startLightboxImageLoad(source);
     const loaded = new Promise((resolve, reject) => {
         if (loader.complete) {
             if (loader.naturalWidth > 0) resolve(); else reject(new Error('image failed'));
@@ -1771,10 +1873,12 @@ function updateLightbox(immediate = false) {
     const lbStage = document.getElementById('lightboxStage');
     const imageUrl = window.safeImageUrl(img.url);
     const isVideo = window.isVideoRecord(img);
-    // ההשתקפות ברקע: התמונה עצמה, או תמונת הפוסטר של סרטון. בלי אחת מהן
-    // הרקע נשאר כהה ואחיד. לתמונה היא מתחלפת יחד איתה, לא לפניה.
+    // ההשתקפות ברקע: התצוגה הקטנה ביותר שקיימת (היא ממילא מטושטשת), ואם אין —
+    // התמונה עצמה או תמונת הפוסטר של סרטון. בלי אחת מהן הרקע נשאר כהה ואחיד.
+    // לתמונה היא מתחלפת יחד איתה, לא לפניה.
     const lbBackdrop = document.getElementById('lightboxBackdrop');
-    const setBackdrop = backdropUrl => {
+    const backdropUrl = pickBackdropSource(img, window.safeImageUrl);
+    const setBackdrop = () => {
         if (!lbBackdrop) return;
         lbBackdrop.hidden = !backdropUrl;
         if (backdropUrl && lbBackdrop.src !== backdropUrl) lbBackdrop.src = backdropUrl;
@@ -1785,11 +1889,11 @@ function updateLightbox(immediate = false) {
     if (isVideo) {
         document.getElementById('lightboxImageFallback')?.remove();
         lbStage?.classList.remove('is-loading');
-        setBackdrop(window.safeImageUrl(img.thumbnailUrl));
+        setBackdrop();
         if (lbImage) lbImage.hidden = true;
         if (lbVideo) {
             lbVideo.classList.remove('hidden');
-            const posterUrl = window.safeImageUrl(img.thumbnailUrl);
+            const posterUrl = pickPosterSource(img, window.safeImageUrl);
             if (posterUrl) lbVideo.poster = posterUrl;
             else lbVideo.removeAttribute('poster');
             const progressKey = `simchat_video_progress_${window.safeRecordId(img.id)}`;
@@ -1814,23 +1918,27 @@ function updateLightbox(immediate = false) {
             lbVideo.load();
             lbVideo.classList.add('hidden');
         }
+        // medium עם srcset של thumb ו-medium: טלפון מקבל את הקטנה ומסך גדול
+        // את הבינונית. ההורדה נשארת על המקור, וכך גם הנפילה אם התצוגה לא נטענת.
+        // הטעינה המוקדמת של השכנים בונה בדיוק את אותו מקור (lightboxPreviewSource).
+        const source = lightboxPreviewSource(img);
         const show = () => {
             if (request !== lightboxImageRequest) return;
             document.getElementById('lightboxImageFallback')?.remove();
-            setBackdrop(imageUrl);
+            setBackdrop();
             lbImage.hidden = false;
             lbImage.onerror = () => window.handleImageError(lbImage);
-            lbImage.src = imageUrl;
+            applyLightboxImageSource(lbImage, source);
             lbStage?.classList.remove('is-loading');
         };
         // התמונה הקודמת נשארת על המסך עד שהבאה פוענחה, ורק אז מתחלפת — בלי
         // הבזק של מסך ריק. בפתיחה, או כשאין תמונה קודמת (ממלא מקום של תמונה
         // שבורה), אין מה להשאיר ומציגים מיד.
-        if (immediate || lbImage.hidden || !imageUrl) {
+        if (immediate || lbImage.hidden || !source.url) {
             show();
         } else {
             lbStage?.classList.add('is-loading');
-            loadDecodedImage(imageUrl).then(show, show);
+            loadDecodedImage(source).then(show, show);
         }
     }
 
