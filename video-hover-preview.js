@@ -57,10 +57,10 @@ export function installVideoHoverPreview(root, {
         if (!video) return;
         try {
             video.pause();
+            video.preload = 'none';
             // חזרה לפוסטר: בלי load() הפריים האחרון נשאר על המסך.
             if (video.currentTime > 0 || video.readyState > 0) {
                 video.currentTime = 0;
-                video.preload = 'none';
                 video.load();
             }
         } catch { /* סרטון שכבר נעלם מה-DOM */ }

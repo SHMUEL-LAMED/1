@@ -1302,7 +1302,28 @@ window.renderSelectedUploadQueue = function(inputIds, containerId) {
     });
     updateUploadSummary(null);
     window.scheduleIconRefresh();
+    markResumableRows(files, containerId).catch(() => {});
 };
+
+// כבר בבחירה: קובץ שיש לו העלאה שנקטעה (למשל לפני רענון) מסומן "ימשיך",
+// עם הסרגל במקום שבו נעצר — כך ברור שלא יתחיל מאפס.
+async function markResumableRows(files, containerId) {
+    if (!files.some(file => file.size > 8 * 1024 * 1024)) return;
+    const { resumable } = await loadUploadModules();
+    const scope = uploadScope();
+    for (const [index, file] of files.entries()) {
+        if (!resumable.shouldUseResumableUpload(file.size)) continue;
+        const fingerprint = await resumable.fingerprintFile(file, scope);
+        const candidates = isSupportedVideoFile(file) ? [fingerprint] : [`${fingerprint}:c`, `${fingerprint}:o`];
+        for (const key of candidates) {
+            const saved = await resumable.findSavedUpload(key);
+            if (!saved) continue;
+            const row = document.querySelector(`#${containerId} [data-upload-index="${index}"]`);
+            if (row?.dataset.uploadState === 'queued') updateUploadQueueItem(containerId, index, 'queued', 'ימשיך מהנקודה שנעצר', resumableProgress(saved));
+            break;
+        }
+    }
+}
 
 const UPLOAD_STATE_TEXT_CLASS = {
     success: 'text-emerald-300',
@@ -1578,7 +1599,10 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
         } else if (isVideo) {
             const videoMimeType = file.type || (/\.webm$/i.test(file.name) ? 'video/webm' : 'video/mp4');
             const videoFile = file.type ? file : new File([file], file.name, { type: videoMimeType, lastModified: file.lastModified });
-            const { resumeKey, saved } = await resumeFor(videoFile);
+            // הטביעה מהקובץ כפי שנבחר, כדי שתתאים לסימון "ימשיך" שבבחירה.
+            const { resumeKey, saved } = await resumeFor(videoFile, resumable.shouldUseResumableUpload(file.size)
+                ? await resumable.fingerprintFile(file, scope)
+                : '');
             const videoInfo = await inspectVideoFile(videoFile);
             newImages.push({
                 uploadQueueIndex: i,
@@ -1743,6 +1767,8 @@ async function submitUserUpload(confirmed = false) {
     if(btn) btn.disabled = true;
     // גרסה חדשה של האתר לא תרענן את הדף באמצע ההעלאה.
     window.markSiteBusy?.('upload');
+    // חלון האישור נסגר מיד: התור — עם הסרגלים וכפתורי הביטול — הוא מה שצריך לראות.
+    window.closeModal?.('confirmModal');
 
     const progressContainer = document.getElementById('userUploadProgress');
     if(progressContainer) progressContainer.classList.remove('hidden');

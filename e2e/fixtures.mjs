@@ -282,6 +282,15 @@ export class FakeWorker {
         this.media = makePng();
         this.objects = new Map();     // R2 מדומה: מפתח → { bytes, contentType, metadata }
         this.missingMedia = new Set(); // מפתחות /media/ שהזיוף עונה להם 404 (קובץ שנמחק)
+        // העלאה בחלקים (ראו createMultipartUpload ואילך ב-Worker): מזהה → מצב.
+        this.multipart = new Map();
+        this.multipartCounter = 0;
+        // הזרקת תקלות לבדיקות התור: כמה העלאות רגילות ייכשלו ב-503, ואילו
+        // מספרי חלקים ייכשלו (כל עוד הם בקבוצה).
+        this.failUploads = 0;
+        this.failParts = new Set();
+        // השהיה מלאכותית לכל העלאה רגילה, כדי שבדיקה תספיק ללחוץ "בטל".
+        this.uploadDelayMs = 0;
     }
 
     collection(name) {
@@ -592,6 +601,11 @@ export class FakeWorker {
     // POST /upload — קובצי גלריה בלבד: המקור נשמר, והתצוגות שצורפו נשמרות לצדו.
     async handleUpload(request) {
         const actor = this.actor(request);
+        if (this.uploadDelayMs) await new Promise(resolve => setTimeout(resolve, this.uploadDelayMs));
+        if (this.failUploads > 0) {
+            this.failUploads -= 1;
+            throw apiError('שרת האחסון אינו זמין כרגע.', 503, 'unavailable');
+        }
         if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
         const form = await this.formData(request);
         const file = form.get('file');
@@ -617,6 +631,89 @@ export class FakeWorker {
             url: `${API_ORIGIN}/media/${key}`,
             ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
         };
+    }
+
+    // --- העלאה בחלקים: אותם נתיבים, צורות וחוקים כמו ב-Worker ---
+    static PART_SIZE = 8 * 1024 * 1024;
+
+    multipartSession(actor, uploadId) {
+        const session = this.multipart.get(String(uploadId || ''));
+        if (!session) throw apiError('ההעלאה לא נמצאה או שפג תוקפה. התחל אותה מחדש.', 404, 'upload_session_not_found');
+        if (session.ownerUid !== actor.uid) throw apiError('אין הרשאה להמשיך העלאה של משתמש אחר.', 403, 'permission_denied');
+        return session;
+    }
+
+    multipartPayload(session) {
+        return {
+            success: true, uploadId: session.uploadId, key: session.key, imageId: session.imageId, state: session.state,
+            size: session.size, partSize: FakeWorker.PART_SIZE, totalParts: session.totalParts, status: session.status,
+            parts: [...session.parts.keys()].sort((a, b) => a - b).map(partNumber => ({ partNumber, etag: `etag-${partNumber}` }))
+        };
+    }
+
+    handleMultipartCreate(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
+        const payload = JSON.parse(request.postData() || '{}');
+        const mimeType = String(payload.mimeType || '').toLowerCase();
+        const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm' }[mimeType];
+        if (!extension) throw apiError('סוג הקובץ אינו נתמך.', 415, 'unsupported_file_type');
+        const size = Number(payload.size);
+        if (!Number.isSafeInteger(size) || size <= 0 || size > 1024 * 1024 * 1024) throw apiError('גודל הסרטון חייב להיות עד 1GB.', 413, 'file_too_large');
+        const imageId = safeDataPart(payload.imageId, 'מזהה התמונה');
+        const state = actor.role === 'viewer' ? 'pending' : 'approved';
+        this.multipartCounter += 1;
+        const session = {
+            uploadId: `mp-${this.multipartCounter}`, key: `${state}/${actor.uid}/${imageId}.${extension}`, imageId, state,
+            ownerUid: actor.uid, mimeType, size, totalParts: Math.ceil(size / FakeWorker.PART_SIZE), parts: new Map(), status: 'uploading', result: null
+        };
+        this.multipart.set(session.uploadId, session);
+        return this.multipartPayload(session);
+    }
+
+    handleMultipartPart(request, url) {
+        const actor = this.actor(request);
+        const session = this.multipartSession(actor, url.searchParams.get('uploadId'));
+        const partNumber = Number(url.searchParams.get('partNumber'));
+        if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > session.totalParts) throw apiError('מספר החלק אינו תקין.', 400, 'invalid_part_number');
+        if (this.failParts.has(partNumber)) throw apiError('שרת האחסון אינו זמין כרגע.', 503, 'unavailable');
+        const bytes = request.postDataBuffer() || Buffer.alloc(0);
+        const expected = partNumber < session.totalParts ? FakeWorker.PART_SIZE : session.size - FakeWorker.PART_SIZE * (session.totalParts - 1);
+        if (bytes.length !== expected) throw apiError('גודל החלק אינו תואם להעלאה.', 400, 'part_size_mismatch');
+        session.parts.set(partNumber, Buffer.from(bytes));
+        return { success: true, uploadId: session.uploadId, partNumber, etag: `etag-${partNumber}` };
+    }
+
+    async handleMultipartComplete(request) {
+        const actor = this.actor(request);
+        const form = await this.formData(request);
+        const session = this.multipartSession(actor, form.get('uploadId'));
+        if (session.status === 'completed') return session.result;
+        for (let partNumber = 1; partNumber <= session.totalParts; partNumber += 1) {
+            if (!session.parts.has(partNumber)) throw apiError('חלק מהקובץ עדיין לא התקבל.', 409, 'upload_incomplete');
+        }
+        const variantParts = await this.readVariantParts(form);
+        const bytes = Buffer.concat([...session.parts.entries()].sort((a, b) => a[0] - b[0]).map(([, part]) => part));
+        this.objects.set(session.key, { bytes, contentType: session.mimeType, metadata: { ownerUid: actor.uid, state: session.state, uploadMode: 'multipart' } });
+        const variants = variantParts.length ? this.storeVariants(session.imageId, variantParts, { ownerUid: actor.uid, state: session.state }) : null;
+        session.status = 'completed';
+        session.parts.clear();
+        session.result = {
+            success: true, key: session.key, state: session.state, mediaType: session.mimeType.startsWith('video/') ? 'video' : 'image',
+            mimeType: session.mimeType, size: session.size, url: `${API_ORIGIN}/media/${session.key}`, uploadMode: 'multipart',
+            ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
+        };
+        return session.result;
+    }
+
+    handleMultipartAbort(request) {
+        const actor = this.actor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        const session = this.multipart.get(String(payload.uploadId || ''));
+        if (!session) return { success: true, uploadId: payload.uploadId, aborted: false };
+        this.multipartSession(actor, payload.uploadId);
+        this.multipart.delete(session.uploadId);
+        return { success: true, uploadId: session.uploadId, aborted: true };
     }
 
     // POST /media/variants — צירוף תצוגות לפריט קיים: מנהל לכל פריט, המעלה לפריט שלו.
@@ -669,7 +766,7 @@ export class FakeWorker {
             method,
             path: `${url.pathname}${url.search}`,
             headers: request.headers(),
-            body: request.postData() ?? null
+            body: url.pathname === '/upload/multipart/part' ? null : (request.postData() ?? null)
         });
 
         // CORS כמו ב-Worker: המקור של הבקשה מוחזר כפי שהוא.
@@ -718,6 +815,11 @@ export class FakeWorker {
                 });
             }
             if (method === 'POST' && url.pathname === '/upload') return json(await this.handleUpload(request), 201);
+            if (method === 'POST' && url.pathname === '/upload/multipart/create') return json(this.handleMultipartCreate(request), 201);
+            if (method === 'PUT' && url.pathname === '/upload/multipart/part') return json(this.handleMultipartPart(request, url));
+            if (method === 'GET' && url.pathname === '/upload/multipart/status') return json(this.multipartPayload(this.multipartSession(this.actor(request), url.searchParams.get('uploadId'))));
+            if (method === 'POST' && url.pathname === '/upload/multipart/complete') return json(await this.handleMultipartComplete(request), 201);
+            if (method === 'POST' && url.pathname === '/upload/multipart/abort') return json(this.handleMultipartAbort(request));
             if (method === 'POST' && url.pathname === '/media/variants') return json(await this.handleAttachVariants(request));
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
             if (url.pathname.startsWith('/data/')) {
