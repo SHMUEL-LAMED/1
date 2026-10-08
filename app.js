@@ -14,6 +14,7 @@ import './popup-announcement.js';
 import { installErrorMonitor } from './error-monitor.js';
 import { resolveApiBaseUrl, resolveApiEnvironment } from './api-environment.js';
 import { installSiteUpdateWatcher } from './auto-update.js';
+import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './capture-date.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -24,7 +25,7 @@ window.PAGE_MODE = PAGE_MODE;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v54';
+const SITE_VERSION = 'v56';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -65,6 +66,11 @@ const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), 
 const ensureMediaVariantsModule = defineLazyModule(() => import('./media-variants-admin.js'), [
     'startMediaVariantsJob', 'stopMediaVariantsJob'
 ]);
+// ריצת ההשלמה של תאריכי הצילום — כלי ניהול, נטען רק ממסך "תאריכי צילום".
+const ensureCaptureDatesModule = defineLazyModule(() => import('./capture-dates-admin.js'), [
+    'startCaptureDatesJob', 'stopCaptureDatesJob'
+]);
+window.ensureCaptureDatesModule = ensureCaptureDatesModule;
 window.ensureFaceSearchModule = ensureFaceSearchModule;
 window.ensureFaceIndexModule = ensureFaceIndexModule;
 window.ensureMediaVariantsModule = ensureMediaVariantsModule;
@@ -226,7 +232,7 @@ window.DEFAULT_GALLERY_FOLDERS = [
 
 // --- 1. Global State ---
 window.state = {
-    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest',
+    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '',
     currentLightboxIndex: -1, tempSearchResults: null,
     bulkSelectionMode: false, selectedMediaIds: new Set(), activeEventFolderId: '',
     isLocked: true, isAdminLoggedIn: false, isSuperAdmin: false, isGoogleUser: false, isInitialSuperAdminAccount: false, currentUser: null,
@@ -730,9 +736,29 @@ window.uploadImageToR2 = async function(base64Data, imgId, title = 'תמונה',
     return window.uploadMediaToR2(dataUrlToBlob(base64Data), imgId, title, options);
 };
 
+// תאריך הצילום נקרא מהקובץ המקורי לפני ההעלאה (EXIF / mvhd) — רק הבתים
+// הנחוצים, לא הקובץ כולו. כישלון לעולם אינו עוצר העלאה: הרשומה פשוט
+// ממוינת לפי זמן ההעלאה, וריצת ההשלמה בלוח הניהול יכולה לנסות שוב.
+async function readUploadCaptureFields(file) {
+    try {
+        const capture = await readCaptureDateFromBlob(file);
+        return capture ? captureFields(capture) : { takenAtSource: 'none' };
+    } catch (error) {
+        console.warn('קריאת תאריך הצילום נכשלה; הפריט ימוין לפי זמן ההעלאה:', error);
+        return {};
+    }
+}
+window.readUploadCaptureFields = readUploadCaptureFields;
+
 async function prepareMediaRecordForCloud(record, mediaId) {
     const { sourceFile, thumbnailDataUrl, _isDuplicate, ...cleanRecord } = record;
     let preparedRecord = cleanRecord;
+    // קובץ מקורי שעוד לא נקרא ממנו תאריך (או שיש לו רק את התאריך של Drive,
+    // שאין בו אזור זמן): הקובץ עצמו מדויק יותר.
+    if (sourceFile instanceof Blob && (!hasCaptureDate(cleanRecord) || cleanRecord.takenAtSource === 'drive') && cleanRecord.takenAtSource !== 'none') {
+        const fromFile = await readUploadCaptureFields(sourceFile);
+        if (fromFile.takenAt || !hasCaptureDate(cleanRecord)) Object.assign(cleanRecord, fromFile);
+    }
     if (sourceFile instanceof Blob) {
         const storedMedia = await window.uploadMediaToR2(sourceFile, mediaId, cleanRecord.title);
         preparedRecord = { ...cleanRecord, ...storedMedia };

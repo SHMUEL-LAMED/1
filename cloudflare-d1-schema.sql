@@ -14,6 +14,11 @@ CREATE INDEX IF NOT EXISTS idx_gallery_documents_collection_updated
 CREATE INDEX IF NOT EXISTS idx_gallery_documents_owner
   ON gallery_documents (collection_name, owner_uid);
 
+-- מיון לפי תאריך הצילום (?orderBy=takenAt): takenAt, ובלעדיו createdAt.
+-- הביטוי זהה לזה שב-Worker (TAKEN_AT_ORDER_SQL), אחרת האינדקס לא ישמש.
+CREATE INDEX IF NOT EXISTS idx_gallery_documents_taken_at
+  ON gallery_documents (collection_name, CAST(COALESCE(json_extract(data_json, '$.takenAt'), json_extract(data_json, '$.createdAt'), 0) AS REAL));
+
 -- טביעות פנים: שורה לכל פרצוף בתמונה, כך שתמונה עם כמה אנשים נשמרת במלואה.
 CREATE TABLE IF NOT EXISTS image_face_descriptors (
   image_id TEXT NOT NULL,

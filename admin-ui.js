@@ -163,6 +163,14 @@ const ADMIN_VIEWS = [
         keywords: 'תצוגה מקדימה ממוזערות thumbnails webp פוסטר סרטון מהירות'
     },
     {
+        id: 'capturedates',
+        group: 'כלי מערכת',
+        title: 'תאריכי צילום',
+        description: 'השלמת תאריך הצילום (EXIF או הסרטון) למדיה שהועלתה לפני כן, למיון ולתאריך העברי.',
+        icon: 'calendar-clock',
+        keywords: 'תאריך צילום exif מיון תאריך עברי takenAt השלמה'
+    },
+    {
         id: 'tools',
         group: 'כלי מערכת',
         title: 'תחזוקה ואבחון',
@@ -331,6 +339,15 @@ function runViewHook(viewId) {
                 return window.refreshFaceIndexSummary?.();
             })
             .catch(error => console.error('Face index module failed to load:', error));
+    }
+    if (viewId === 'capturedates') {
+        // גם מודול תאריכי הצילום נטען עצלה, רק כשהמסך נפתח.
+        window.ensureCaptureDatesModule?.()
+            .then(() => {
+                window.renderCaptureDatesPanel?.();
+                return window.refreshCaptureDatesSummary?.();
+            })
+            .catch(error => console.error('Capture dates module failed to load:', error));
     }
     if (viewId === 'variants') {
         // גם מודול התצוגות נטען עצלה; המונה והכפתורים מצוירים רק אחרי שהוא הגיע.

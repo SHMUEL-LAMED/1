@@ -3,6 +3,9 @@
 
 // בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
 import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+// תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
+import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
+import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
 
 let currentFilteredImages = [];
 
@@ -342,7 +345,7 @@ window.openEventPage = function(event, folderId) {
     }
     window.state.activeEventFolderId = id;
     document.getElementById('eventPageTitle').textContent = folder.name || 'אירוע';
-    document.getElementById('eventPageDate').textContent = folder.eventDate ? window.formatDate(folder.eventDate) : 'ארכיון שמחת התורה';
+    document.getElementById('eventPageDate').textContent = eventHeaderDate(folder, media);
     document.getElementById('eventPageDescription').textContent = folder.description || 'לא נוסף עדיין תיאור לאירוע.';
     const videoCount = media.filter(window.isVideoRecord).length;
     const totalCount = Math.max(media.length, Number(window.state.folderCounts?.[id]) || 0);
@@ -462,12 +465,109 @@ window.setGallerySort = function(sort) {
     window.renderImages();
 };
 
-function getFilteredSortedImages() {
+// --- התאריך העברי: תצוגה וסינון ---
+// התאריך שמוצג לפריט הוא יום הצילום (takenDate / takenAt), ובלעדיו יום
+// ההעלאה. אין תיקון שקיעה: תמונה שצולמה בערב אחרי השקיעה מקבלת את התאריך
+// העברי של היום הלועזי שבו צולמה.
+function formatDateKey(dateKey) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ''));
+    return match ? `${match[3]}.${match[2]}.${match[1]}` : '';
+}
+
+function mediaDateInfo(img) {
+    const dateKey = captureDateKey(img);
+    const hebrew = hebrewDateFromDateKey(dateKey);
+    return { dateKey, hebrew, hebrewText: formatHebrewDate(hebrew), gregorian: formatDateKey(dateKey), captured: hasCaptureDate(img) };
+}
+
+function activeHebrewFilters() {
+    const year = Number(window.state.hebrewYearFilter) || 0;
+    const month = HEBREW_MONTH_ORDER.includes(window.state.hebrewMonthFilter) ? window.state.hebrewMonthFilter : '';
+    return { year, month };
+}
+
+window.hasActiveDateFilter = function() {
+    const { year, month } = activeHebrewFilters();
+    return Boolean(year || month);
+};
+
+function matchesHebrewFilters(img, filters) {
+    if (!filters.year && !filters.month) return true;
+    const hebrew = hebrewDateFromDateKey(captureDateKey(img));
+    if (!hebrew) return false;
+    return (!filters.year || hebrew.year === filters.year) && (!filters.month || hebrew.monthKey === filters.month);
+}
+
+function scopedGalleryImages() {
     let filtered = window.state.tempSearchResults !== null ? [...window.state.tempSearchResults] : [...window.state.images];
     if (window.state.tempSearchResults === null && window.state.activeFolderId === 'favorites') {
         filtered = filtered.filter(img => window.state.favorites.has(window.safeRecordId(img.id)));
     } else if (window.state.tempSearchResults === null && window.state.activeFolderId !== 'all') {
         filtered = filtered.filter(img => img.folderId === window.state.activeFolderId);
+    }
+    return filtered;
+}
+
+// שנה וחודש עבריים: האפשרויות נגזרות מהפריטים שבתיקייה הפעילה (מה שנטען),
+// והבחירה הנוכחית נשארת ברשימה גם כשאין לה פריטים, כדי שהבחירה לא "תקפוץ".
+// סינון פעיל בתיקייה שטרם נטענה כולה מושך את שאר העמודים ברקע (כמו חיפוש).
+function renderHebrewDateFilters(scoped) {
+    const yearSelect = document.getElementById('galleryHebrewYearFilter');
+    const monthSelect = document.getElementById('galleryHebrewMonthFilter');
+    if (!yearSelect || !monthSelect) return;
+    const filters = activeHebrewFilters();
+    const years = new Set();
+    const months = new Set();
+    for (const img of scoped) {
+        const hebrew = hebrewDateFromDateKey(captureDateKey(img));
+        if (!hebrew) continue;
+        years.add(hebrew.year);
+        if (!filters.year || hebrew.year === filters.year) months.add(hebrew.monthKey);
+    }
+    if (filters.year) years.add(filters.year);
+    if (filters.month) months.add(filters.month);
+    const yearOptions = [...years].sort((a, b) => b - a)
+        .map(year => ({ value: String(year), label: formatHebrewYear(year) }));
+    const monthOptions = HEBREW_MONTH_ORDER.filter(key => months.has(key))
+        .map(key => ({ value: key, label: hebrewMonthName(key) }));
+    const fill = (select, allLabel, options, selected) => {
+        const signature = options.map(option => option.value).join('|');
+        if (select.dataset.optionsKey !== signature) {
+            select.dataset.optionsKey = signature;
+            select.innerHTML = [`<option value="">${allLabel}</option>`]
+                .concat(options.map(option => `<option value="${window.escapeHtml(option.value)}">${window.escapeHtml(option.label)}</option>`))
+                .join('');
+        }
+        select.value = selected;
+    };
+    fill(yearSelect, 'כל השנים', yearOptions, filters.year ? String(filters.year) : '');
+    fill(monthSelect, 'כל החודשים', monthOptions, filters.month);
+}
+
+function autoloadForDateFilter() {
+    if (window.hasActiveDateFilter() && window.state.imagesHasMore) {
+        window.loadAllImagesForSearch?.()?.catch(error => console.warn('Date filter autoload failed:', error));
+    }
+}
+
+window.setGalleryHebrewYear = function(value) {
+    const year = Number(value) || 0;
+    window.state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
+    window.renderImages();
+    autoloadForDateFilter();
+};
+
+window.setGalleryHebrewMonth = function(value) {
+    window.state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(value) ? value : '';
+    window.renderImages();
+    autoloadForDateFilter();
+};
+
+function getFilteredSortedImages() {
+    let filtered = scopedGalleryImages();
+    const hebrewFilters = activeHebrewFilters();
+    if (hebrewFilters.year || hebrewFilters.month) {
+        filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
     }
     if (window.state.searchQuery) {
         const q = window.state.searchQuery.toLowerCase();
@@ -476,18 +576,21 @@ function getFilteredSortedImages() {
             return [
                 img.title,
                 img.date,
+                mediaDateInfo(img).hebrewText,
                 folderName,
                 img.uploadedByName,
                 img.originalFolderName
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
+    // המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
+    // לפי זמן ההעלאה.
     if (window.state.gallerySort === 'oldest') {
-        filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        filtered.sort(compareCaptureAsc);
     } else if (window.state.gallerySort === 'name') {
         filtered.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
     } else {
-        filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        filtered.sort(compareCaptureDesc);
     }
     return filtered;
 }
@@ -563,6 +666,31 @@ window.enterArchive = function() {
     target?.scrollIntoView({ behavior: 'auto', block: 'start' });
 };
 
+// התאריך שבכותרת האירוע: תאריך האירוע שהוזן, בעברית ובלועזית; בלעדיו —
+// טווח ימי הצילום של הפריטים שנטענו; ובלי שניהם — כותרת הארכיון.
+function eventHeaderDate(folder, media) {
+    const eventKey = /^\d{4}-\d{2}-\d{2}$/.test(String(folder?.eventDate || '')) ? folder.eventDate : '';
+    if (eventKey) {
+        const hebrew = formatHebrewDate(hebrewDateFromDateKey(eventKey));
+        return hebrew ? `${hebrew} · ${formatDateKey(eventKey)}` : formatDateKey(eventKey);
+    }
+    if (folder?.eventDate) return window.formatDate(folder.eventDate) || String(folder.eventDate);
+    const keys = (media || []).filter(hasCaptureDate).map(captureDateKey).filter(Boolean).sort();
+    if (keys.length) {
+        const first = formatHebrewDate(hebrewDateFromDateKey(keys[0]));
+        const last = formatHebrewDate(hebrewDateFromDateKey(keys[keys.length - 1]));
+        return first === last ? `צולם ב${first}` : `צולם בין ${first} ל${last}`;
+    }
+    return 'ארכיון שמחת התורה';
+}
+
+// השורה שמתחת לשם התיקייה בכרטיס האירוע: תאריך האירוע בעברית כשהוזן.
+function folderEventDateLabel(folder) {
+    const key = String(folder?.eventDate || '');
+    const hebrew = /^\d{4}-\d{2}-\d{2}$/.test(key) ? formatHebrewDate(hebrewDateFromDateKey(key)) : '';
+    return hebrew || key;
+}
+
 window._doRenderFolders = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const folderList = document.getElementById('folderList'); if (!folderList) return;
@@ -614,7 +742,7 @@ window._doRenderFolders = function() {
         const folderLabel = folderId === 'all' ? 'כל הארכיון' : window.escapeHtml(folder.name);
         const folderMeta = folderId === 'all'
             ? 'כל התמונות והסרטונים במקום אחד'
-            : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folder.eventDate) : 'אוסף מהגלריה'));
+            : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folderEventDateLabel(folder)) : 'אוסף מהגלריה'));
         const folderIcon = folderId === 'all' ? 'layout-grid' : window.safeIconName(folder.icon);
         folderParts.push(`
             <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
@@ -664,7 +792,8 @@ let galleryRenderPending = false;
 // מספר הכרטיסים שכבר הוצגו נשמר, כדי שהדף לא יתקצר מתחת לגלילה של המשתמש.
 // שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
 function currentViewSignature() {
-    return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults];
+    return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
+        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || ''];
 }
 
 function sameViewSignature(first, second) {
@@ -694,6 +823,7 @@ window._doRenderImages = function() {
     // פריט בלי מזהה אינו מקבל כרטיס, ולכן אינו נספר — כך המספור ומיקום
     // הכרטיס ברשת נשארים חופפים.
     galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
+    renderHebrewDateFilters(scopedGalleryImages());
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 
@@ -729,7 +859,7 @@ function galleryCounterLabel(shownCount) {
     const state = window.state;
     if (state.imagesLoading && shownCount === 0) return 'טוען…';
     if (state.tempSearchResults !== null || !state.imagesHasMore) return `${shownCount} פריטים`;
-    if (state.searchQuery) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
+    if (state.searchQuery || window.hasActiveDateFilter?.()) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
     const total = galleryFolderTotal();
     return total > shownCount ? `${shownCount} מתוך ${total} פריטים` : `${shownCount} פריטים`;
 }
@@ -834,6 +964,26 @@ function placeGalleryCard(node, index) {
     node.style.setProperty('--card-index', String(Math.min(index % GALLERY_PAGE_SIZE, 12)));
     const number = node.querySelector('.gallery-number');
     if (number) number.textContent = String(index + 1).padStart(2, '0');
+    placeDateGroupLabel(node, index);
+}
+
+// קיבוץ לפי חודש הצילום: במיון לפי תאריך, הכרטיס הראשון של כל חודש עברי
+// מקבל תווית "תשרי תשפ״ז". התווית תלויה בשכן, ולכן — כמו המספר — היא נכתבת
+// על האלמנט ואינה חלק מהמרקאפ שמושווה.
+function dateGroupKey(item) {
+    const hebrew = item ? hebrewDateFromDateKey(captureDateKey(item)) : null;
+    return hebrew ? `${hebrew.year}-${hebrew.monthKey}` : '';
+}
+
+function placeDateGroupLabel(node, index) {
+    const label = node.querySelector('.gallery-date-group');
+    if (!label) return;
+    const item = galleryPageItems[index];
+    const byDate = window.state.gallerySort !== 'name';
+    const key = dateGroupKey(item);
+    const starts = Boolean(byDate && key && (index === 0 || dateGroupKey(galleryPageItems[index - 1]) !== key));
+    label.hidden = !starts;
+    label.textContent = starts ? formatHebrewMonthYear(hebrewDateFromDateKey(captureDateKey(item))) : '';
 }
 
 // בונה כרטיס אחד, בלי מספרו ומיקומו (אלה נכתבים ב-placeGalleryCard). הוצא
@@ -867,9 +1017,27 @@ function buildGalleryCard(img, isEditBlocked) {
             ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
             <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="gallery-fav${window.state.bulkSelectionMode ? ' is-stacked' : ''}${isFavorite ? ' is-favorite' : ''}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
             <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
-                <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span><time datetime="${window.escapeHtml(img.date || '')}">${window.formatDate(img.date)}</time></div></div>${actionHtml}
+                <span class="gallery-date-group" hidden></span>
+                <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span>${buildCardDate(img)}</div></div>${actionHtml}
             </div>
         </article>`;
+}
+
+// "צולם בי״ז בתשרי תשפ״ז (28.09.2026)" — או "הועלה ב…" כשתאריך הצילום אינו ידוע.
+function lightboxDateLabel(img) {
+    const info = mediaDateInfo(img);
+    if (!info.dateKey) return '';
+    const hebrew = info.hebrewText ? `${info.hebrewText} (${info.gregorian})` : info.gregorian;
+    return `${info.captured ? 'צולם' : 'הועלה'} ב${hebrew}`;
+}
+
+// התאריך שבכרטיס: התאריך העברי, והלועזי בתיאור. יום הצילום כשידוע, ואחרת
+// יום ההעלאה (מסומן כך בתיאור).
+function buildCardDate(img) {
+    const info = mediaDateInfo(img);
+    if (!info.dateKey) return '';
+    const title = `${info.captured ? 'צולם' : 'הועלה'} ב־${info.gregorian}`;
+    return `<time class="gallery-hebrew-date" datetime="${window.escapeHtml(info.dateKey)}" title="${window.escapeHtml(title)}" data-captured="${info.captured ? 'true' : 'false'}">${window.escapeHtml(info.hebrewText || info.gregorian)}</time>`;
 }
 
 // תמונת הכרטיס: <img> עם srcset של thumb ו-medium כשיש שתיהן, ועטופה
@@ -1327,6 +1495,11 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
             }
         }
         const isVideo = isSupportedVideoFile(file);
+        // תאריך הצילום נקרא מהקובץ המקורי: תמונה עוברת אחר כך דחיסה ב-Canvas,
+        // שמוחקת את ה-EXIF, ולכן זה הרגע היחיד שבו הוא זמין.
+        const captureFields = isVideo && file.size > 100 * 1024 * 1024
+            ? {}
+            : (await window.readUploadCaptureFields?.(file)) || {};
         if (isVideo && file.size > 100 * 1024 * 1024) {
             updateUploadQueueItem(queueId, i, 'error', 'מעל 100MB');
         } else if (isVideo) {
@@ -1341,7 +1514,8 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
                 duration: videoInfo.duration,
                 thumbnailDataUrl: videoInfo.thumbnailDataUrl,
                 contentHash, originalSize: file.size,
-                date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName
+                date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName,
+                ...captureFields
             });
             updateUploadQueueItem(queueId, i, 'ready', 'מוכן');
         } else {
@@ -1353,7 +1527,8 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
                     folderId: destFolderId || fallbackFolderId, title: file.name.replace(/\.[^.]+$/, ''), url: base64,
                     mediaType: 'image', mimeType: 'image/jpeg',
                     contentHash, originalSize: file.size,
-                    date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName
+                    date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName,
+                    ...captureFields
                 });
                 updateUploadQueueItem(queueId, i, 'ready', 'מוכן');
             } else {
@@ -1946,7 +2121,7 @@ function updateLightbox(immediate = false) {
     if(lbTitle) lbTitle.innerText = img.title;
 
     const lbDetails = document.getElementById('lightboxDetails');
-    if(lbDetails) lbDetails.innerText = `${isVideo ? `סרטון${formatMediaDuration(img.duration) ? ` (${formatMediaDuration(img.duration)})` : ''}` : 'תמונה'} • ${window.formatDate(img.date)} • תיקייה: ${f ? f.name : 'כללי'}`;
+    if(lbDetails) lbDetails.innerText = `${isVideo ? `סרטון${formatMediaDuration(img.duration) ? ` (${formatMediaDuration(img.duration)})` : ''}` : 'תמונה'} • ${lightboxDateLabel(img)} • תיקייה: ${f ? f.name : 'כללי'}`;
 
     const lbDownload = document.getElementById('lightboxDownload');
     if(lbDownload) {
