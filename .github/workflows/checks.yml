@@ -29,3 +29,31 @@ jobs:
         run: npm run check:css
       - name: Run Worker tests
         run: npm test
+
+  # בדיקות דפדפן אמיתי (Playwright): האתר נטען ב-Chromium משרת סטטי מקומי,
+  # וה-Worker וסקריפטי צד שלישי מוחלפים בזיופים — ראו e2e/fixtures.mjs.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Run browser tests
+        run: npm run test:e2e
+      - name: Upload traces and screenshots of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
