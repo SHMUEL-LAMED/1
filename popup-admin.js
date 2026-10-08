@@ -112,7 +112,8 @@ window.savePopupAnnouncement = async function() {
             if (statusEl) statusEl.textContent = `מעלה תמונה ממוטבת (${Math.max(1, Math.round(uploadBlob.size / 1024))}KB)...`;
             if (saveButton) saveButton.textContent = 'מעלה...';
             const popupId = 'popup_announcement_' + Date.now();
-            const uploaded = await window.uploadMediaToR2(uploadBlob, popupId, 'popup-announcement');
+            // תמונת הפופ-אפ מוצגת בגודלה המלא ואינה כרטיס גלריה — בלי תצוגות מקדימות.
+            const uploaded = await window.uploadMediaToR2(uploadBlob, popupId, 'popup-announcement', { variants: false });
             if (!uploaded?.url) throw new Error('העלאת התמונה נכשלה.');
             if (r2Key && r2Key !== uploaded.r2Key) {
                 await window.deleteImageFromR2({ r2Key }).catch(() => {});

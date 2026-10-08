@@ -1,6 +1,8 @@
 // admin.js — ממשק הניהול, משתמשים, דרגות והרשאות
 // לוגיקת הצ׳אט הועברה ל-chat.js כדי לשמור על מודולים קטנים וברורים יותר.
 
+import { pickCardSource } from './media-variants.js';
+
 // --- 3. Admin panel UI ---
 // כאן נשאר רק מה ששייך ללוח הניהול עצמו. כל מה שמשתמש רגיל רואה — שער
 // הגישה, נעילת הגלריה, סטטוס הכותרת וכרטיס הפרופיל — עבר ל-session-ui.js,
@@ -621,7 +623,8 @@ window.renderPendingImages = function() {
     pending.forEach(img => {
         const imageId = window.safeRecordId(img.id);
         if (!imageId) return;
-        const imageUrl = window.safeImageUrl(img.url);
+        // התצוגה הקטנה כשקיימת, ואם לא — המקור.
+        const imageUrl = pickCardSource(img, window.safeImageUrl).url;
         const isVideo = window.isVideoRecord(img);
         const preview = isVideo
             ? '<span class="admin-stat-icon" data-tone="violet"><i data-lucide="video" class="w-4 h-4"></i></span>'

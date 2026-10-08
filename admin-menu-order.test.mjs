@@ -40,6 +40,7 @@ const CANONICAL_VIEW_ORDER = [
   "backup",
   "health",
   "faceindex",
+  "variants",
   "tools"
 ];
 

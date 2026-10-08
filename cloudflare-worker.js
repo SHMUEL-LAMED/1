@@ -6,6 +6,14 @@ const INITIAL_SUPER_ADMIN_EMAIL_SHA256S = new Set([
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const MAX_CHAT_FILE_BYTES = 25 * 1024 * 1024;
+// תצוגות מקדימות (variants): גרסאות מוקטנות שנוצרות בדפדפן ונשמרות לצד המקור.
+// המכסה חייבת להיות זהה ל-MEDIA_VARIANT_MAX_BYTES שב-media-variants.js.
+const MAX_VARIANT_BYTES = 2 * 1024 * 1024;
+const MEDIA_VARIANTS_VERSION = 1;
+const MEDIA_VARIANT_NAMES = ["thumb", "medium", "poster"];
+const MEDIA_VARIANT_MAX_DIMENSION = 4096;
+const MEDIA_VARIANTS_RATE_LIMIT = 1500;
+const MEDIA_VARIANTS_RATE_WINDOW_MS = 5 * 60 * 1000;
 const CHAT_HISTORY_LIMIT = 150;
 const CHAT_HISTORY_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
 const CHAT_MUTATION_MAX_RETRIES = 6;
@@ -96,6 +104,12 @@ const ALLOWED_VIDEO_TYPES = new Map([
   ["video/mp4", "mp4"],
   ["video/webm", "webm"],
   ["video/quicktime", "mov"]
+]);
+
+// תצוגה מקדימה היא תמיד WebP, או JPEG בדפדפן שאינו יודע לקודד WebP.
+const ALLOWED_VARIANT_TYPES = new Map([
+  ["image/webp", "webp"],
+  ["image/jpeg", "jpg"]
 ]);
 
 const ALLOWED_CHAT_FILE_TYPES = new Map([
@@ -1022,6 +1036,11 @@ async function handleDataRequest(request, env, url) {
     const existing = parseDocumentData(existingRow);
     let nextData = resolveDataOperations(payload.data, existing);
     if (payload.merge === true) nextData = { ...existing, ...nextData };
+    // לקוח שכותב רשומת מדיה שלמה מעותק ישן (בלי variants) אינו מוחק את התצוגות
+    // שריצת ההשלמה כבר רשמה; הקבצים עצמם נשארים ב-R2 בכל מקרה.
+    if (["images", "pendingImages"].includes(collectionName) && existing.variants && nextData.variants === undefined) {
+      nextData = { ...nextData, variants: existing.variants, variantsVersion: existing.variantsVersion };
+    }
 
     if (collectionName === "activityLogs") {
       if (existingRow && actor.role !== "super_admin") {
@@ -1093,13 +1112,16 @@ async function handleDataRequest(request, env, url) {
     if (collectionName === "userProfiles") {
       await env.GALLERY_DB.prepare("DELETE FROM user_email_index WHERE document_id = ?").bind(documentId).run();
     }
-    // מחיקת תמונה מוחקת גם את כל טביעות הפנים שלה, כדי שחיפוש לא יחזיר מזהה שנמחק.
+    // מחיקת תמונה מוחקת גם את כל טביעות הפנים שלה, כדי שחיפוש לא יחזיר מזהה שנמחק,
+    // וגם את קובצי התצוגות המקדימות שלה.
     if (collectionName === "images") {
       await deleteFaceIndexForImage(env, documentId);
+      await deleteMediaVariantsForImage(env, documentId);
     } else if (collectionName === "pendingImages" && !(await hasActiveImageDocument(env, documentId))) {
       // תמונה שאושרה שומרת את אותו מזהה גם באוסף images. ניקוי הרשומה
       // הממתינה שלה אינו אמור למחוק את הטביעות של התמונה הפעילה.
       await deleteFaceIndexForImage(env, documentId);
+      await deleteMediaVariantsForImage(env, documentId);
     }
     return json(request, { success: true, id: documentId });
   }
@@ -1117,10 +1139,12 @@ function validateObjectKey(value, requiredState = "") {
   const key = String(value || "");
   const galleryMatch = key.match(/^(approved|pending)\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
   const chatMatch = key.match(/^chat\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,160})\/([a-zA-Z0-9_-]{1,120})\.([a-z0-9]{1,10})$/);
-  const extension = galleryMatch?.[4] || chatMatch?.[4] || "";
-  const state = galleryMatch?.[1] || (chatMatch ? "chat" : "");
+  // תצוגות מקדימות: variants/<imageId>/<thumb|medium|poster>.<webp|jpg>.
+  const variantMatch = key.match(/^variants\/([a-zA-Z0-9_-]{1,120})\/(thumb|medium|poster)\.(webp|jpg)$/);
+  const extension = galleryMatch?.[4] || chatMatch?.[4] || variantMatch?.[3] || "";
+  const state = galleryMatch?.[1] || (chatMatch ? "chat" : (variantMatch ? "variants" : ""));
   if (
-    (!galleryMatch && !chatMatch) ||
+    (!galleryMatch && !chatMatch && !variantMatch) ||
     (requiredState && state !== requiredState) ||
     !ALLOWED_MEDIA_EXTENSIONS.has(extension)
   ) {
@@ -1440,6 +1464,8 @@ async function uploadImage(request, env) {
     ? `chat/${conversationUid}/${user.uid}/${imageId}.${extension}`
     : `${state}/${user.uid}/${imageId}.${extension}`;
   const mediaType = isImage ? "image" : (isVideo ? "video" : (mimeType.startsWith("audio/") ? "audio" : "file"));
+  // התצוגות המקדימות נבדקות לפני שנשמר דבר, כדי שבקשה פסולה לא תשאיר קובץ חלקי.
+  const variantParts = isChatAttachment ? [] : readVariantParts(form);
 
   await env.GALLERY_BUCKET.put(key, await file.arrayBuffer(), {
     httpMetadata: { contentType: mimeType },
@@ -1457,6 +1483,14 @@ async function uploadImage(request, env) {
     }
   });
 
+  let variants = null;
+  if (variantParts.length) {
+    variants = await storeMediaVariants(request, env, imageId, variantParts, { ownerUid: user.uid, state });
+    // בהעלאה חדשה הרשומה עדיין לא קיימת: הלקוח מעתיק את variants מהתשובה
+    // אל הרשומה שהוא כותב. רשומה שכבר קיימת (העלאה חוזרת) מתעדכנת כאן.
+    await attachVariantsToRecords(env, imageId, variants);
+  }
+
   return json(request, {
     success: true,
     key,
@@ -1465,7 +1499,8 @@ async function uploadImage(request, env) {
     mimeType,
     fileName: originalName,
     size: file.size,
-    url: mediaUrl(request, key, env)
+    url: mediaUrl(request, key, env),
+    ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
   }, 201);
 }
 
@@ -1519,6 +1554,20 @@ async function serveImage(request, env, pathname) {
     }
   }
 
+  // תצוגה מקדימה: ציבורית כשהפריט מאושר. תצוגה של פריט ממתין — לבעלים
+  // ולמנהלים בלבד, אלא אם הפריט כבר אושר בינתיים והמטא-דאטה שלה לא עודכן.
+  const isVariant = key.startsWith("variants/");
+  let variantPublic = false;
+  if (isVariant) {
+    variantPublic = metadata.state === "approved" || await hasActiveImageDocument(env, key.split("/")[1] || "");
+    if (!variantPublic) {
+      const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+      if (user.uid !== metadata.ownerUid && !["admin", "super_admin"].includes(user.role)) {
+        throw apiError("אין הרשאה לצפות בתצוגה של פריט ממתין.", 403, "permission_denied");
+      }
+    }
+  }
+
   const headers = new Headers(corsHeaders(request));
   object.writeHttpMetadata(headers);
   headers.set("ETag", object.httpEtag);
@@ -1534,11 +1583,15 @@ async function serveImage(request, env, pathname) {
     headers.set("Content-Range", `bytes ${requestedRange.offset}-${requestedRange.offset + requestedRange.length - 1}/${requestedRange.total}`);
     headers.set("Content-Length", String(requestedRange.length));
   }
+  // המפתח של תצוגה מקדימה אינו משתנה והתוכן שלה נכתב פעם אחת, ולכן היא
+  // נשמרת במטמון לשנה; המקור נשאר עם המטמון הקצר שלו.
   headers.set(
     "Cache-Control",
-    key.startsWith("approved/") && !isChatAttachment
-      ? "public, max-age=3600, s-maxage=86400"
-      : "private, no-store"
+    variantPublic
+      ? "public, max-age=31536000, immutable"
+      : (key.startsWith("approved/") && !isChatAttachment
+        ? "public, max-age=3600, s-maxage=86400"
+        : "private, no-store")
   );
   return new Response(object.body, { headers, status: requestedRange ? 206 : 200 });
 }
@@ -1572,6 +1625,7 @@ async function approveImage(request, env) {
       approvedAt: new Date().toISOString()
     }  });
   await env.GALLERY_BUCKET.delete(key);
+  await markMediaVariantsApproved(env, faceImageIdFromObjectKey(approvedKey));
 
   return json(request, {
     success: true,
@@ -1593,8 +1647,216 @@ async function deleteImage(request, env, pathname) {
     await requireUser(request, env, ["super_admin"]);
   }
   await env.GALLERY_BUCKET.delete(key);
-  if (!key.startsWith("chat/")) await deleteFaceIndexForDeletedMedia(env, key);
+  // מחיקת קובץ מקור גוררת גם את טביעות הפנים ואת התצוגות המקדימות שלו.
+  // מחיקת תצוגה בודדת אינה נוגעת בדבר מלבדה.
+  if (!key.startsWith("chat/") && !key.startsWith("variants/")) {
+    await deleteFaceIndexForDeletedMedia(env, key);
+    await deleteMediaVariantsForDeletedMedia(env, key);
+  }
   return json(request, { success: true, key });
+}
+
+// --- תצוגות מקדימות (variants) ---
+// לכל פריט מדיה נשמרות גרסאות מוקטנות לצד המקור, במפתחות
+// variants/<imageId>/<thumb|medium|poster>.<webp|jpg>. הן נוצרות בדפדפן —
+// בהעלאה (חלקי variant_* בטופס) או בריצת ההשלמה מלוח הניהול
+// (POST /media/variants) — וה-Worker בודק, שומר ורושם אותן ברשומה.
+// המקור לעולם אינו נמחק או מוחלף בגללן, ואינדוקס הפנים ממשיך לעבוד מולו.
+
+function variantObjectKey(imageId, name, extension) {
+  return `variants/${imageId}/${name}.${extension}`;
+}
+
+function variantDimension(value) {
+  const number = Math.trunc(Number(value));
+  return Number.isFinite(number) && number > 0 && number <= MEDIA_VARIANT_MAX_DIMENSION ? number : 0;
+}
+
+// קורא ובודק את חלקי התצוגות שבטופס. חלק פסול מכשיל את כל הבקשה — לפני שנשמר דבר.
+function readVariantParts(form) {
+  let meta = {};
+  try {
+    meta = JSON.parse(String(form.get("variantsMeta") || "{}"));
+  } catch {
+    meta = {};
+  }
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) meta = {};
+
+  const parts = [];
+  for (const name of MEDIA_VARIANT_NAMES) {
+    const part = form.get(`variant_${name}`);
+    if (part === null || part === undefined || part === "") continue;
+    if (typeof part.arrayBuffer !== "function") {
+      throw apiError(`התצוגה ${name} אינה קובץ.`, 400, "invalid_variant");
+    }
+    const type = String(part.type || "").toLowerCase();
+    const extension = ALLOWED_VARIANT_TYPES.get(type);
+    if (!extension) {
+      throw apiError("תצוגה מקדימה חייבת להיות WebP או JPEG.", 415, "unsupported_variant_type");
+    }
+    if (!Number.isFinite(part.size) || part.size <= 0 || part.size > MAX_VARIANT_BYTES) {
+      throw apiError("גודל תצוגה מקדימה חייב להיות עד 2MB.", 413, "variant_too_large");
+    }
+    parts.push({
+      name,
+      part,
+      type,
+      extension,
+      width: variantDimension(meta[name]?.width),
+      height: variantDimension(meta[name]?.height)
+    });
+  }
+  return parts;
+}
+
+async function storeMediaVariants(request, env, imageId, parts, { ownerUid, state }) {
+  const variants = {};
+  const createdAt = new Date().toISOString();
+  for (const entry of parts) {
+    const key = variantObjectKey(imageId, entry.name, entry.extension);
+    await env.GALLERY_BUCKET.put(key, await entry.part.arrayBuffer(), {
+      httpMetadata: { contentType: entry.type },
+      customMetadata: {
+        imageId,
+        variant: entry.name,
+        ownerUid: String(ownerUid || ""),
+        state,
+        width: String(entry.width),
+        height: String(entry.height),
+        variantsVersion: String(MEDIA_VARIANTS_VERSION),
+        createdAt
+      }
+    });
+    // אותה תצוגה בסיומת האחרת (JPEG מול WebP) אינה נשארת כקובץ יתום.
+    for (const otherExtension of ALLOWED_VARIANT_TYPES.values()) {
+      if (otherExtension !== entry.extension) {
+        await env.GALLERY_BUCKET.delete(variantObjectKey(imageId, entry.name, otherExtension));
+      }
+    }
+    variants[entry.name] = {
+      key,
+      url: mediaUrl(request, key, env),
+      width: entry.width,
+      height: entry.height,
+      type: entry.type
+    };
+  }
+  return variants;
+}
+
+async function readGalleryDocumentRow(env, collectionName, documentId) {
+  return env.GALLERY_DB.prepare(
+    "SELECT data_json, owner_uid, updated_at FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
+  ).bind(collectionName, documentId).first();
+}
+
+// רושם את התצוגות ברשומות הקיימות של הפריט — images וגם pendingImages, שכן
+// רשומה ממתינה נשמרת כתיעוד גם אחרי האישור. תצוגות קודמות שלא נשלחו שוב נשמרות.
+async function attachVariantsToRecords(env, imageId, variants) {
+  const updated = [];
+  let merged = variants;
+  for (const collectionName of ["images", "pendingImages"]) {
+    const row = await readGalleryDocumentRow(env, collectionName, imageId);
+    if (!row) continue;
+    const data = parseDocumentData(row);
+    const existing = data.variants && typeof data.variants === "object" ? data.variants : {};
+    merged = { ...existing, ...variants };
+    const updatedAt = Math.max(Date.now(), (Number(row.updated_at) || 0) + 1);
+    await env.GALLERY_DB.prepare(
+      "UPDATE gallery_documents SET data_json = ?, updated_at = ? WHERE collection_name = ? AND document_id = ?"
+    ).bind(JSON.stringify({ ...data, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION }), updatedAt, collectionName, imageId).run();
+    updated.push(collectionName);
+  }
+  return { variants: merged, updated };
+}
+
+async function listMediaVariantObjects(env, imageId) {
+  const safeId = String(imageId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
+  if (!safeId) return [];
+  const listed = await env.GALLERY_BUCKET.list({ prefix: `variants/${safeId}/` });
+  return listed?.objects || [];
+}
+
+async function deleteMediaVariantsForImage(env, imageId) {
+  for (const object of await listMediaVariantObjects(env, imageId)) {
+    await env.GALLERY_BUCKET.delete(object.key);
+  }
+}
+
+async function deleteMediaVariantsForDeletedMedia(env, key) {
+  const imageId = faceImageIdFromObjectKey(key);
+  if (!imageId) return;
+  // קובץ ממתין של תמונה שכבר אושרה אינו מוחק את התצוגות של התמונה הפעילה.
+  if (key.startsWith("pending/") && await hasActiveImageDocument(env, imageId)) return;
+  await deleteMediaVariantsForImage(env, imageId);
+}
+
+// אחרי אישור המקור גם התצוגות מסומנות כמאושרות, כדי שיוגשו לכולם — ובמטמון
+// ארוך — בלי בדיקה במסד בכל בקשה. כשל כאן אינו מכשיל את האישור: עד לתיקון
+// התצוגות מוגשות לפי רשומת images.
+async function markMediaVariantsApproved(env, imageId) {
+  if (!imageId) return;
+  try {
+    for (const summary of await listMediaVariantObjects(env, imageId)) {
+      const object = await env.GALLERY_BUCKET.get(summary.key);
+      if (!object || object.customMetadata?.state === "approved") continue;
+      await env.GALLERY_BUCKET.put(summary.key, object.body, {
+        httpMetadata: object.httpMetadata,
+        customMetadata: { ...(object.customMetadata || {}), state: "approved" }
+      });
+    }
+  } catch (error) {
+    console.warn("Variant approval failed", error);
+  }
+}
+
+// POST /media/variants — צירוף תצוגות לפריט קיים (ריצת ההשלמה, או השלמה
+// להעלאה שהתצוגות שלה נכשלו). מנהל רשאי לכל פריט; המעלה רשאי לפריט שלו כל
+// עוד הרשומה הממתינה שלו עדיין פתוחה.
+async function attachMediaVariants(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  await consumeRateLimit(
+    env,
+    `variants:${user.uid}`,
+    MEDIA_VARIANTS_RATE_LIMIT,
+    MEDIA_VARIANTS_RATE_WINDOW_MS,
+    "נשלחו יותר מדי תצוגות מקדימות. המתן כמה דקות ונסה שוב.",
+    "variants_rate_limit_exceeded"
+  );
+  const form = await request.formData();
+  const imageId = safeImageId(form.get("imageId"));
+
+  const activeRow = await readGalleryDocumentRow(env, "images", imageId);
+  const pendingRow = activeRow ? null : await readGalleryDocumentRow(env, "pendingImages", imageId);
+  const row = activeRow || pendingRow;
+  if (!row) throw apiError("רשומת המדיה לא נמצאה.", 404, "not_found");
+  const record = parseDocumentData(row);
+  const ownerUid = String(record.uploadedBy || record.r2OwnerUid || row.owner_uid || "");
+
+  if (!["admin", "super_admin"].includes(user.role)) {
+    if (!ownerUid || ownerUid !== user.uid) {
+      throw apiError("רק מי שהעלה את הפריט, או מנהל, רשאי לצרף לו תצוגות.", 403, "permission_denied");
+    }
+    if (pendingRow && String(record.status || "pending") !== "pending") {
+      throw apiError("הפריט כבר טופל ואינו פתוח לשינוי.", 403, "permission_denied");
+    }
+  }
+
+  const parts = readVariantParts(form);
+  if (!parts.length) throw apiError("לא צורפה אף תצוגה מקדימה.", 400, "variant_missing");
+
+  const variants = await storeMediaVariants(request, env, imageId, parts, {
+    ownerUid: ownerUid || user.uid,
+    state: activeRow ? "approved" : "pending"
+  });
+  const attached = await attachVariantsToRecords(env, imageId, variants);
+  return json(request, {
+    success: true,
+    imageId,
+    variants: attached.variants,
+    variantsVersion: MEDIA_VARIANTS_VERSION,
+    updated: attached.updated
+  });
 }
 
 async function sendEmail(request, env) {
@@ -2423,7 +2685,7 @@ export default {
           version: "2026-08-13-cloudflare-d1-face-index",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index"
+            "persistent-drive-oauth", "cloud-face-index", "media-variants"
           ],
           faceModelVersion: FACE_MODEL_VERSION,
           databaseConnected: true,
@@ -2478,6 +2740,9 @@ export default {
       }
       if (request.method === "GET" && url.pathname.startsWith("/face-assets/")) {
         return await serveFaceAsset(request, env, url.pathname);
+      }
+      if (request.method === "POST" && url.pathname === "/media/variants") {
+        return await attachMediaVariants(request, env);
       }
       if (request.method === "GET" && url.pathname.startsWith("/media/")) {
         return await serveImage(request, env, url.pathname);

@@ -541,6 +541,24 @@
                 </div>
             </section>
 
+            <!-- ============ מסך: תצוגות מקדימות ============ -->
+            <section id="view-variants" class="admin-view" data-view="variants" aria-label="תצוגות מקדימות">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="images"></i> תצוגות מקדימות למדיה הקיימת</h3></div>
+                    <div class="admin-panel-body">
+                        <p>לכל תמונה נוצרות גרסה קטנה לכרטיס וגרסה בינונית לתצוגה המלאה, ולכל סרטון פוסטר במקום ריבוע שחור. קובץ חדש מקבל אותן בהעלאה; הריצה כאן משלימה את מה שהועלה לפני כן או נכשל. המקור נשמר תמיד. אפשר לעצור ולהמשיך בכל שלב — ההמשך מדלג על מה שכבר נשמר.</p>
+                        <p id="variantsSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">בודק אילו פריטים חסרים תצוגות מקדימות…</p>
+                        <div class="progress-track"><div id="variantsProgressBar" class="progress-bar"></div></div>
+                        <p id="variantsStatusText" class="field-hint" role="status" aria-live="polite">הריצה עדיין לא הופעלה. אפשר להפעיל אותה בכל עת ולעצור באמצע.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="variantsStartBtn" onclick="startMediaVariantsJob()" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך</button>
+                            <button type="button" id="variantsStopBtn" onclick="stopMediaVariantsJob()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
+                        </div>
+                        <div id="variantsFailures" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ============ מסך: כלי תחזוקה ============ -->
             <section id="view-tools" class="admin-view" data-view="tools" aria-label="כלי תחזוקה">
                 <div class="admin-panel">

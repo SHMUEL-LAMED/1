@@ -143,6 +143,14 @@ const ADMIN_VIEWS = [
         keywords: 'פנים אינדוקס חיפוש ai'
     },
     {
+        id: 'variants',
+        group: 'כלי מערכת',
+        title: 'תצוגות מקדימות',
+        description: 'יצירת תמונות מוקטנות ופוסטרים לסרטונים עבור המדיה הקיימת, כדי שהגלריה תיטען מהר.',
+        icon: 'images',
+        keywords: 'תצוגה מקדימה ממוזערות thumbnails webp פוסטר סרטון מהירות'
+    },
+    {
         id: 'tools',
         group: 'כלי מערכת',
         title: 'תחזוקה ואבחון',
@@ -299,6 +307,15 @@ function runViewHook(viewId) {
                 return window.refreshFaceIndexSummary?.();
             })
             .catch(error => console.error('Face index module failed to load:', error));
+    }
+    if (viewId === 'variants') {
+        // גם מודול התצוגות נטען עצלה; המונה והכפתורים מצוירים רק אחרי שהוא הגיע.
+        window.ensureMediaVariantsModule?.()
+            .then(() => {
+                window.renderMediaVariantsPanel?.();
+                return window.refreshMediaVariantsSummary?.();
+            })
+            .catch(error => console.error('Media variants module failed to load:', error));
     }
 }
 
@@ -718,6 +735,17 @@ window.runSystemHealthCheck = async function() {
                 return summary.ready
                     ? `מוכן — ${summary.indexedImages} תמונות, ${summary.faceCount} פרצופים`
                     : `נותרו ${summary.remainingImages} תמונות להכנה`;
+            }
+        },
+        {
+            label: 'תצוגות מקדימות',
+            run: async () => {
+                await window.ensureMediaVariantsModule?.();
+                const summary = await window.refreshMediaVariantsSummary?.();
+                if (!summary) throw new Error('רשימת המדיה אינה זמינה');
+                return summary.missing
+                    ? `נותרו ${summary.missing} פריטים בלי תצוגות — הפעילו את הריצה במסך "תצוגות מקדימות"`
+                    : `מוכן — ${summary.total} פריטים עם תצוגות`;
             }
         },
         {
