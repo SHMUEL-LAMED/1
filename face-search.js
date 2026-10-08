@@ -139,15 +139,35 @@ function galleryImageById(imageId) {
     return faceGalleryIndex.get(imageId) || null;
 }
 
+// בדף הגלריה הזיכרון מחזיק רק את התיקייה הפעילה, ולכן התאמות שאינן בו
+// נמשכות לפי מזהה מהענן (GET /data/images?ids=...). בלי שכבת הנתונים —
+// למשל בבדיקות — נשארים עם מה שטעון.
+async function fetchMissingGalleryImages(ids) {
+    const found = new Map();
+    const { collection, getDocsByIds } = window.firestoreModules || {};
+    if (!ids.length || !window.db || typeof getDocsByIds !== 'function') return found;
+    try {
+        const snapshot = await getDocsByIds(collection(window.db, 'artifacts', window.appId, 'public', 'data', 'images'), ids);
+        snapshot.docs.forEach(item => found.set(window.safeRecordId(item.id), item.data()));
+    } catch (error) {
+        console.warn('Face matches outside the loaded folder could not be fetched:', error);
+    }
+    return found;
+}
+
 // התוצאה מה-Worker מכילה מזהה, מרחק ואחוז התאמה בלבד — לא descriptors.
-function attachFaceMatchesToGallery(matches) {
-    return (Array.isArray(matches) ? matches : [])
-        .filter(match => {
-            const distance = Number(match?.distance);
-            return Number.isFinite(distance) && distance >= 0 && distance < FACE_MATCH_THRESHOLD;
-        })
+async function attachFaceMatchesToGallery(matches) {
+    const valid = (Array.isArray(matches) ? matches : []).filter(match => {
+        const distance = Number(match?.distance);
+        return Number.isFinite(distance) && distance >= 0 && distance < FACE_MATCH_THRESHOLD;
+    });
+    const fetched = await fetchMissingGalleryImages(
+        valid.map(match => window.safeRecordId(match?.imageId)).filter(imageId => imageId && !galleryImageById(imageId))
+    );
+    return valid
         .map(match => {
-            const image = galleryImageById(window.safeRecordId(match?.imageId));
+            const imageId = window.safeRecordId(match?.imageId);
+            const image = galleryImageById(imageId) || fetched.get(imageId);
             if (!image) return null;
             const distance = Number(match?.distance);
             return {
@@ -274,7 +294,8 @@ function captureFacePhoto() {
 window.captureFacePhoto = captureFacePhoto;
 
 function openFaceSearchModal() {
-    if (window.state.images.length === 0) { window.showNotification('הגלרייה ריקה!', false); return; }
+    // בדף הגלריה הזיכרון מחזיק רק את התיקייה הפעילה; המונה מהשרת אומר אם הארכיון ריק באמת.
+    if (window.state.images.length === 0 && !(Number(window.state.imagesTotal) > 0)) { window.showNotification('הגלרייה ריקה!', false); return; }
     if (!window.state.isGoogleUser || window.state.userApprovalStatus !== 'approved') {
         window.showNotification('חיפוש פנים זמין למשתמשים מאושרים בלבד.', false);
         return;
@@ -367,7 +388,7 @@ async function executeFaceSearch() {
         if(bar) bar.style.width = '100%';
 
         const returnedMatches = Array.isArray(response?.matches) ? response.matches : [];
-        const matches = attachFaceMatchesToGallery(returnedMatches);
+        const matches = await attachFaceMatchesToGallery(returnedMatches);
         const missingFromGallery = returnedMatches.length - matches.length;
         const indexNotice = faceIndexNotReadyMessage(response?.coverage);
 
