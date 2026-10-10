@@ -996,6 +996,8 @@ Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצ
 **Workers & Pages → simchas-gallery-api → Settings → Build → Disconnect repository**.
 פעולה זו אינה נוגעת ב־Worker הפעיל, ב־Bindings או בפריסה דרך ה־Action.
 
+**עדכון 8.10:** אחרי המעבר ל־Vite הריצה של Workers Builds כבר לא נכשלה: wrangler זיהה את Vite ופרס את האתר הבנוי כ־Worker סטטי, וה־API נמחק עם ה־Bindings שלו. השחזור נעשה ב־Rollback לגרסה האחרונה של ה־Action, ושילוב ה־Git נותק. מאז קיים במאגר `wrangler.jsonc` **כמחסום בלבד**: נקודת הכניסה שלו מצביעה על קובץ שאינו קיים, ולכן כל `wrangler deploy` נכשל לפני העלאה. אין להפוך אותו לקובץ הגדרות אמיתי (`wrangler-guard.test.mjs` נועל זאת). בנוסף, `deploy-worker.yml` יורש את ה־Bindings מהגרסה **הפעילה** (לפי הפריסה הנוכחית) ולא מהגרסה האחרונה שהועלתה, כך שפריסה אחרי Rollback עובדת.
+
 מאותה סיבה, גם את ה־Worker של סביבת הניסוי (`simchas-gallery-api-staging`) אין
 לחבר ל־Git: שני ה־Workers נפרסים אך ורק דרך `deploy-worker.yml`.
 
