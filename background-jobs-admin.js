@@ -8,10 +8,13 @@ const controls = {
 };
 let refreshing = false;
 export async function refreshCloudBackgroundJobs() {
-    if (!window.state?.isAdminLoggedIn || refreshing) return;
+    // כשהעיבוד בענן כבוי, הריצה המקומית היא שמציגה את המצב ואת הכפתורים;
+    // רענון של מצב הענן אסור שידרוס אותם — גם רענון שהתחיל לפני הכיבוי.
+    if (!window.CLOUD_BACKGROUND_JOBS || !window.state?.isAdminLoggedIn || refreshing) return;
     refreshing = true;
     try {
         const [{ config }, { state }] = await Promise.all([window.r2Request('/background/config'), window.r2Request('/background/status')]);
+        if (!window.CLOUD_BACKGROUND_JOBS) return;
         const summary = document.getElementById('cloudBackgroundSummary');
         const active = state.phase && !['idle', 'failed'].includes(state.phase) && Date.now() - state.updatedAt < 20 * 60 * 1000;
         const last = state.updatedAt ? new Date(state.updatedAt).toLocaleString('he-IL') : 'ממתין לריצה הראשונה';

@@ -143,13 +143,13 @@ test.after(() => { globalThis.fetch = originalFetch; });
 
 const SEPT_28 = Date.UTC(2026, 8, 28, 16, 30);
 
-test("מסד בגרסה 5 עולה לגרסה הנוכחית (7): אינדקס המיון נוצר, גרסאות הנתונים והרשומות נשמרות", async () => {
+test("מסד בגרסה 5 עולה לגרסה הנוכחית (8): אינדקס המיון נוצר, גרסאות הנתונים והרשומות נשמרות", async () => {
   putDocument("images", "old-1", { id: "old-1", title: "ישנה", createdAt: 5 });
   const first = await call("/data/images", { token: "viewer-token" });
   assert.equal(first.status, 200);
   const indexes = d1.database.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map(row => row.name);
   assert.ok(indexes.includes("idx_gallery_documents_taken_at"));
-  assert.equal(meta("gallery"), 7);
+  assert.equal(meta("gallery"), 8);
   assert.equal(meta("data_version:images"), 1000);
   assert.equal(meta("data_version:pendingImages"), 500);
   assert.deepEqual(readDocument("images", "old-1"), { id: "old-1", title: "ישנה", createdAt: 5 });

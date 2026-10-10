@@ -328,6 +328,9 @@ async function initFirebase() {
             if (user) {
                 const providerIds = (user.providerData || []).map(p => p.providerId);
                 const isGoogleUser = !user.isAnonymous && providerIds.includes('google.com');
+                // החלפת חשבון בלי התנתקות באמצע: מה שהוצג לחשבון הקודם נמחק.
+                const previousUid = window.state.currentUser?.uid;
+                if (previousUid && previousUid !== user.uid) clearPrivateGalleryViews();
 
                 window.state.currentUser = user;
                 window.state.isGoogleUser = isGoogleUser;
@@ -394,6 +397,7 @@ async function initFirebase() {
                 window.state.favorites = new Set();
                 window.state.selectedMediaIds = new Set();
                 window.state.bulkSelectionMode = false;
+                clearPrivateGalleryViews();
                 window.updateAdminUI();
                 window.renderFolders();
                 window.renderImages();
@@ -413,6 +417,20 @@ async function initFirebase() {
         console.error("Cloudflare Init Error:", e);
         window.reportClientError?.(e, 'cloud-init');
         window.showNotification("שגיאה בחיבור לענן. הנתונים לא יסונכרנו.", false);
+    }
+}
+
+// אלבום של אדם, "התמונות שלי" ותוצאות חיפוש פנים מוצגים מעל הגלריה
+// (tempSearchResults והבאנר שמעליה). הם נמחקים בכל התנתקות, החלפת חשבון
+// ואובדן אישור — אחרת שם ופנים של אדם נשארים מול מבקר שאינו מחובר, ותוצאות
+// של משתמש אחד מוצגות למשתמש הבא. people.js מאפס גם את המצב שלו, רק אם נטען.
+function clearPrivateGalleryViews() {
+    window.resetPeopleState?.();
+    window.state.tempSearchResults = null;
+    const banner = document.getElementById('tempSearchBanner');
+    if (banner) {
+        banner.classList.add('hidden');
+        banner.replaceChildren();
     }
 }
 
@@ -441,6 +459,7 @@ function setupFirestoreListeners(user) {
         });
         window.galleryUnsubscribers = [];
         window.resetGalleryFeed?.();
+        clearPrivateGalleryViews();
         window.state.images = [];
         window.state.folders = defaultFolders();
         window.state.gallerySnapshotInitialized = false;
@@ -492,6 +511,8 @@ function setupFirestoreListeners(user) {
         // עם סמני דפדוף.
         if (window.PAGE_MODE !== 'admin' && typeof window.startGalleryFeed === 'function') {
             window.galleryUnsubscribers.push(window.startGalleryFeed());
+            // קישור ישיר לאלבום של אדם (#person/<id>) נפתח רק עכשיו, כשהצפייה אושרה.
+            window.routePeopleHash?.();
             return;
         }
 

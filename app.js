@@ -26,7 +26,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v62';
+const SITE_VERSION = 'v63';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -71,6 +71,13 @@ const ensureMediaVariantsModule = defineLazyModule(() => import('./media-variant
 const ensureCaptureDatesModule = defineLazyModule(() => import('./capture-dates-admin.js'), [
     'startCaptureDatesJob', 'stopCaptureDatesJob'
 ]);
+// אנשים בגלריה ו"התמונות שלי" — נטען רק בלחיצה על אחד הכפתורים, או בכתובת
+// #people / #person/<id> (ראו routePeopleHash להלן).
+const ensurePeopleModule = defineLazyModule(() => import('./people.js'), [
+    'openPeopleDirectory', 'filterPeopleDirectory', 'handlePeopleRoute', 'closePeopleAlbum',
+    'openFindMe', 'findMeFromProfile', 'findMeFromSelfie', 'findMeWithSaved', 'forgetFindMe'
+]);
+window.ensurePeopleModule = ensurePeopleModule;
 window.ensureCaptureDatesModule = ensureCaptureDatesModule;
 window.ensureFaceSearchModule = ensureFaceSearchModule;
 window.ensureFaceIndexModule = ensureFaceIndexModule;
@@ -1526,6 +1533,22 @@ window.formatBytes = formatBytes;
 window.r2Request = r2Request;
 window.R2_WORKER_BASE_URL = R2_WORKER_BASE_URL;
 window.API_ENVIRONMENT = API_ENVIRONMENT;
+
+// נתיבי האנשים בדף הגלריה: #people פותח את רשימת האנשים, ו-#person/<id> את
+// האלבום של אדם. people.js נטען רק כשהכתובת באמת אחת מאלה, או כשאלבום כבר
+// מוצג וחוזרים ממנו בכפתור "חזור" של הדפדפן. session-auth.js קורא לכאן שוב
+// אחרי שהגלריה נפתחה למשתמש מאושר, כדי שקישור ישיר יעבוד גם בכניסה.
+const PEOPLE_ROUTE_PATTERN = /^#(?:people|person\/[A-Za-z0-9_-]{1,64})$/;
+let peopleRouteSeen = false;
+function routePeopleHash() {
+    if (PAGE_MODE !== 'gallery') return;
+    const hash = window.location.hash;
+    if (!PEOPLE_ROUTE_PATTERN.test(hash) && !peopleRouteSeen) return;
+    peopleRouteSeen = true;
+    window.handlePeopleRoute(hash);
+}
+window.routePeopleHash = routePeopleHash;
+window.addEventListener('hashchange', routePeopleHash);
 
 // אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחילה
 // שכבת ההתחברות. סנכרון Drive עצמו נטען רק בדף הניהול.

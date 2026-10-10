@@ -4432,6 +4432,7 @@ body.gallery-locked #photosGrid,
 body.gallery-locked #galleryLoadMore,
 body.gallery-locked .folder-rail,
 body.gallery-locked #bulkSelectionBar,
+body.gallery-locked #tempSearchBanner,
 body.gallery-locked #emptyState { display: none; }
 body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "stage"; }
 
@@ -4555,6 +4556,213 @@ body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); gri
     transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
 }
 .face-person-card button:hover, #facePeopleToolbar button:hover, #facePeoplePages button:hover { background: var(--panel-3); color: var(--ink); border-color: var(--gold-line); }
+
+/* ==========================================================================
+   אנשים בגלריה ו"התמונות שלי" (people.js) וניהול האנשים (face-people.js)
+   ========================================================================== */
+
+/* כפתורי הכלים בסרגל: יעד מגע של 40px לפחות. */
+.people-tool-button { min-height: 40px; }
+
+/* חיתוך הפרצוף: מסגרת ריבועית, והתמונה הקטנה ממוקמת בתוכה לפי מיקום הפרצוף
+   (faceCropStyle ב-people-model.js). בלי מיקום — התמונה כולה, ממורכזת. */
+.face-crop {
+    position: relative;
+    display: block;
+    flex: none;
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--panel-3);
+}
+.face-crop img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+}
+.face-crop img.is-cropped { inset: auto; object-fit: fill; }
+.face-crop.is-empty::after {
+    content: "";
+    position: absolute;
+    inset: 28%;
+    border-radius: 50%;
+    border: 2px dashed var(--line-strong);
+}
+
+.people-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.people-search > svg,
+.people-search > i {
+    position: absolute;
+    inset-inline-start: 14px;
+    color: var(--ink-4);
+    pointer-events: none;
+}
+body .people-search input[type="search"] { min-height: 44px; padding-inline-start: 40px; }
+
+.people-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.person-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 12px 10px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    text-align: center;
+    transition: border-color .2s var(--ease), transform .25s var(--ease-spring), box-shadow .2s var(--ease);
+}
+.person-card .face-crop { width: min(96px, 100%); }
+.person-card:hover { border-color: var(--gold-line); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.person-card:focus-visible { border-radius: var(--r-lg); }
+.person-card-name {
+    max-width: 100%;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+}
+.person-card-count { font-size: 11px; color: var(--ink-3); }
+
+/* הבאנר של האלבום בגלריה (אדם או "התמונות שלי"). */
+.people-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: var(--r-xl);
+    border: 1px solid var(--gold-line);
+    background: linear-gradient(135deg, var(--gold-tint), transparent 70%), var(--panel);
+    box-shadow: var(--shadow-2);
+}
+.people-banner-details { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 220px; }
+.people-banner-details .face-crop { width: 56px; }
+.people-banner-copy { min-width: 0; }
+.people-banner-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+}
+.people-banner-title:focus-visible { border-radius: var(--r-sm); }
+.people-banner-sub { font-size: 12px; font-weight: 700; color: var(--gold); }
+.people-banner-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.people-banner-actions button { min-height: 40px; padding: 8px 16px; font-size: 12px; }
+
+/* חלון "התמונות שלי". */
+.find-me-privacy {
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--cyan-line);
+    background: var(--cyan-tint);
+}
+.modal-body p.find-me-privacy { color: var(--ink-2); font-size: 12px; }
+.find-me-saved {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--green-line);
+    background: var(--green-tint);
+}
+.find-me-saved[hidden], .find-me-selfie[hidden] { display: none; }
+.find-me-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.find-me-actions button,
+#findMeProfileBtn { min-height: 44px; padding: 10px 16px; font-size: 13px; }
+.find-me-remember {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 40px;
+    padding: 8px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-2);
+    cursor: pointer;
+}
+.find-me-remember input[type="checkbox"] { width: 20px; height: 20px; margin-top: 1px; }
+.modal-body p.find-me-status:empty { display: none; }
+.modal-body p.find-me-status { font-weight: 700; color: var(--ink-2); }
+
+/* ניהול האנשים בלוח הניהול. */
+.people-admin-run {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.people-admin-run button,
+.people-admin-list button,
+.people-admin-pages button { min-height: 40px; padding: 8px 14px; font-size: 12px; }
+.people-admin-tabs { flex-wrap: wrap; }
+.people-admin-tabs .admin-filter-chip { min-height: 40px; }
+.people-admin-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin-block: 12px;
+}
+.people-admin-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 14px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+}
+.people-admin-faces { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.people-admin-faces .face-crop:first-child { grid-column: span 2; grid-row: span 2; }
+.people-admin-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 120px)); gap: 12px; justify-content: center; }
+.people-admin-member .face-crop { width: min(140px, 100%); margin-inline: auto; }
+.people-admin-meta { font-size: 12px; font-weight: 700; color: var(--ink-3); }
+.people-admin-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.people-admin-name label { font-size: 11px; font-weight: 800; color: var(--ink-3); }
+body .people-admin-name input[type="text"] { flex: 1 1 140px; width: auto; min-height: 40px; padding: 8px 12px; }
+.people-admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.people-admin-select { display: inline-flex; flex: 1 1 140px; min-width: 0; }
+body .people-admin-select select { min-height: 40px; padding-block: 8px; font-size: 12px; }
+.people-admin-detail-head {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.people-admin-detail-head h4 { font-family: var(--font-display); font-size: 18px; color: var(--ink); }
+.people-admin-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px; }
+
+@media (max-width: 480px) {
+    .people-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+    .people-banner-actions { width: 100%; }
+    .people-banner-actions button { flex: 1 1 auto; }
+    .people-admin-list { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* התאמות אחרונות למסכים קטנים. */
 @media (max-width: 767px) {

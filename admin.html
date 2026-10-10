@@ -564,7 +564,27 @@
             </section>
 
             <!-- ============ מסך: אינדוקס פנים ============ -->
-            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אינדוקס פנים">
+            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אנשים, פרצופים ואינדוקס">
+                <div class="admin-panel" id="peopleManagerPanel">
+                    <div class="admin-panel-head"><h3><i data-lucide="users-round"></i> אנשים בגלריה — קיבוץ אוטומטי ושמות</h3></div>
+                    <div class="admin-panel-body">
+                        <p>פרצופים דומים מקובצים לאנשים מעצמם, אחרי כל אינדוקס. כל קבוצה חדשה ממתינה כאן לאישור ולשם; רק אנשים מאושרים עם שם מוצגים למשתמשי הגלריה, עם אלבום שמתעדכן בכל תמונה חדשה. פרצוף שאינו ודאי מגיע ללשונית „לבדיקה” ואינו משויך עד שתחליט.</p>
+                        <div class="people-admin-run">
+                            <p id="peopleClusterStatus" class="field-hint" role="status" aria-live="polite">בודק אם יש פרצופים חדשים לקיבוץ…</p>
+                            <button type="button" id="peopleClusterRunBtn" class="btn-secondary-dark">קבץ פרצופים חדשים</button>
+                        </div>
+                        <div class="admin-filter-chips people-admin-tabs" role="group" aria-label="תצוגת האנשים">
+                            <button type="button" class="admin-filter-chip is-active" data-people-view="suggested" aria-pressed="true" aria-controls="peopleAdminList">הצעות <span data-people-count="suggested">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="review" aria-pressed="false" aria-controls="peopleAdminList">לבדיקה <span data-people-count="review">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="singles" aria-pressed="false" aria-controls="peopleAdminList">בודדים <span data-people-count="singles">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="approved" aria-pressed="false" aria-controls="peopleAdminList">אנשים מאושרים <span data-people-count="approved">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="hidden" aria-pressed="false" aria-controls="peopleAdminList">מוסתרים <span data-people-count="hidden">0</span></button>
+                        </div>
+                        <p id="peopleAdminStatus" class="field-hint" role="status" aria-live="polite">הרשימה נטענת בפתיחת המסך.</p>
+                        <div id="peopleAdminList" class="people-admin-list"></div>
+                        <div id="peopleAdminPages" class="people-admin-pages"></div>
+                    </div>
+                </div>
                 <div class="admin-panel">
                     <div class="admin-panel-head"><h3>ניהול פרצופים — זה אותו אדם</h3></div>
                     <div class="admin-panel-body">
