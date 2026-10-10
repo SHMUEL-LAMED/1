@@ -138,7 +138,12 @@ test("people.js נטען עצלה, וכל נקודת כניסה שלו רשומ�
   assert.ok(start > -1);
   const registered = [...appJs.slice(start, appJs.indexOf("]);", start)).matchAll(/'(\w+)'/g)].map(match => match[1]);
   const defined = [...peopleJs.matchAll(/^window\.(\w+)\s*=/gm)].map(match => match[1]);
-  assert.deepEqual([...registered].sort(), [...defined].sort());
+  // resetPeopleState אינו במעטפת, בכוונה: התנתקות אינה מורידה את המודול רק
+  // כדי לאפס אותו. session-auth.js קורא לו רק אם הוא כבר נטען.
+  assert.ok(defined.includes("resetPeopleState"));
+  assert.equal(registered.includes("resetPeopleState"), false);
+  assert.match(read("session-auth.js"), /window\.resetPeopleState\?\.\(\);/);
+  assert.deepEqual([...registered].sort(), defined.filter(name => name !== "resetPeopleState").sort());
   // כל מטפל ב-HTML שפונה למודול רשום במעטפת.
   const html = read("index.html");
   for (const name of ["openPeopleDirectory", "openFindMe", "findMeFromProfile", "findMeFromSelfie", "findMeWithSaved", "forgetFindMe", "filterPeopleDirectory"]) {

@@ -1,6 +1,6 @@
 // אנשים בגלריה: רשימת האנשים, האלבום של אדם (#person/<id>), "התמונות שלי"
 // וניהול השמות בלוח הניהול — בדפדפן אמיתי, מול הזיוף של ה-Worker.
-import { test, expect, seedSession, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, signInViaGoogle, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
 
 const BOX = { x: 0.25, y: 0.2, w: 0.3, h: 0.4, a: 1.5 };
 
@@ -143,6 +143,47 @@ test.describe('בטלפון (390px)', () => {
     });
 });
 
+test('התנתקות סוגרת את האלבום של אדם: השם והפנים אינם נשארים מול מבקר שאינו מחובר', async ({ page, worker }) => {
+    seedPeopleGallery(worker);
+    await seedSession(page, { worker });
+    await page.goto('/#person/fp_yossi');
+    const banner = page.locator('#tempSearchBanner');
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+    await expect(banner.locator('.face-crop img')).toBeVisible();
+
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    await expect(banner).toBeHidden();
+    await expect(banner).toBeEmpty();
+    await expect(page.getByText('יוסי כהן')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/#person\//);
+    expect(await page.evaluate(() => window.state.tempSearchResults)).toBeNull();
+});
+
+test('תוצאות "התמונות שלי" של משתמש אחד אינן מוצגות למשתמש הבא שמתחבר באותה לשונית', async ({ page, worker }) => {
+    seedPeopleGallery(worker);
+    worker.people.matches = [{ imageId: 'img_e2e_2', distance: 0.21 }];
+    await seedSession(page, { worker, picture: `${API_ORIGIN}/media/profiles/${DEFAULT_USER.uid}.png` });
+    await page.goto('/');
+    const cards = page.locator('#photosGrid .gallery-card');
+    await expect(cards).toHaveCount(4);
+    await page.getByRole('button', { name: 'התמונות שלי', exact: true }).click();
+    await page.getByRole('dialog', { name: 'התמונות שלי' }).getByRole('button', { name: /לפי תמונת הפרופיל/ }).click();
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות שלי');
+    await expect(cards).toHaveCount(1);
+
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    const second = { uid: 'google-user-2', email: 'second@example.com', name: 'משתמש שני' };
+    worker.seedUser({ ...second, status: 'approved', role: 'viewer' });
+    await signInViaGoogle(page, second);
+    await expect(page.locator('#floatingUserPanelName')).toHaveText('משתמש שני');
+    await expect(page.locator('body')).not.toHaveClass(/gallery-locked/);
+    await expect(cards).toHaveCount(4);
+    await expect(page.locator('#tempSearchBanner')).toBeHidden();
+    await expect(page.locator('#peopleAlbumTitle')).toHaveCount(0);
+});
+
 test('קישור ישיר לאלבום של אדם נפתח כשהגלריה נטענת, ואדם שאינו מאושר אינו נפתח', async ({ page, worker }) => {
     seedPeopleGallery(worker);
     await seedSession(page, { worker });
@@ -154,6 +195,44 @@ test('קישור ישיר לאלבום של אדם נפתח כשהגלריה נ�
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
     await expect(page.locator('#tempSearchBanner')).toBeHidden();
     await expect.poll(() => worker.requestsTo('GET', '/face/persons/fp_pending').length).toBe(1);
+});
+
+test('מנהל פותח קבוצה חדשה לפרצוף בודד; קבוצה של פרצוף אחד מופיעה בהצעות ומקבלת שם', async ({ page, worker }) => {
+    seedPeopleGallery(worker);
+    worker.seedSingle({ imageId: 'img_e2e_3', faceIndex: 1, box: BOX });
+    await seedSession(page, { worker, role: 'admin', name: 'מנהל הגלריה' });
+    await page.goto('/admin.html');
+    await page.locator('#adminNav [data-view-target="faceindex"]').click();
+
+    await expect(page.locator('[data-people-count="singles"]')).toHaveText('1');
+    await page.locator('[data-people-view="singles"]').click();
+    await expect(page.locator('[data-people-view="singles"]')).toHaveAttribute('aria-pressed', 'true');
+    const single = page.locator('#peopleAdminList .people-admin-member');
+    await expect(single).toHaveCount(1);
+    await expect(single.locator('.face-crop img.is-cropped')).toHaveCount(1);
+    // ברוחב טלפון הכרטיס, הבחירה והכפתורים נכנסים בלי גלילה אופקית.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectNoHorizontalScroll(page);
+    const assignButton = single.getByRole('button', { name: 'שייך', exact: true });
+    await assignButton.scrollIntoViewIfNeeded();
+    await expect(assignButton).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath('singles-390.png') });
+    await single.getByRole('combobox', { name: 'שייך ל…' }).selectOption('__new__');
+    await single.getByRole('button', { name: 'שייך', exact: true }).click();
+    await expect(page.locator('#peopleAdminStatus')).toHaveText('נפתחה קבוצה חדשה. היא מופיעה בלשונית „הצעות”, ושם אפשר לתת לה שם.');
+    await expect(page.locator('[data-people-count="singles"]')).toHaveText('0');
+    await expect(page.locator('[data-people-count="suggested"]')).toHaveText('2');
+
+    await page.locator('[data-people-view="suggested"]').click();
+    const fresh = page.locator('#peopleAdminList .people-admin-card')
+        .filter({ has: page.locator('.people-admin-meta', { hasText: /^פרצוף אחד · / }) });
+    await expect(fresh).toHaveCount(1);
+    await fresh.getByRole('textbox', { name: 'שם' }).fill('שלמה');
+    await fresh.getByRole('button', { name: 'אשר ושמור שם' }).click();
+    await expect(page.locator('#peopleAdminStatus')).toHaveText('„שלמה” אושר ונוסף לרשימת האנשים בגלריה.');
+    const approved = [...worker.people.persons.values()].find(person => person.name === 'שלמה');
+    expect(approved).toMatchObject({ status: 'approved' });
+    expect(approved.faces.map(face => `${face.imageId}:${face.faceIndex}`)).toEqual(['img_e2e_3:1']);
 });
 
 test('מנהל מאשר קבוצה מוצעת עם שם, מכריע בפרצוף לבדיקה, והאדם מופיע ברשימת האנשים', async ({ page, worker }) => {

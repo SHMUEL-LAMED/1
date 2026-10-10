@@ -1,9 +1,10 @@
 // face-people.js — מסך "פרצופים ואינדוקס" בלוח הניהול: אנשים בגלריה.
 //
 // שני חלקים, שניהם למנהלים בלבד, והטביעות עצמן אינן מגיעות לדפדפן:
-//   openPeopleManager — הקבוצות שהקיבוץ האוטומטי הציע, תור "לבדיקה", האנשים
-//     המאושרים והמוסתרים. כאן המנהל מאשר ונותן שם, משנה שם, ממזג קבוצות,
-//     מעביר או מסיר פרצוף, בוחר תמונה ראשית ומסתיר אדם.
+//   openPeopleManager — הקבוצות שהקיבוץ האוטומטי הציע, תור "לבדיקה", הפרצופים
+//     הבודדים, האנשים המאושרים והמוסתרים. כאן המנהל מאשר ונותן שם, משנה שם,
+//     ממזג קבוצות, מעביר או מסיר פרצוף, פותח קבוצה לפרצוף בודד, בוחר תמונה
+//     ראשית ומסתיר אדם.
 //   openFacePeople — הרשת הישנה של כל הפרצופים, לאיחוד ידני של "זה אותו אדם".
 // פרצוף שאונדקס לפני שנשמר לו מיקום מקבל אותו כאן: הדפדפן מאתר שוב את
 // הפרצופים בתמונה שאונדקסה ושולח את המיקום בלבד (POST /face/boxes).
@@ -185,6 +186,7 @@ export async function openFacePeople() {
 const VIEW_LABELS = {
     suggested: 'הצעות',
     review: 'לבדיקה',
+    singles: 'בודדים',
     approved: 'אנשים מאושרים',
     hidden: 'מוסתרים'
 };
@@ -423,6 +425,30 @@ function renderReviewCard(item) {
     return card;
 }
 
+// פרצוף בודד: עוד לא נמצא לו פרצוף דומה. אפשר לשייך אותו לאדם, לפתוח לו
+// קבוצה חדשה (היא מופיעה ב„הצעות”, ושם נותנים לה שם), או להתעלם ממנו.
+function renderSingleCard(item) {
+    const card = document.createElement('article');
+    card.className = 'people-admin-card people-admin-member';
+    const meta = document.createElement('p');
+    meta.className = 'people-admin-meta';
+    meta.textContent = 'עוד לא נמצא לו פרצוף דומה בגלריה.';
+    const actions = document.createElement('div');
+    actions.className = 'people-admin-actions';
+    const assign = personSelect(`peopleSingle-${item.imageId}-${item.faceIndex}`, 'שייך ל…', { allowNew: true });
+    actions.append(assign.wrap, actionButton('שייך', () => {
+        if (!assign.select.value) { managerStatus('בחר אדם לשיוך, או „קבוצה חדשה”.'); assign.select.focus(); return; }
+        if (assign.select.value === '__new__') {
+            runMutation({ action: 'move', face: faceRef(item) }, 'נפתחה קבוצה חדשה. היא מופיעה בלשונית „הצעות”, ושם אפשר לתת לה שם.');
+            return;
+        }
+        runMutation({ action: 'accept', face: faceRef(item), personId: assign.select.value }, 'הפרצוף שויך.');
+    }));
+    actions.append(actionButton('התעלם', () => runMutation({ action: 'remove', face: faceRef(item) }, 'הפרצוף לא יקובץ.'), { tone: 'danger' }));
+    card.append(createFaceCrop(item, 'פרצוף בודד'), meta, actions);
+    return card;
+}
+
 function faceRef(face) {
     return { imageId: face.imageId, faceIndex: face.faceIndex, updatedAt: face.updatedAt };
 }
@@ -547,6 +573,8 @@ async function loadManagerView({ keepStatus = false, skipBoxes = false } = {}) {
             for (const face of data.faces || []) cards.push(renderMemberCard(face, data.person));
         } else if (data.view === 'review') {
             for (const item of data.faces || []) cards.push(renderReviewCard(item));
+        } else if (data.view === 'singles') {
+            for (const item of data.faces || []) cards.push(renderSingleCard(item));
         } else {
             for (const entry of data.persons || []) cards.push(renderPersonCard(entry));
         }
@@ -556,6 +584,7 @@ async function loadManagerView({ keepStatus = false, skipBoxes = false } = {}) {
             const empty = {
                 suggested: 'אין הצעות חדשות. קבוצות חדשות יופיעו כאן מעצמן אחרי אינדוקס של תמונות.',
                 review: 'אין פרצופים שממתינים לבדיקה.',
+                singles: 'אין פרצופים בודדים. פרצוף שעוד לא נמצא לו דומה יופיע כאן.',
                 approved: 'עדיין לא אושר אף אדם. אשר קבוצה מהלשונית „הצעות” ותן לה שם.',
                 hidden: 'אין אנשים מוסתרים.',
                 person: 'אין פרצופים בקבוצה הזו.'
@@ -604,6 +633,7 @@ async function runPeopleClustering() {
     let joined = 0;
     let created = 0;
     let review = 0;
+    let absorbed = 0;
     try {
         for (let round = 0; round < CLUSTER_MAX_ROUNDS; round += 1) {
             clusterStatus(`מקבץ פרצופים… (${processed} עד כה)`);
@@ -620,11 +650,14 @@ async function runPeopleClustering() {
             joined += Number(result?.joined) || 0;
             created += Number(result?.created) || 0;
             review += Number(result?.review) || 0;
+            absorbed += Number(result?.absorbed) || 0;
             if (!result?.processed || !result?.remaining) break;
         }
+        // בודדים שצורפו לאנשים שנוצרו או השתנו (הבדיקה החוזרת שבסוף כל ריצה).
+        const absorbedText = absorbed ? ` ${faceCountLabel(absorbed)} שהיו בודדים צורפו לאנשים.` : '';
         manager.lastRunMessage = processed
-            ? `הקיבוץ הושלם: ${processed} פרצופים — ${joined} הצטרפו לאנשים קיימים, ${created} קבוצות חדשות, ${review} לבדיקה.`
-            : 'אין פרצופים חדשים לקיבוץ.';
+            ? `הקיבוץ הושלם: ${processed} פרצופים — ${joined} הצטרפו לאנשים קיימים, ${created} קבוצות חדשות, ${review} לבדיקה.${absorbedText}`
+            : (absorbed ? `הקיבוץ הושלם.${absorbedText}` : 'אין פרצופים חדשים לקיבוץ.');
         clusterStatus(manager.lastRunMessage);
     } catch (error) {
         clusterStatus(error?.status === 404
@@ -660,6 +693,7 @@ export async function openPeopleManager() {
     if (!window.state?.isAdminLoggedIn || !el('peopleAdminList')) return;
     bindManager();
     await loadManagerView();
-    // פרצופים שאונדקסו ועוד לא קובצו (למשל קיימים מלפני העדכון) מקובצים מיד.
-    if (Number(manager.counts?.unclustered) > 0) runPeopleClustering();
+    // פרצופים שאונדקסו ועוד לא קובצו (למשל קיימים מלפני העדכון) מקובצים מיד,
+    // וכך גם בודדים שעוד לא נבדקו שוב מול אנשים שהשתנו (recheck).
+    if (Number(manager.counts?.unclustered) > 0 || manager.counts?.recheck === true) runPeopleClustering();
 }

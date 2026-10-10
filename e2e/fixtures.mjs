@@ -291,9 +291,9 @@ export class FakeWorker {
         this.failParts = new Set();
         // השהיה מלאכותית לכל העלאה רגילה, כדי שבדיקה תספיק ללחוץ "בטל".
         this.uploadDelayMs = 0;
-        // אנשים בגלריה: אנשים, תור "לבדיקה", התאמות של חיפוש הפנים, טביעות
-        // "זכור אותי" שנשמרו, ומיקומי פרצופים שהדפדפן השלים.
-        this.people = { persons: new Map(), review: [], unclustered: 0, matches: [], me: new Map(), boxes: [], clusterRuns: 0 };
+        // אנשים בגלריה: אנשים, תור "לבדיקה", פרצופים בודדים, התאמות של חיפוש
+        // הפנים, טביעות "זכור אותי" שנשמרו, ומיקומי פרצופים שהדפדפן השלים.
+        this.people = { persons: new Map(), review: [], singles: [], unclustered: 0, matches: [], me: new Map(), boxes: [], clusterRuns: 0 };
     }
 
     collection(name) {
@@ -779,6 +779,11 @@ export class FakeWorker {
         return this;
     }
 
+    seedSingle(face) {
+        this.people.singles.push({ faceIndex: 0, updatedAt: 1_700_000_000_000, box: null, ...face });
+        return this;
+    }
+
     requireApprovedActor(request) {
         const actor = this.actor(request);
         if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
@@ -828,10 +833,11 @@ export class FakeWorker {
     peopleCounts() {
         const persons = [...this.people.persons.values()].map(person => this.personSummary(person));
         return {
-            suggested: persons.filter(person => person.status === 'suggested' && !person.hidden && person.faceCount >= 2).length,
+            suggested: persons.filter(person => person.status === 'suggested' && !person.hidden && person.faceCount > 0).length,
             approved: persons.filter(person => person.status === 'approved' && !person.hidden && person.faceCount > 0).length,
             hidden: persons.filter(person => person.hidden && person.faceCount > 0).length,
             review: this.people.review.length,
+            singles: this.people.singles.length,
             unclustered: this.people.unclustered
         };
     }
@@ -901,9 +907,12 @@ export class FakeWorker {
                 })
             };
         }
+        if (view === 'singles') {
+            return { success: true, view, counts, offset, hasMore: false, faces: this.people.singles.map(item => this.faceView(item)) };
+        }
         const persons = all.filter(person => (view === 'hidden'
             ? person.hidden
-            : !person.hidden && person.status === view && person.faceCount >= (view === 'suggested' ? 2 : 1)));
+            : !person.hidden && person.status === view && person.faceCount > 0));
         return { success: true, view, counts, offset, hasMore: false, persons };
     }
 
@@ -915,8 +924,10 @@ export class FakeWorker {
                 return person.faces.splice(index, 1)[0];
             }
         }
-        const reviewIndex = this.people.review.findIndex(face => face.imageId === reference?.imageId && face.faceIndex === reference?.faceIndex);
-        if (reviewIndex >= 0) return this.people.review.splice(reviewIndex, 1)[0];
+        for (const queue of [this.people.review, this.people.singles]) {
+            const queueIndex = queue.findIndex(face => face.imageId === reference?.imageId && face.faceIndex === reference?.faceIndex);
+            if (queueIndex >= 0) return queue.splice(queueIndex, 1)[0];
+        }
         throw apiError('הנתונים השתנו. רענן את הרשימה ונסה שוב.', 409, 'stale_faces');
     }
 
@@ -963,7 +974,12 @@ export class FakeWorker {
                 target.faces.push({ ...face, source: 'manual' });
                 break;
             }
-            case 'reject':
+            case 'reject': {
+                // "לא — אדם אחר": הפרצוף חוזר להיות בודד, כמו ב-Worker.
+                const { imageId, faceIndex, updatedAt, box } = this.takeFace(payload.face);
+                this.people.singles.push({ imageId, faceIndex, updatedAt, box });
+                break;
+            }
             case 'remove':
                 this.takeFace(payload.face);
                 break;

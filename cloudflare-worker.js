@@ -159,8 +159,10 @@ const FACE_CLUSTER_MARGIN = 0.05;
 // כמה פרצופים חדשים מעובדים בריצה אחת. הריצה ממשיכה מהמקום שנעצרה.
 const FACE_CLUSTER_BATCH = 150;
 const FACE_CLUSTER_BATCH_MAX = 300;
-// קבוצה אוטומטית מוצגת כהצעה רק כשיש בה לפחות שני פרצופים.
-const FACE_CLUSTER_MIN_SUGGESTED = 2;
+// כל קבוצה מוצעת שיש בה פרצוף מוצגת בהצעות. קבוצה אוטומטית נולדת עם שני
+// פרצופים; קבוצה של פרצוף אחד נוצרת רק מפעולה של מנהל ("העבר לקבוצה חדשה")
+// או אחרי שהוסרו ממנה פרצופים — וגם לה צריך להיות אפשר לתת שם.
+const FACE_CLUSTER_MIN_SUGGESTED = 1;
 // נעילה רכה: שתי ריצות קיבוץ אינן רצות במקביל (למשל אינדוקס משני דפדפנים).
 const FACE_CLUSTER_LOCK_MS = 60 * 1000;
 const FACE_CLUSTER_SEED_PAGE_SIZE = 1000;
@@ -4220,10 +4222,23 @@ function faceDistance(left, right) {
   return Math.sqrt(squared);
 }
 
+// האם המרחק מתחת ל-limit? עוצר ברגע שהסכום כבר גדול ממנו — רוב הזוגות
+// רחוקים זה מזה, ולכן הבדיקה החוזרת של הבודדים אינה עוברת על כל 128 המספרים.
+function faceWithin(left, right, limit) {
+  const squaredLimit = limit * limit;
+  let squared = 0;
+  for (let index = 0; index < FACE_DESCRIPTOR_LENGTH; index += 1) {
+    const difference = left[index] - right[index];
+    squared += difference * difference;
+    if (squared >= squaredLimit) return false;
+  }
+  return true;
+}
+
 // ההחלטה עבור פרצוף אחד, בלי מסד ובלי אקראיות: אותו קלט נותן תמיד אותה
 // תוצאה. persons ו-seeds מגיעים בסדר קבוע (מזהה), והשוויון נשבר לטובת הראשון.
 //   join   — שיוך לאדם קיים (המרכז הקרוב מתחת לסף, והפער מהאדם הבא מספיק)
-//   pair   — יצירת קבוצה חדשה עם פרצוף בודד קרוב
+//   pair   — יצירת קבוצה חדשה עם פרצוף בודד קרוב (רק כשאין אדם מתחת לסף)
 //   review — קרוב לאדם אך בלי ודאות: נכנס לתור "לבדיקה"
 //   seed   — אין דומה; נשמר כפרצוף בודד שאליו יוכלו להצטרף הבאים
 export function decideFaceCluster(descriptor, persons, seeds, {
@@ -4249,10 +4264,16 @@ export function decideFaceCluster(descriptor, persons, seeds, {
   });
   const gapOf = value => Math.min(9, Math.round(value * 10000) / 10000);
 
-  if (bestPerson && bestPerson.distance < join && (!bestSeed || bestPerson.distance <= bestSeed.distance)) {
+  // אדם מתחת לסף לעולם אינו מוליד קבוצה חדשה ליד עצמו. אם פרצוף בודד קרוב
+  // יותר, אבל גם הוא עצמו שייך לאדם, הפרצוף מצטרף לאדם (והבודד יצורף אליו
+  // בבדיקה החוזרת שבסוף הריצה). בודד שאינו שייך לאדם — הפרצוף נמצא ביניהם,
+  // ולכן הוא נכנס לבדיקה במקום לפתוח קבוצה שאולי כפולה.
+  if (bestPerson && bestPerson.distance < join) {
     const gap = secondPerson - bestPerson.distance;
+    const seedCloser = bestSeed && bestSeed.distance < bestPerson.distance;
+    const seedBelongs = seedCloser && faceDistance(seeds[bestSeed.index].descriptor, persons[bestPerson.index].centroid) < join;
     return {
-      action: gap >= margin ? "join" : "review",
+      action: gap >= margin && (!seedCloser || seedBelongs) ? "join" : "review",
       person: bestPerson.index,
       distance: bestPerson.distance,
       margin: gapOf(gap)
@@ -4345,6 +4366,19 @@ async function refreshFacePersons(env, personIds = null, modelVersion = FACE_MOD
   if (personIds) {
     ids = [...new Set(personIds.map(id => String(id ?? "")))].filter(id => FACE_PERSON_ID_PATTERN.test(id));
   } else {
+    // שיוך תקף לאדם שאין לו רשומה (למשל כתיבה שהתנגשה במיזוג, או גרסה ישנה
+    // של ה-Worker) היה נעלם מכל מסך. הרשומה נוצרת מחדש כקבוצה מוצעת, והמונים
+    // שלה מחושבים מיד למטה — כך המנהל רואה אותה ויכול למזג או לתת שם.
+    const recreatedAt = Date.now();
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO face_persons (person_id, model_version, status, created_at, updated_at)
+       SELECT p.person_id, MAX(p.model_version), 'suggested', ?, ?
+       FROM face_people p ${FACE_VALID_ASSIGNMENT}
+       WHERE p.model_version = ?
+         AND NOT EXISTS (SELECT 1 FROM face_persons fp WHERE fp.person_id = p.person_id)
+       GROUP BY p.person_id
+       ON CONFLICT(person_id) DO NOTHING`
+    ).bind(recreatedAt, recreatedAt, modelVersion).run();
     const rows = (await env.GALLERY_DB.prepare(
       `SELECT fp.person_id AS personId, fp.face_count AS stored, fp.centroid_json AS centroid,
          (SELECT COUNT(*) FROM face_people p ${FACE_VALID_ASSIGNMENT} WHERE p.person_id = fp.person_id) AS actual
@@ -4461,27 +4495,67 @@ async function releaseFaceClusterLock(env, until) {
 
 async function loadClusterPersons(env, modelVersion) {
   const rows = (await env.GALLERY_DB.prepare(
-    `SELECT person_id AS personId, centroid_json AS centroidJson, face_count AS faceCount
+    `SELECT person_id AS personId, centroid_json AS centroidJson, face_count AS faceCount, updated_at AS updatedAt
      FROM face_persons WHERE model_version = ? AND face_count > 0 AND centroid_json <> ''
      ORDER BY person_id`
   ).bind(modelVersion).all()).results || [];
   return rows
-    .map(row => ({ id: String(row.personId), centroid: deserializeFaceDescriptor(row.centroidJson), count: Number(row.faceCount) || 0 }))
+    .map(row => ({
+      id: String(row.personId),
+      centroid: deserializeFaceDescriptor(row.centroidJson),
+      count: Number(row.faceCount) || 0,
+      updatedAt: Number(row.updatedAt) || 0
+    }))
     .filter(person => person.centroid && person.count > 0);
+}
+
+// הבדיקה החוזרת של הבודדים (ראו runFaceClustering) רצה מול אנשים שהשתנו מאז
+// הבדיקה הקודמת. כאן נשמר מתי היא התחילה; בלי רשומה — בדיקה מלאה מול כולם,
+// וכך גם בודדים שנשארו מלפני העדכון הזה נבדקים פעם אחת.
+const FACE_CLUSTER_SWEEP_KEY = "face_cluster_sweep";
+
+async function readFaceSweepMarker(env) {
+  const row = await env.GALLERY_DB.prepare(
+    "SELECT schema_version FROM gallery_schema_meta WHERE schema_key = ?"
+  ).bind(FACE_CLUSTER_SWEEP_KEY).first();
+  return Number(row?.schema_version) || 0;
+}
+
+async function writeFaceSweepMarker(env, startedAt) {
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(schema_key) DO UPDATE SET schema_version = excluded.schema_version, updated_at = excluded.updated_at`
+  ).bind(FACE_CLUSTER_SWEEP_KEY, startedAt, Date.now()).run();
+}
+
+async function hasFacePersonsChangedSince(env, modelVersion, since) {
+  const row = await env.GALLERY_DB.prepare(
+    `SELECT 1 AS changed FROM face_persons
+     WHERE model_version = ? AND face_count > 0 AND centroid_json <> '' AND updated_at >= ? LIMIT 1`
+  ).bind(modelVersion, since).first();
+  return Boolean(row);
 }
 
 async function loadClusterSeeds(env, modelVersion) {
   const seeds = [];
   for (let offset = 0; offset < FACE_CLUSTER_SEED_SCAN_LIMIT; offset += FACE_CLUSTER_SEED_PAGE_SIZE) {
     const rows = (await env.GALLERY_DB.prepare(
-      `SELECT m.image_id AS imageId, m.face_index AS faceIndex, f.updated_at AS updatedAt, m.descriptor_json AS descriptorJson
+      `SELECT m.image_id AS imageId, m.face_index AS faceIndex, f.updated_at AS updatedAt, m.descriptor_json AS descriptorJson,
+         m.candidate_person_id AS rejectedId
        FROM face_cluster_marks m ${FACE_VALID_MARK}
        WHERE m.mark = 'seed' AND m.model_version = ?
        ORDER BY m.image_id, m.face_index LIMIT ? OFFSET ?`
     ).bind(modelVersion, FACE_CLUSTER_SEED_PAGE_SIZE, offset).all()).results || [];
     for (const row of rows) {
       const descriptor = deserializeFaceDescriptor(row.descriptorJson);
-      if (descriptor) seeds.push({ imageId: String(row.imageId), faceIndex: Number(row.faceIndex), updatedAt: Number(row.updatedAt), descriptor });
+      // בבודד, candidate_person_id הוא האדם שהמנהל ענה עליו "לא — אדם אחר".
+      if (descriptor) seeds.push({
+        imageId: String(row.imageId),
+        faceIndex: Number(row.faceIndex),
+        updatedAt: Number(row.updatedAt),
+        descriptor,
+        rejectedId: String(row.rejectedId || "")
+      });
     }
     if (rows.length < FACE_CLUSTER_SEED_PAGE_SIZE) break;
   }
@@ -4492,26 +4566,40 @@ async function loadClusterSeeds(env, modelVersion) {
 // התוצאה תלויה רק בנתונים ובסדר הזה, ולכן ריצה חוזרת אינה משנה דבר. כל
 // הכתיבות יוצאות בטרנזקציה אחת, ורק מול הטביעה שנקראה (updated_at), כך
 // שפרצוף שאונדקס מחדש באמצע או שמנהל שייך בינתיים אינו נדרס.
+//
+// בסוף הריצה הבודדים נבדקים שוב מול האנשים שהשתנו מאז הבדיקה הקודמת (כולל
+// אלה שנוצרו או גדלו בריצה הזו): פרצוף שנשמר כבודד לפני שנוצר לידו אדם,
+// או לפני שהמרכז של האדם זז אליו, מצטרף אליו באותם כללים בדיוק (סף ופער).
+// בודד שהמנהל דחה ("לא — אדם אחר") אינו מצורף מעצמו.
 async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
   await ensureDatabaseSchema(env);
   const modelVersion = FACE_MODEL_VERSION;
   const lock = await acquireFaceClusterLock(env);
-  if (!lock) return { busy: true, processed: 0, joined: 0, created: 0, review: 0, seeded: 0, remaining: await countUnclusteredFaces(env, modelVersion) };
-  const result = { busy: false, processed: 0, joined: 0, created: 0, review: 0, seeded: 0, remaining: 0 };
+  if (!lock) return { busy: true, processed: 0, joined: 0, created: 0, review: 0, seeded: 0, absorbed: 0, remaining: await countUnclusteredFaces(env, modelVersion) };
+  const result = { busy: false, processed: 0, joined: 0, created: 0, review: 0, seeded: 0, absorbed: 0, remaining: 0 };
   try {
     await refreshFacePersons(env, null, modelVersion);
+    const sweptSince = await readFaceSweepMarker(env);
+    const startedAt = Date.now();
     const pending = (await env.GALLERY_DB.prepare(
       `SELECT f.image_id AS imageId, f.face_index AS faceIndex, f.descriptor_json AS descriptorJson, f.updated_at AS updatedAt
        ${FACE_UNCLUSTERED_FROM}
        ORDER BY f.created_at, f.image_id, f.face_index LIMIT ?`
     ).bind(modelVersion, Math.max(1, Math.min(FACE_CLUSTER_BATCH_MAX, limit))).all()).results || [];
-    if (pending.length) {
+    if (pending.length || await hasFacePersonsChangedSince(env, modelVersion, sweptSince)) {
       const persons = await loadClusterPersons(env, modelVersion);
       const seeds = await loadClusterSeeds(env, modelVersion);
       const assignments = [];
       const marks = [];
       const createdPersons = [];
       const touched = new Set();
+      const joinPerson = (person, descriptor) => {
+        for (let index = 0; index < FACE_DESCRIPTOR_LENGTH; index += 1) {
+          person.centroid[index] = (person.centroid[index] * person.count + descriptor[index]) / (person.count + 1);
+        }
+        person.count += 1;
+        touched.add(person.id);
+      };
       for (const face of pending) {
         const key = { i: String(face.imageId), x: Number(face.faceIndex), u: Number(face.updatedAt) };
         const descriptor = deserializeFaceDescriptor(face.descriptorJson);
@@ -4523,17 +4611,13 @@ async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
         const decision = decideFaceCluster(descriptor, persons, seeds);
         if (decision.action === "join") {
           const person = persons[decision.person];
-          for (let index = 0; index < FACE_DESCRIPTOR_LENGTH; index += 1) {
-            person.centroid[index] = (person.centroid[index] * person.count + descriptor[index]) / (person.count + 1);
-          }
-          person.count += 1;
+          joinPerson(person, descriptor);
           assignments.push({ ...key, p: person.id });
-          touched.add(person.id);
           result.joined += 1;
         } else if (decision.action === "pair") {
           const [seed] = seeds.splice(decision.seed, 1);
           const id = await newFacePersonId(`auto:${seed.imageId}:${seed.faceIndex}:${seed.updatedAt}`);
-          persons.push({ id, centroid: meanDescriptor([seed.descriptor, descriptor]), count: 2 });
+          persons.push({ id, centroid: meanDescriptor([seed.descriptor, descriptor]), count: 2, updatedAt: startedAt });
           createdPersons.push({ p: id, i: seed.imageId, x: seed.faceIndex });
           assignments.push({ i: seed.imageId, x: seed.faceIndex, u: seed.updatedAt, p: id }, { ...key, p: id });
           touched.add(id);
@@ -4542,10 +4626,29 @@ async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
           marks.push({ ...key, k: "review", c: persons[decision.person].id, d: Math.round(decision.distance * 10000) / 10000, g: decision.margin });
           result.review += 1;
         } else {
-          seeds.push({ imageId: key.i, faceIndex: key.x, updatedAt: key.u, descriptor });
+          seeds.push({ imageId: key.i, faceIndex: key.x, updatedAt: key.u, descriptor, rejectedId: "" });
           marks.push({ ...key, k: "seed", c: "", d: 0, g: 0 });
           result.seeded += 1;
         }
+      }
+      // הבדיקה החוזרת: רק בודד שקרוב מתחת לסף לאדם שהשתנה נבדק מול כל
+      // האנשים (בשביל הפער), כך שהעלות תלויה במספר האנשים שהשתנו.
+      const changed = persons.filter(person => touched.has(person.id) || person.updatedAt >= sweptSince);
+      for (let index = 0; changed.length && index < seeds.length;) {
+        const seed = seeds[index];
+        const near = !seed.rejectedId
+          && changed.some(person => faceWithin(seed.descriptor, person.centroid, FACE_CLUSTER_JOIN_DISTANCE));
+        const decision = near ? decideFaceCluster(seed.descriptor, persons, []) : null;
+        if (decision?.action !== "join") {
+          index += 1;
+          continue;
+        }
+        const person = persons[decision.person];
+        joinPerson(person, seed.descriptor);
+        if (!changed.includes(person)) changed.push(person);
+        assignments.push({ i: seed.imageId, x: seed.faceIndex, u: seed.updatedAt, p: person.id });
+        seeds.splice(index, 1);
+        result.absorbed += 1;
       }
       const now = Date.now();
       const statements = [];
@@ -4559,6 +4662,9 @@ async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
       }
       // הסימונים נכתבים לפני השיוכים: פרצוף שנשמר כבודד ובאותה ריצה הצטרף
       // לפרצוף חדש יוצא מרשימת הבודדים במחיקה שאחרי השיוך.
+      // כל כתיבה שמפנה לאדם נעשית רק אם האדם עדיין קיים ברגע הכתיבה: מנהל
+      // יכול למזג או להסיר קבוצה בין הקריאות של הריצה לבין הכתיבה. פרצוף
+      // שנשאר כך בלי שיוך ובלי סימון פשוט עובר לריצה הבאה.
       if (marks.length) {
         const payload = JSON.stringify(marks);
         statements.push(env.GALLERY_DB.prepare(
@@ -4568,7 +4674,8 @@ async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
            FROM json_each(?) AS r JOIN image_face_descriptors f
              ON f.image_id = json_extract(r.value, '$.i') AND f.face_index = json_extract(r.value, '$.x')
              AND f.updated_at = json_extract(r.value, '$.u')
-           WHERE f.model_version = ?
+           WHERE f.model_version = ? AND (json_extract(r.value, '$.k') <> 'review'
+             OR EXISTS (SELECT 1 FROM face_persons fp WHERE fp.person_id = json_extract(r.value, '$.c')))
            ON CONFLICT(image_id, face_index) DO UPDATE SET model_version = excluded.model_version,
              descriptor_json = excluded.descriptor_json, mark = excluded.mark,
              candidate_person_id = excluded.candidate_person_id, distance = excluded.distance,
@@ -4592,21 +4699,27 @@ async function runFaceClustering(env, { limit = FACE_CLUSTER_BATCH } = {}) {
              ON f.image_id = json_extract(r.value, '$.i') AND f.face_index = json_extract(r.value, '$.x')
              AND f.updated_at = json_extract(r.value, '$.u')
            WHERE f.model_version = ?
+             AND EXISTS (SELECT 1 FROM face_persons fp WHERE fp.person_id = json_extract(r.value, '$.p'))
            ON CONFLICT(image_id, face_index) DO UPDATE SET model_version = excluded.model_version,
              descriptor_json = excluded.descriptor_json, person_id = excluded.person_id,
              source = excluded.source, assigned_at = excluded.assigned_at
            WHERE face_people.descriptor_json <> excluded.descriptor_json`
         ).bind(now, payload, modelVersion));
+        // רק פרצוף שהשיוך שלו נכתב באמת יוצא מרשימת הבודדים.
         statements.push(env.GALLERY_DB.prepare(
           `DELETE FROM face_cluster_marks WHERE mark <> 'ignored' AND EXISTS (
-             SELECT 1 FROM json_each(?) AS r
-             WHERE json_extract(r.value, '$.i') = face_cluster_marks.image_id
-               AND json_extract(r.value, '$.x') = face_cluster_marks.face_index)`
+             SELECT 1 FROM json_each(?) AS r JOIN face_people p
+               ON p.image_id = json_extract(r.value, '$.i') AND p.face_index = json_extract(r.value, '$.x')
+               AND p.person_id = json_extract(r.value, '$.p')
+             WHERE p.image_id = face_cluster_marks.image_id AND p.face_index = face_cluster_marks.face_index)`
         ).bind(payload));
       }
-      await runDatabaseStatements(env, statements);
-      if (touched.size) await refreshFacePersons(env, [...touched], modelVersion);
-      await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
+      if (statements.length) {
+        await runDatabaseStatements(env, statements);
+        if (touched.size) await refreshFacePersons(env, [...touched], modelVersion);
+        await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
+      }
+      await writeFaceSweepMarker(env, startedAt);
     }
     result.remaining = await countUnclusteredFaces(env, modelVersion);
     return result;
@@ -4688,15 +4801,23 @@ async function faceGroupCounts(env) {
        COALESCE(SUM(CASE WHEN hidden = 1 AND face_count > 0 THEN 1 ELSE 0 END), 0) AS hidden
      FROM face_persons WHERE model_version = ?`
   ).bind(FACE_CLUSTER_MIN_SUGGESTED, FACE_MODEL_VERSION).first();
-  const review = await env.GALLERY_DB.prepare(
-    `SELECT COUNT(*) AS total FROM face_cluster_marks m ${FACE_VALID_MARK}
-     WHERE m.mark = 'review' AND m.model_version = ?`
+  const marks = await env.GALLERY_DB.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN m.mark = 'review' THEN 1 ELSE 0 END), 0) AS review,
+       COALESCE(SUM(CASE WHEN m.mark = 'seed' THEN 1 ELSE 0 END), 0) AS singles
+     FROM face_cluster_marks m ${FACE_VALID_MARK}
+     WHERE m.mark IN ('review', 'seed') AND m.model_version = ?`
   ).bind(FACE_MODEL_VERSION).first();
+  const singles = Number(marks?.singles) || 0;
   return {
     suggested: Number(persons?.suggested) || 0,
     approved: Number(persons?.approved) || 0,
     hidden: Number(persons?.hidden) || 0,
-    review: Number(review?.total) || 0,
+    review: Number(marks?.review) || 0,
+    singles,
+    // יש בודדים ואנשים שהשתנו מאז הבדיקה החוזרת האחרונה: פתיחת המסך מריצה
+    // קיבוץ גם בלי פרצופים חדשים, כדי שהבודדים ייבדקו שוב.
+    recheck: singles > 0 && await hasFacePersonsChangedSince(env, FACE_MODEL_VERSION, await readFaceSweepMarker(env)),
     unclustered: await countUnclusteredFaces(env)
   };
 }
@@ -4812,7 +4933,26 @@ async function readFaceGroups(env, url) {
       }))
     };
   }
-  const view = ["suggested", "approved", "hidden", "review"].includes(requested) ? requested : "suggested";
+  const view = ["suggested", "approved", "hidden", "review", "singles"].includes(requested) ? requested : "suggested";
+  // פרצופים בודדים: עוד לא נמצא להם פרצוף דומה. המנהל יכול לשייך אותם לאדם,
+  // לפתוח להם קבוצה חדשה (ולתת לה שם) או להתעלם מהם.
+  if (view === "singles") {
+    const rows = (await env.GALLERY_DB.prepare(
+      `SELECT m.image_id AS imageId, m.face_index AS faceIndex, f.updated_at AS updatedAt, f.box_json AS boxJson,
+         ${FACE_IMAGE_URL_COLUMNS}
+       FROM face_cluster_marks m ${FACE_VALID_MARK}
+       WHERE m.mark = 'seed' AND m.model_version = ?
+       ORDER BY f.created_at DESC, m.image_id, m.face_index LIMIT ? OFFSET ?`
+    ).bind(FACE_MODEL_VERSION, FACE_GROUPS_PAGE_SIZE + 1, offset).all()).results || [];
+    return {
+      success: true,
+      view,
+      counts,
+      faces: rows.slice(0, FACE_GROUPS_PAGE_SIZE).map(faceView),
+      offset,
+      hasMore: rows.length > FACE_GROUPS_PAGE_SIZE
+    };
+  }
   if (view === "review") {
     const rows = (await env.GALLERY_DB.prepare(
       `SELECT m.image_id AS imageId, m.face_index AS faceIndex, f.updated_at AS updatedAt, f.box_json AS boxJson,
@@ -4895,15 +5035,17 @@ function assignFaceStatements(env, face, personId, now) {
   ];
 }
 
-function markFaceStatements(env, face, mark, now) {
+// rejectedId: בבודד שהמנהל ענה עליו "לא — אדם אחר", האדם שנדחה. הבדיקה
+// החוזרת של הקיבוץ אינה מצרפת בודד כזה מעצמו.
+function markFaceStatements(env, face, mark, now, rejectedId = "") {
   return [
     env.GALLERY_DB.prepare(
       `INSERT INTO face_cluster_marks (image_id, face_index, model_version, descriptor_json, mark, candidate_person_id, distance, margin, created_at)
-       VALUES (?, ?, ?, ?, ?, '', 0, 0, ?)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
        ON CONFLICT(image_id, face_index) DO UPDATE SET model_version = excluded.model_version,
-         descriptor_json = excluded.descriptor_json, mark = excluded.mark, candidate_person_id = '',
+         descriptor_json = excluded.descriptor_json, mark = excluded.mark, candidate_person_id = excluded.candidate_person_id,
          distance = 0, margin = 0, created_at = excluded.created_at`
-    ).bind(face.imageId, face.faceIndex, face.modelVersion, face.descriptorJson, mark, now),
+    ).bind(face.imageId, face.faceIndex, face.modelVersion, face.descriptorJson, mark, rejectedId, now),
     env.GALLERY_DB.prepare("DELETE FROM face_people WHERE image_id = ? AND face_index = ?").bind(face.imageId, face.faceIndex)
   ];
 }
@@ -4979,7 +5121,9 @@ async function mutateFaceGroups(env, payload) {
       // "לא, זה מישהו אחר" — הפרצוף חוזר להיות בודד וממתין לדומים לו;
       // "הסר" — הפרצוף לא יקובץ עוד (למשל, אינו פנים או אינו רלוונטי).
       const face = await readFaceForUpdate(env, payload.face);
-      await runDatabaseStatements(env, markFaceStatements(env, face, action === "reject" ? "seed" : "ignored", now));
+      await runDatabaseStatements(env, action === "reject"
+        ? markFaceStatements(env, face, "seed", now, String(face.candidateId || face.personId || ""))
+        : markFaceStatements(env, face, "ignored", now));
       touched.push(face.personId);
       break;
     }

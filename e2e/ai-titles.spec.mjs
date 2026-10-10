@@ -10,6 +10,9 @@ test('הפעלת AI ועצירה נשמרות בענן בלי עיבוד בדפ�
     await page.locator('#aiTitlesStop').click();
     await expect(page.locator('#aiTitlesStatus')).toContainText('מושהה');
     await page.locator('#aiTitlesStart').click();
+    // "אפשר לסגור את הדפדפן" מופיע גם במצב המושהה, ולכן ממתינים למצב הפעיל
+    // עצמו — הוא מוצג רק אחרי שההפעלה נשמרה בענן ונקראה ממנו שוב.
+    await expect(page.locator('#aiTitlesStatus')).toContainText('פעיל בענן');
     await expect(page.locator('#aiTitlesStatus')).toContainText('אפשר לסגור את הדפדפן');
     expect(worker.backgroundConfig.enabled.titles).toBe(true);
     expect(worker.requestsTo('POST', '/ai-title')).toHaveLength(0);

@@ -217,6 +217,26 @@ test("decideFaceCluster: שיוך, זוג חדש, בדיקה ובודד — וא
   }
 });
 
+test("decideFaceCluster: אדם קרוב מתחת לסף לעולם אינו מוליד קבוצה כפולה עם פרצוף בודד קרוב יותר", () => {
+  const toArray = vector => Float64Array.from(vector);
+  // מרכז האדם ב-0.1667 ופרצוף בודד של אותו אדם ב-0.52: הפרצוף החדש (0.6)
+  // קרוב לבודד (0.08) יותר מלאדם (0.433), אבל גם האדם מתחת לסף — והבודד
+  // עצמו שייך לאדם (0.353). הפרצוף מצטרף לאדם, ולא נפתחת קבוצה שנייה.
+  const persons = [{ id: "pa", centroid: toArray(face(A, 0.1667)) }];
+  const sameSeed = [{ descriptor: toArray(face(A, 0.52)) }];
+  const joined = decideFaceCluster(toArray(face(A, 0.6)), persons, sameSeed);
+  assert.deepEqual([joined.action, joined.person], ["join", 0]);
+
+  // בודד רחוק מהאדם (0.9): הפרצוף "בין" האדם לבודד — לבדיקה, לא קבוצה חדשה.
+  const farSeed = [{ descriptor: toArray(face(A, 0.9)) }];
+  const between = decideFaceCluster(toArray(face(A, 0.48)), [{ id: "pa", centroid: toArray(face(A, 0)) }], farSeed);
+  assert.deepEqual([between.action, between.person], ["review", 0]);
+
+  // בלי אדם מתחת לסף, זוג חדש עם הבודד נשאר כמו קודם.
+  const pair = decideFaceCluster(toArray(face(A, 0.85)), [{ id: "pa", centroid: toArray(face(A, 0)) }], farSeed);
+  assert.deepEqual([pair.action, pair.seed], ["pair", 0]);
+});
+
 // --- הקיבוץ האוטומטי ---
 
 test("הקיבוץ מאחד פרצופים דומים לקבוצה מוצעת, משאיר זרים בודדים, ואינו חוזר על עצמו", async () => {
@@ -248,6 +268,134 @@ test("הקיבוץ מאחד פרצופים דומים לקבוצה מוצעת, �
   const again = await cluster();
   assert.equal(again.processed, 0);
   assert.equal((await groups()).persons.length, 2);
+});
+
+test("פרצוף בודד מצטרף לאדם שנוצר אחריו, והאלבום מקבל גם אותו", async () => {
+  // a2 רחוק 0.52 מ-a1 (מעל הסף), ולכן שניהם נשמרים כבודדים.
+  await index("a1", [face(A, 0)]);
+  await index("a2", [face(A, 0.52)]);
+  const first = await cluster();
+  assert.equal(first.seeded, 2);
+  // a3 יוצר עם a1 אדם, a4 מצטרף אליו, והמרכז (0.1667) רחוק מ-a2 רק 0.353.
+  await index("a3", [face(A, 0.2)]);
+  await index("a4", [face(A, 0.3)]);
+  const second = await cluster();
+  assert.equal(second.created, 1);
+  assert.equal(second.absorbed, 1, "הבודד a2 נבדק שוב מול האדם החדש");
+
+  const { persons } = await groups();
+  assert.equal(persons.length, 1);
+  assert.equal(persons[0].faceCount, 4);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM face_cluster_marks").get().n, 0, "לא נשאר בודד");
+  await mutate({ action: "approve", personId: persons[0].personId, name: "יעקב" });
+  const album = await call(`/face/persons/${persons[0].personId}`, "GET", undefined, "viewer-token");
+  assert.deepEqual([...album.payload.imageIds].sort(), ["a1", "a2", "a3", "a4"]);
+
+  // תמונה חדשה ליד a2 מצטרפת לאותו אדם — לא נפתחת קבוצה כפולה.
+  await index("a5", [face(A, 0.6)]);
+  const third = await cluster();
+  assert.equal(third.joined, 1);
+  assert.equal(third.created, 0);
+  assert.equal((await groups("view=approved")).persons[0].faceCount, 5);
+  assert.equal((await cluster()).processed, 0);
+});
+
+test("בודד שנשאר מלפני העדכון מצטרף בריצה הבאה, ובודד שהמנהל דחה אינו מצורף מעצמו", async () => {
+  await seedThreePeople();
+  await cluster();
+  const [personA, personB] = (await groups()).persons;
+  // מצב של גלריה שקובצה לפני התיקון: פרצוף של A נשאר "בודד" למרות שהוא
+  // קרוב למרכז. אין עדיין סימון של בדיקה חוזרת, כמו בפריסה הראשונה.
+  await index("s1", [face(A, 0.15)]);
+  const [row] = sql.prepare("SELECT updated_at, descriptor_json FROM image_face_descriptors WHERE image_id = 's1'").all();
+  sql.prepare(`INSERT INTO face_cluster_marks (image_id, face_index, model_version, descriptor_json, mark, created_at)
+    VALUES ('s1', 0, ?, ?, 'seed', 1)`).run(MODEL_VERSION, row.descriptor_json);
+  sql.exec("DELETE FROM gallery_schema_meta WHERE schema_key = 'face_cluster_sweep'");
+  // פתיחת המסך יודעת שיש בודדים לבדוק שוב, גם בלי פרצופים חדשים.
+  const before = await groups();
+  assert.equal(before.counts.unclustered, 0);
+  assert.equal(before.counts.recheck, true);
+  const healed = await cluster();
+  assert.equal(healed.processed, 0);
+  assert.equal(healed.absorbed, 1);
+  assert.equal(sql.prepare("SELECT person_id FROM face_people WHERE image_id = 's1'").get().person_id, personA.personId);
+
+  // פרצוף בין A ל-B נכנס לבדיקה; המנהל עונה "לא — אדם אחר".
+  await index("x1", [face(null, 0, [[A, 0.3], [B, 0.3]])]);
+  await cluster();
+  const [x] = (await groups("view=review")).faces;
+  const rejectedId = x.candidate.personId;
+  const other = rejectedId === personA.personId ? personB : personA;
+  assert.equal((await mutate({ action: "reject", face: x })).status, 200);
+  assert.equal(sql.prepare("SELECT candidate_person_id AS c FROM face_cluster_marks WHERE image_id = 'x1'").get().c, rejectedId);
+  // האדם השני נעלם (המנהל הסיר את פרצופיו), ועכשיו x1 קרוב רק לאדם שנדחה —
+  // ובכל זאת אינו מצורף אליו, כי המנהל כבר אמר שזה לא הוא. גם בבדיקה מלאה.
+  for (const member of (await groups(`person=${other.personId}`)).faces) {
+    assert.equal((await mutate({ action: "remove", face: member })).status, 200);
+  }
+  sql.exec("DELETE FROM gallery_schema_meta WHERE schema_key = 'face_cluster_sweep'");
+  const after = await cluster();
+  assert.equal(after.absorbed, 0);
+  assert.equal(sql.prepare("SELECT mark FROM face_cluster_marks WHERE image_id = 'x1'").get().mark, "seed");
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM face_people WHERE image_id = 'x1'").get().n, 0);
+});
+
+function orphanAssignments() {
+  return sql.prepare(
+    "SELECT COUNT(*) AS n FROM face_people p WHERE NOT EXISTS (SELECT 1 FROM face_persons fp WHERE fp.person_id = p.person_id)"
+  ).get().n;
+}
+
+test("מיזוג שמתבצע באמצע ריצת קיבוץ אינו משאיר פרצוף משויך לאדם שנמחק", async () => {
+  await seedThreePeople();
+  await cluster();
+  const [personA, personB] = (await groups()).persons;
+  await index("a4", [face(A, 0.05)]);
+
+  // המנהל ממזג את A לתוך B בדיוק בין הקריאות של הריצה לבין הכתיבה שלה.
+  let merged = null;
+  database.batch = async function (statements) {
+    if (statements.some(statement => statement.sql.includes("'auto'"))) {
+      delete database.batch;
+      merged = await mutate({ action: "merge", targetId: personB.personId, sourceId: personA.personId });
+    }
+    return D1.prototype.batch.call(this, statements);
+  };
+  let run;
+  try {
+    run = await cluster();
+  } finally {
+    delete database.batch;
+  }
+  assert.equal(merged?.status, 200, merged?.text);
+  assert.equal(run.joined, 1, "ההחלטה התקבלה מול A, שעוד היה קיים");
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM face_persons WHERE person_id = ?").get(personA.personId).n, 0);
+  assert.equal(orphanAssignments(), 0, "אין שיוך לאדם שנמחק");
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM face_people WHERE image_id = 'a4'").get().n, 0);
+
+  // הפרצוף חוזר לתור, והריצה הבאה משייכת אותו לקבוצה שקיימת עכשיו.
+  assert.equal((await groups()).counts.unclustered, 1);
+  const next = await cluster();
+  assert.equal(next.processed, 1);
+  assert.equal(sql.prepare("SELECT person_id FROM face_people WHERE image_id = 'a4'").get()?.person_id, personB.personId);
+  assert.equal((await groups()).persons.find(person => person.personId === personB.personId).faceCount, 6);
+});
+
+test("שיוך לקבוצה שאין לה רשומה חוזר כקבוצה מוצעת במקום להיעלם", async () => {
+  await seedThreePeople();
+  await cluster();
+  // מצב שנשאר מגרסה קודמת של הריצה: c1 משויך למזהה שאין לו רשומת אדם.
+  sql.exec("DELETE FROM face_cluster_marks WHERE image_id = 'c1'");
+  sql.prepare(`INSERT INTO face_people (image_id, face_index, model_version, descriptor_json, person_id, source, assigned_at)
+    SELECT image_id, face_index, model_version, descriptor_json, 'fp_orphan', 'auto', 1
+    FROM image_face_descriptors WHERE image_id = 'c1'`).run();
+  assert.equal(orphanAssignments(), 1);
+
+  const suggested = await groups();
+  assert.equal(orphanAssignments(), 0);
+  const orphan = suggested.persons.find(person => person.personId === "fp_orphan");
+  assert.equal(orphan?.faceCount, 1);
+  assert.equal(orphan.status, "suggested");
 });
 
 test("פרצוף חדש מצטרף לאדם קיים אוטומטית, והאלבום שלו מתעדכן", async () => {
@@ -313,6 +461,37 @@ test("פרצוף בין שני אנשים, או קרוב מדי לסף, נכנס
 
 // --- פעולות המנהל ---
 
+test("בודדים: המנהל רואה פרצופים בלי קבוצה, פותח להם קבוצה חדשה עם שם או משייך אותם", async () => {
+  await seedThreePeople();
+  await index("d1", [face(5, 0)]);
+  await cluster();
+  const singles = await groups("view=singles");
+  assertNoDescriptors(JSON.stringify(singles));
+  assert.equal(singles.counts.singles, 2);
+  assert.deepEqual(singles.faces.map(item => item.imageId).sort(), ["c1", "d1"]);
+  const c1 = singles.faces.find(item => item.imageId === "c1");
+  const d1 = singles.faces.find(item => item.imageId === "d1");
+  assert.equal(c1.url, "https://media.example/c1-thumb.webp");
+
+  // "קבוצה חדשה": אדם מוצע עם פרצוף אחד, שמופיע בהצעות ומקבל שם.
+  assert.equal((await mutate({ action: "move", face: c1 })).status, 200);
+  const suggested = await groups();
+  assert.equal(suggested.counts.singles, 1);
+  const created = suggested.persons.find(person => person.faceCount === 1);
+  assert.ok(created, "הקבוצה החדשה מוצגת בהצעות");
+  assert.equal((await mutate({ action: "approve", personId: created.personId, name: "זלמן" })).status, 200);
+  const listed = (await call("/face/persons", "GET", undefined, "viewer-token")).payload.persons;
+  assert.deepEqual(listed.map(person => person.name), ["זלמן"]);
+
+  // שיוך בודד לאדם קיים.
+  const [personA] = suggested.persons;
+  assert.equal((await mutate({ action: "accept", face: d1, personId: personA.personId })).status, 200);
+  const after = await groups("view=singles");
+  assert.equal(after.counts.singles, 0);
+  assert.equal(after.faces.length, 0);
+  assert.equal((await cluster()).processed, 0);
+});
+
 test("אישור ושם: שם ריק, ארוך מדי או עם תווי כיווניות מטופל, ושינוי שם נשמר", async () => {
   await seedThreePeople();
   await cluster();
@@ -367,6 +546,12 @@ test("איחוד שתי קבוצות שומר את השם, והעברה והסר
   const removed = await mutate({ action: "remove", face: a3b });
   assert.equal(removed.status, 200, removed.text);
   assert.equal((await groups(`person=${personA.personId}`)).faces.length, 3);
+
+  // הקבוצה החדשה, עם פרצוף אחד, מופיעה בהצעות — אפשר לתת לה שם ולאשר.
+  const newGroupId = sql.prepare("SELECT person_id FROM face_people WHERE image_id = 'b1'").get().person_id;
+  const suggestedNow = await groups();
+  assert.equal(suggestedNow.persons.find(person => person.personId === newGroupId)?.faceCount, 1);
+  assert.equal(suggestedNow.counts.suggested, 1);
 
   // ריצת קיבוץ נוספת אינה מחזירה את מה שהמנהל הסיר או העביר.
   assert.equal((await cluster()).processed, 0);

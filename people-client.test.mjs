@@ -55,6 +55,8 @@ let detection = "face";
 let profileLoadFails = false;
 let searchMatches = [];
 let personPayload = null;
+// הבטחה שמעכבת את תשובת השרת, כדי לבדוק מה קורה כשמשתמש מתנתק באמצע.
+let responseGate = null;
 
 const descriptor = Float32Array.from({ length: 128 }, (_, index) => (index === 0 ? 0.1234567 : 0.08));
 
@@ -100,6 +102,7 @@ globalThis.window = {
   async r2Request(path, options = {}) {
     const body = options.body ? JSON.parse(options.body) : null;
     calls.push({ path, method: options.method || "GET", body });
+    if (responseGate && (path === "/face/search" || path.startsWith("/face/persons"))) await responseGate;
     if (path === "/face/me" && (options.method || "GET") === "GET") return { success: true, remembered: false, savedAt: 0 };
     if (path === "/face/me") return { success: true, remembered: options.method === "PUT" };
     if (path === "/face/search") return { success: true, matches: searchMatches };
@@ -127,6 +130,7 @@ function reset() {
   window.state.tempSearchResults = null;
   window.state.userApprovalStatus = "approved";
   window.location.hash = "";
+  responseGate = null;
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -228,5 +232,51 @@ test("אלבום של אדם: נפתח רק למשתמש מאושר, ומוצג 
   // חזרה (hash אחר) סוגרת את האלבום ומחזירה את הגלריה.
   window.location.hash = "";
   window.handlePeopleRoute("");
+  assert.equal(window.state.tempSearchResults, null);
+});
+
+test("התנתקות באמצע \"התמונות שלי\": התשובה שמגיעה אחריה אינה מוצגת, והטביעה אינה נשמרת", async () => {
+  let release;
+  responseGate = new Promise(resolve => { release = resolve; });
+  window.openFindMe();
+  await flush();
+  byId("findMeRemember").checked = true;
+  const running = window.findMeFromProfile();
+  for (let index = 0; index < 5; index += 1) await flush();
+  assert.ok(calls.some(call => call.path === "/face/search"), "החיפוש כבר נשלח");
+
+  // session-auth.js קורא לזה בהתנתקות; חשבון אחר יכול להתחבר מיד אחריה.
+  window.resetPeopleState();
+  assert.equal(byId("findMeModal").hidden, true, "החלון נסגר");
+  release();
+  await running;
+  assert.equal(window.state.tempSearchResults, null, "התוצאות של המשתמש הקודם אינן מוצגות");
+  assert.equal(calls.some(call => call.path === "/face/me" && call.method === "PUT"), false, "ואינן נשמרות בשם אף אחד");
+});
+
+test("איפוס אחרי אלבום של אדם: האלבום נסגר, הכתובת מתנקה, וטעינה שבדרך נזרקת", async () => {
+  personPayload = {
+    success: true,
+    person: { personId: "fp_1", name: "יוסף", imageCount: 1, cover: null },
+    imageIds: ["img-9"]
+  };
+  window.location.hash = "#person/fp_1";
+  window.handlePeopleRoute("#person/fp_1");
+  for (let index = 0; index < 5; index += 1) await flush();
+  assert.deepEqual(window.state.tempSearchResults.map(record => record.id), ["img-9"]);
+
+  window.resetPeopleState();
+  assert.equal(window.location.hash, "", "הקישור לאלבום אינו נפתח מחדש למשתמש הבא");
+
+  // טעינה שהתחילה לפני ההתנתקות וחזרה אחריה אינה מציגה דבר.
+  let release;
+  responseGate = new Promise(resolve => { release = resolve; });
+  window.state.tempSearchResults = null;
+  window.location.hash = "#person/fp_1";
+  window.handlePeopleRoute("#person/fp_1");
+  await flush();
+  window.resetPeopleState();
+  release();
+  for (let index = 0; index < 5; index += 1) await flush();
   assert.equal(window.state.tempSearchResults, null);
 });

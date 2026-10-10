@@ -33,6 +33,10 @@ let peopleCache = null;
 let peopleQuery = '';
 let albumGeneration = 0;
 let findMeBusy = false;
+// מתקדם בכל התנתקות, החלפת חשבון או אובדן אישור (resetPeopleState). פעולה
+// שהתחילה לפני כן — חיפוש "התמונות שלי", שמירת "זכור אותי" — נעצרת כשהיא
+// חוזרת, ואינה מוצגת או נשמרת בשם המשתמש הבא.
+let peopleSession = 0;
 // האלבום שמוצג עכשיו בגלריה: אדם מסוים או "התמונות שלי".
 const album = { kind: '', personId: '', results: null };
 
@@ -103,9 +107,11 @@ async function fetchImagesByIds(ids) {
 
 async function loadPeople({ force = false } = {}) {
     if (!force && peopleCache && Date.now() - peopleCache.loadedAt < PEOPLE_CACHE_MS) return peopleCache.people;
+    const session = peopleSession;
     const payload = await window.r2Request('/face/persons');
-    peopleCache = { people: normalizePersonsResponse(payload, window.safeImageUrl), loadedAt: Date.now() };
-    return peopleCache.people;
+    const people = normalizePersonsResponse(payload, window.safeImageUrl);
+    if (session === peopleSession) peopleCache = { people, loadedAt: Date.now() };
+    return people;
 }
 
 function renderPeopleList() {
@@ -154,11 +160,13 @@ async function openPeopleDirectory() {
     if (!peopleCache) list?.replaceChildren();
     setText('peopleDirectoryStatus', 'טוען את רשימת האנשים…');
     list?.setAttribute('aria-busy', 'true');
+    const session = peopleSession;
     try {
         await loadPeople();
-        renderPeopleList();
+        if (session === peopleSession) renderPeopleList();
     } catch (error) {
         console.warn('People directory failed to load:', error);
+        if (session !== peopleSession) return;
         setText('peopleDirectoryStatus', error?.status === 404
             ? 'רשימת האנשים עדיין אינה זמינה בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'
             : 'טעינת רשימת האנשים נכשלה. נסה שוב בעוד רגע.');
@@ -219,6 +227,7 @@ function renderAlbumBanner({ title, subtitle, cover, showDirectory }) {
 }
 
 function showAlbum(kind, personId, records, banner) {
+    if (!canUsePeople()) return;
     album.kind = kind;
     album.personId = personId;
     album.results = records;
@@ -235,6 +244,42 @@ function albumIsShowing() {
 
 function clearHashIfPerson() {
     if (parsePeopleRoute(window.location.hash)?.view === 'person') {
+        window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+    }
+}
+
+function isModalOpen(id) {
+    const modal = el(id);
+    return Boolean(modal) && !modal.classList.contains('hidden');
+}
+
+// התנתקות, החלפת חשבון או אובדן אישור (נקרא מ-session-auth.js): כל מה
+// שהמודול מציג או זוכר נמחק — האלבום, תוצאות "התמונות שלי", רשימת האנשים
+// והחלונות — ותשובות שעוד בדרך נזרקות. כך שם ופנים של אדם אינם נשארים מול
+// מבקר שאינו מחובר, ותוצאות של משתמש אחד אינן מוצגות למשתמש הבא. הבאנר
+// עצמו ו-tempSearchResults מתאפסים ב-session-auth.js, גם כשהמודול לא נטען.
+function resetPeopleState() {
+    peopleSession += 1;
+    albumGeneration += 1;
+    const openModals = ['peopleDirectoryModal', 'findMeModal'].filter(isModalOpen);
+    const wasShowing = Boolean(album.kind) || openModals.length > 0;
+    album.kind = '';
+    album.personId = '';
+    album.results = null;
+    peopleCache = null;
+    peopleQuery = '';
+    openModals.forEach(id => window.closeModal?.(id));
+    el('peopleDirectoryList')?.replaceChildren();
+    const search = el('peopleDirectorySearch');
+    if (search) search.value = '';
+    setText('peopleDirectoryStatus', '');
+    setFindMeStatus('');
+    renderSavedState(false);
+    const selfie = el('findMeSelfie');
+    if (selfie) selfie.hidden = true;
+    // קישור שהמשתמש עצמו פתח (#person/<id> או #people) אינו נפתח מחדש
+    // למשתמש הבא. קישור שמבקר הגיע איתו לפני הכניסה נשאר, כדי שייפתח אחריה.
+    if (wasShowing && parsePeopleRoute(window.location.hash)) {
         window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
     }
 }
@@ -339,12 +384,13 @@ function renderSavedState(remembered) {
 }
 
 async function refreshSavedState() {
+    const session = peopleSession;
     try {
         const status = await window.r2Request('/face/me');
-        renderSavedState(status?.remembered === true);
+        if (session === peopleSession) renderSavedState(status?.remembered === true);
     } catch (error) {
         console.warn('Find-me status failed to load:', error);
-        renderSavedState(false);
+        if (session === peopleSession) renderSavedState(false);
     }
 }
 
@@ -375,13 +421,15 @@ async function describeSingleFace(faceapi, image) {
     return Array.from(detection.descriptor, value => Math.round(value * 1e6) / 1e6);
 }
 
-async function showFindMeResults(response) {
+async function showFindMeResults(response, session) {
+    if (session !== peopleSession) return;
     const threshold = Number(window.FACE_MATCH_THRESHOLD) || 0.48;
     const ids = (Array.isArray(response?.matches) ? response.matches : [])
         .filter(match => Number.isFinite(Number(match?.distance)) && Number(match.distance) < threshold)
         .map(match => window.safeRecordId(match.imageId))
         .filter(Boolean);
     const records = ids.length ? await fetchImagesByIds(ids) : [];
+    if (session !== peopleSession) return;
     if (!records.length) {
         setFindMeStatus('לא נמצאו תמונות שבהן זוהית. אפשר לנסות סלפי ברור ומואר, מול המצלמה.');
         const selfie = el('findMeSelfie');
@@ -399,7 +447,8 @@ async function showFindMeResults(response) {
     window.showNotification?.(`נמצאו ${imageCountLabel(records.length)} שבהן זוהית.`, true);
 }
 
-async function searchWithDescriptor(descriptor) {
+async function searchWithDescriptor(descriptor, session) {
+    if (session !== peopleSession) return;
     setFindMeStatus('משווה את טביעת הפנים מול הגלריה…');
     const modelVersion = window.FACE_MODEL_VERSION;
     const response = await window.r2Request('/face/search', {
@@ -407,6 +456,8 @@ async function searchWithDescriptor(descriptor) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ descriptor, modelVersion, limit: FIND_ME_RESULT_LIMIT })
     });
+    // המשתמש התנתק בינתיים: התוצאות והטביעה אינן מוצגות ואינן נשמרות.
+    if (session !== peopleSession) return;
     // הטביעה נשמרת רק כשהמשתמש סימן "זכור אותי" בעצמו, ולעולם לא כברירת מחדל.
     if (el('findMeRemember')?.checked === true) {
         try {
@@ -421,7 +472,7 @@ async function searchWithDescriptor(descriptor) {
             window.showNotification?.('החיפוש בוצע, אך שמירת הטביעה נכשלה.', false);
         }
     }
-    await showFindMeResults(response);
+    await showFindMeResults(response, session);
 }
 
 function describeError(error) {
@@ -432,6 +483,8 @@ function describeError(error) {
 
 async function findMeFromProfile() {
     if (findMeBusy || !requireApproved()) return;
+    const session = peopleSession;
+    const stale = () => session !== peopleSession;
     setFindMeBusy(true);
     try {
         const photoUrl = largerGooglePhotoUrl(window.state?.currentUser?.photoURL);
@@ -441,23 +494,25 @@ async function findMeFromProfile() {
         }
         setFindMeStatus('טוען את מנוע זיהוי הפנים (בפעם הראשונה זה לוקח רגע)…');
         const faceapi = await faceEngine();
+        if (stale()) return;
         setFindMeStatus('מזהה את הפנים בתמונת הפרופיל…');
         let image;
         try {
             image = await window.loadFaceImageElement(photoUrl);
         } catch {
-            showSelfieOption('הדפדפן לא איפשר לקרוא את תמונת הפרופיל של Google. בחר סלפי — הוא יעובד במכשיר בלבד ואינו מועלה.');
+            if (!stale()) showSelfieOption('הדפדפן לא איפשר לקרוא את תמונת הפרופיל של Google. בחר סלפי — הוא יעובד במכשיר בלבד ואינו מועלה.');
             return;
         }
         const descriptor = await describeSingleFace(faceapi, image);
+        if (stale()) return;
         if (!descriptor) {
             showSelfieOption('לא זוהו פנים בתמונת הפרופיל. בחר סלפי ברור — הוא יעובד במכשיר בלבד ואינו מועלה.');
             return;
         }
-        await searchWithDescriptor(descriptor);
+        await searchWithDescriptor(descriptor, session);
     } catch (error) {
         console.warn('Find-me from profile failed:', error);
-        setFindMeStatus(describeError(error));
+        if (!stale()) setFindMeStatus(describeError(error));
     } finally {
         setFindMeBusy(false);
     }
@@ -472,23 +527,27 @@ async function findMeFromSelfie(event) {
         if (input) input.value = '';
         return;
     }
+    const session = peopleSession;
+    const stale = () => session !== peopleSession;
     setFindMeBusy(true);
     // הסלפי נקרא מהזיכרון של הדפדפן בלבד (blob:) — אין העלאה לשום מקום.
     const objectUrl = URL.createObjectURL(file);
     try {
         setFindMeStatus('טוען את מנוע זיהוי הפנים (בפעם הראשונה זה לוקח רגע)…');
         const faceapi = await faceEngine();
+        if (stale()) return;
         setFindMeStatus('מזהה את הפנים בסלפי, במכשיר שלך…');
         const image = await window.loadFaceImageElement(objectUrl);
         const descriptor = await describeSingleFace(faceapi, image);
+        if (stale()) return;
         if (!descriptor) {
             setFindMeStatus('לא זוהו פנים בתמונה. נסה סלפי ברור ומואר, מול המצלמה.');
             return;
         }
-        await searchWithDescriptor(descriptor);
+        await searchWithDescriptor(descriptor, session);
     } catch (error) {
         console.warn('Find-me from selfie failed:', error);
-        setFindMeStatus(describeError(error));
+        if (!stale()) setFindMeStatus(describeError(error));
     } finally {
         URL.revokeObjectURL(objectUrl);
         if (input) input.value = '';
@@ -498,6 +557,7 @@ async function findMeFromSelfie(event) {
 
 async function findMeWithSaved() {
     if (findMeBusy || !requireApproved()) return;
+    const session = peopleSession;
     setFindMeBusy(true);
     try {
         setFindMeStatus('משווה את הטביעה השמורה מול הגלריה…');
@@ -506,9 +566,10 @@ async function findMeWithSaved() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ limit: FIND_ME_RESULT_LIMIT })
         });
-        await showFindMeResults(response);
+        await showFindMeResults(response, session);
     } catch (error) {
         console.warn('Find-me with saved descriptor failed:', error);
+        if (session !== peopleSession) return;
         if (error?.status === 404) {
             renderSavedState(false);
             setFindMeStatus('אין טביעה שמורה. חפש לפי תמונת הפרופיל או סלפי.');
@@ -522,14 +583,16 @@ async function findMeWithSaved() {
 
 async function forgetFindMe() {
     if (findMeBusy || !requireApproved()) return;
+    const session = peopleSession;
     setFindMeBusy(true);
     try {
         await window.r2Request('/face/me', { method: 'DELETE' });
+        if (session !== peopleSession) return;
         renderSavedState(false);
         setFindMeStatus('טביעת הפנים שלך נמחקה מהשרת.');
     } catch (error) {
         console.warn('Forget-me failed:', error);
-        setFindMeStatus('המחיקה נכשלה. נסה שוב בעוד רגע.');
+        if (session === peopleSession) setFindMeStatus('המחיקה נכשלה. נסה שוב בעוד רגע.');
     } finally {
         setFindMeBusy(false);
     }
@@ -539,6 +602,9 @@ window.openPeopleDirectory = openPeopleDirectory;
 window.filterPeopleDirectory = filterPeopleDirectory;
 window.handlePeopleRoute = handlePeopleRoute;
 window.closePeopleAlbum = closePeopleAlbum;
+// אינו ברשימת המעטפות של app.js: session-auth.js קורא לו רק אם המודול כבר
+// נטען, ואחרת אין מה לאפס.
+window.resetPeopleState = resetPeopleState;
 window.openFindMe = openFindMe;
 window.findMeFromProfile = findMeFromProfile;
 window.findMeFromSelfie = findMeFromSelfie;

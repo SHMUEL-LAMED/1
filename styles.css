@@ -4432,6 +4432,7 @@ body.gallery-locked #photosGrid,
 body.gallery-locked #galleryLoadMore,
 body.gallery-locked .folder-rail,
 body.gallery-locked #bulkSelectionBar,
+body.gallery-locked #tempSearchBanner,
 body.gallery-locked #emptyState { display: none; }
 body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "stage"; }
 
