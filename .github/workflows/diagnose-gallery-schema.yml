@@ -1,0 +1,28 @@
+name: Diagnose gallery database schema
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/diagnose-gallery-schema.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect schema metadata only
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://api.cloudflare.com/client/v4/accounts/3298021f3289a8f22f48693678cc6e73';
+          const headers={Authorization:'Bearer '+process.env.CF_TOKEN,'Content-Type':'application/json'};
+          async function call(path,options={}) { const response=await fetch(base+path,{...options,headers}); const data=await response.json(); if(!response.ok||data.success===false)throw new Error(JSON.stringify(data.errors)); return data.result; }
+          const settings=await call('/workers/scripts/simchas-gallery-api/settings');
+          const db=settings.bindings.find(x=>x.name==='GALLERY_DB'&&x.type==='d1');
+          const id=db?.id||db?.database_id;
+          if(!id)throw new Error('Missing database ID');
+          for(const sql of ["SELECT schema_version FROM gallery_schema_meta WHERE schema_key='gallery'","SELECT name,sql FROM sqlite_master WHERE type='table' AND name IN ('face_people','face_persons','image_face_descriptors','gallery_schema_meta')"]) {
+            console.log(JSON.stringify(await call('/d1/database/'+id+'/query',{method:'POST',body:JSON.stringify({sql})})));
+          }
+          NODE
