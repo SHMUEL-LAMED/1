@@ -14,6 +14,7 @@ async function refresh() {
 }
 
 async function start() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("titles", true);
     if (running) return;
     running = true;
     stopped = false;
@@ -66,6 +67,7 @@ async function start() {
 export async function openAiTitles() {
     element('aiTitlesStart').onclick = start;
     element('aiTitlesStop').onclick = () => {
+        if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob('titles', false);
         stopped = true;
         element('aiTitlesStop').disabled = true;
         element('aiTitlesStatus').textContent = 'מסיים את התמונה הנוכחית ועוצר…';
@@ -74,6 +76,7 @@ export async function openAiTitles() {
     try {
         await refresh();
         element('aiTitlesStatus').textContent = 'מוכן. השם המקורי נשמר לצד שם ה־AI.';
+        if (window.CLOUD_BACKGROUND_JOBS) await window.refreshCloudBackgroundJobs();
     } catch (error) {
         element('aiTitlesStatus').textContent = error.message || 'החיבור לענן עדיין לא מוכן. פתח את המסך שוב.';
     }

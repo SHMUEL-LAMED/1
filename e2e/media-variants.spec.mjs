@@ -259,6 +259,8 @@ test('ריצת "תצוגות מקדימות" בלוח הניהול משלימה 
     await expect(page.locator('#view-variants')).toHaveClass(/is-active/);
     await expect(page.locator('#variantsSummary')).toHaveText('1 מתוך 3 פריטים עם תצוגות מקדימות · 2 חסרים');
     await expect(page.locator('#variantsStartBtn')).toBeEnabled();
+    // Local fallback still works when cloud processing is explicitly disabled.
+    await page.evaluate(() => { window.CLOUD_BACKGROUND_JOBS = false; });
 
     await page.locator('#variantsStartBtn').click();
     await expect(page.locator('#variantsStatusText')).toHaveText('הריצה הושלמה: 2 פריטים קיבלו תצוגות, 0 נכשלו.');

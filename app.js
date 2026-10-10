@@ -21,11 +21,12 @@ import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './captur
 // drive-sync.js משתמש בזה כדי לא להאזין לאוספי הניהול בדף הגלריה.
 const PAGE_MODE = document.documentElement.dataset.page === 'admin' ? 'admin' : 'gallery';
 window.PAGE_MODE = PAGE_MODE;
+window.CLOUD_BACKGROUND_JOBS = true;
 
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v61';
+const SITE_VERSION = 'v62';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש

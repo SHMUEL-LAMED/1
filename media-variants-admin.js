@@ -239,6 +239,7 @@ async function processVariantCandidate(candidate) {
 }
 
 async function startMediaVariantsJob() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("variants", true);
     if (!window.checkAdminPermission()) return;
     if (variantsRun.running) {
         window.showNotification('הריצה כבר פועלת.', false);
@@ -313,6 +314,7 @@ async function startMediaVariantsJob() {
 window.startMediaVariantsJob = startMediaVariantsJob;
 
 function stopMediaVariantsJob() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("variants", false);
     if (!variantsRun.running) return;
     variantsRun.stopRequested = true;
     variantsRun.message = 'עוצר אחרי הפריטים שבעיבוד…';
