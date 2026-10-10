@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      BACKGROUND_MAX_ITEMS: ${{ github.event_name == 'push' && '8' || '40' }}
       GALLERY_API_ORIGIN: https://simchas-gallery-api.0534169095.workers.dev
     steps:
       - uses: actions/checkout@v4

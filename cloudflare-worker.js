@@ -3388,7 +3388,13 @@ async function generateImageTitle(request, env, imageId) {
     })
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw apiError(response.status === 429 ? "מנוע ה־AI עמוס או שאין יתרה בחשבון. נסה שוב בהמשך." : "מנוע ה־AI לא הצליח ליצור שם. בדוק את המפתח והמודל בשרת.", response.status === 429 ? 429 : 502, "ai_title_failed");
+  if (!response.ok) {
+    const providerCode = String(result.error?.code || result.error?.type || `http_${response.status}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0,80);
+    const error = apiError(response.status === 429 ? "מנוע ה־AI עמוס או שאין יתרה בחשבון. נסה שוב בהמשך." : "מנוע ה־AI לא הצליח ליצור שם. בדוק את המפתח והמודל בשרת.", response.status === 429 ? 429 : 502, "ai_title_failed");
+    error.providerCode = providerCode;
+    error.providerStatus = response.status;
+    throw error;
+  }
   const title = extractOpenAIOutputText(result).replace(/[\r\n\u0000-\u001f]/g, " ").replace(/^["'״]+|["'״]+$/g, "").trim().slice(0, 120);
   if (!title || !/[\u0590-\u05ff]/.test(title)) throw apiError("מנוע ה־AI החזיר שם לא תקין.", 502, "invalid_ai_title");
   // עדכון מותנה מונע דריסה של עריכה ידנית או מחיקה בזמן שהמודל עבד.
@@ -5975,7 +5981,8 @@ export default {
       return json(request, {
         success: false,
         code: error?.code || "internal_error",
-        message: error?.message || "אירעה שגיאה פנימית."
+        message: error?.message || "אירעה שגיאה פנימית.",
+        ...(error?.code === "ai_title_failed" ? { providerCode: error.providerCode, providerStatus: error.providerStatus } : {})
       }, status);
     }
   }

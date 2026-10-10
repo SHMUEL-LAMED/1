@@ -17,7 +17,7 @@ test('cloud image runtime creates real variants and persists them through authen
         if(path==='/data/images')return Response.json({documents:[{id:image.id,data:image}]});
         if(path==='/data/pendingImages')return Response.json({documents:[]});
         if(path==='/face/index/pending')return Response.json({pending:[]});
-        if(path=== '/media/approved/photo1.png')return new Response(png,{headers:{'Content-Type':'image/png'}});
+        if(path=== '/media/approved/photo1.png')return new Response(png,{headers:{'Content-Type':'image/png','Transfer-Encoding':'chunked'}});
         if(path==='/media/variants'){
             parts=options.body;
             return Response.json({variants:{thumb:{url:API+'/media/variants/photo1/thumb.webp'},medium:{url:API+'/media/variants/photo1/medium.webp'}}});
