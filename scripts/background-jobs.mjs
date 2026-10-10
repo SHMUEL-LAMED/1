@@ -2,6 +2,7 @@ import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { readCaptureDate, captureFields, captureFromDriveMetadata, needsCaptureDate, CAPTURE_HEAD_BYTES } from '../capture-date.js';
 import { selectVariantCandidates } from '../media-variants.js';
+import { needsAiDescription } from '../scene-tags.js';
 import { pathToFileURL } from 'node:url';
 
 export const JOB_NAMES = ['titles', 'faces', 'variants', 'dates', 'drive'];
@@ -242,7 +243,9 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             }
             await post('/media/taken-at', { updates: [{ imageId: record.id, ...captureFields(capture) }] });
         });
-        await runJob('titles', images.filter(record => stored(record) && record.mediaType !== 'video' && record.aiTitleVersion !== 1), record => post('/ai-title', { imageId: record.id }));
+        // POST /ai-title נותן שם, כיתוב ותגיות בקריאה אחת; נשלחת כל תמונה שחסר לה
+        // שם AI או כיתוב מהגרסה הנוכחית (כיתוב שנערך ידנית לעולם אינו נשלח שוב).
+        await runJob('titles', images.filter(record => stored(record) && needsAiDescription(record)), record => post('/ai-title', { imageId: record.id }));
         const faceImages = images.filter(record => stored(record) && record.mediaType !== 'video');
         const pendingFaces = new Set();
         for (let offset = 0; offset < faceImages.length; offset += 200) {

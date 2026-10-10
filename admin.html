@@ -648,12 +648,13 @@
                 </div>
             </section>
 
-            <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות לתמונות עם AI">
+            <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות, כיתובים ותגיות עם AI">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות לתמונות עם AI</h3></div>
+                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות, כיתובים ותגיות עם AI</h3></div>
                     <div class="admin-panel-body">
-                        <p>כל תמונה מקבלת שם קצר בעברית לפי מה שרואים בה. תמונות חדשות מקבלות שם אוטומטית ברקע; כאן אפשר להשלים שמות לתמונות הקיימות. השמות נשמרים בענן ואפשר לערוך אותם אחר כך. העיבוד משתמש בחשבון OpenAI API הקיים.</p>
+                        <p>כל תמונה מקבלת, בקריאה אחת ל־AI, שם קצר, כיתוב של משפט או שניים ותגיות של סוג הרגע (ריקוד, הקפות, שיעור או דרשה, סעודה…). כך החיפוש בגלריה מוצא תמונות לפי מה שקורה בהן, מיד ובלי AI בזמן החיפוש. תמונות חדשות מקבלות את כל אלה אוטומטית ברקע; כאן משלימים לתמונות הקיימות. את הכיתוב והתגיות אפשר לערוך מהתצוגה המלאה בגלריה, ועריכה ידנית לא תוחלף. העיבוד משתמש במפתח ה־AI שכבר מוגדר בשרת, בקריאה אחת לכל תמונה.</p>
                         <p id="aiTitlesSummary" class="field-hint"></p>
+                        <div id="aiTitlesProgress" class="progress-track" role="progressbar" aria-label="התקדמות ההשלמה" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="aiTitlesProgressBar" class="progress-bar"></div></div>
                         <p id="aiTitlesStatus" role="status" aria-live="polite">טוען…</p>
                         <div class="flex gap-2">
                             <button id="aiTitlesStart" type="button" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך</button>

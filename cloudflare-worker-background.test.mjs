@@ -251,7 +251,7 @@ test('large continuation fails cleanly without truncating JSON', async () => {
 });
 
 test('replaced Drive media resets old derived data so every job processes the new file', async () => {
-  putDocument('images','driveimage_abc12345678',{id:'driveimage_abc12345678',driveFileId:'abc12345678',driveModifiedTime:'old',title:'old AI title',originalTitle:'old.jpg',aiTitleVersion:1,variants:{thumb:{url:API+'/media/variants/old.webp'}},variantsVersion:1,takenAt:123456789,takenAtSource:'exif'});
+  putDocument('images','driveimage_abc12345678',{id:'driveimage_abc12345678',driveFileId:'abc12345678',driveModifiedTime:'old',title:'old AI title',originalTitle:'old.jpg',aiTitleVersion:1,variants:{thumb:{url:API+'/media/variants/old.webp'}},variantsVersion:1,takenAt:123456789,takenAtSource:'exif',caption:'כיתוב של הקובץ הקודם',sceneTags:['dance'],captionSource:'ai',aiCaptionVersion:1,aiCaptionGeneratedAt:123});
   const response = await worker.fetch(jsonRequest('/data/images/driveimage_abc12345678','PUT',{data:{driveFileId:'abc12345678',driveModifiedTime:'new',originalTitle:'new.jpg',title:'new',takenAt:null,takenAtSource:null},merge:true},await session()),environment);
   assert.equal(response.status,200,await response.clone().text());
   const saved = readDocument('images','driveimage_abc12345678');
@@ -259,4 +259,16 @@ test('replaced Drive media resets old derived data so every job processes the ne
   assert.equal(saved.variantsVersion,0);
   assert.equal(saved.title,'new');
   assert.equal(saved.takenAt,null);
+  for (const field of ['caption','sceneTags','captionSource','aiCaptionVersion','aiCaptionGeneratedAt']) assert.equal(saved[field],undefined,field);
+});
+
+test('replaced Drive media keeps a caption an admin edited by hand', async () => {
+  putDocument('images','driveimage_def12345678',{id:'driveimage_def12345678',driveFileId:'def12345678',driveModifiedTime:'old',title:'old',originalTitle:'old.jpg',aiTitleVersion:1,caption:'כיתוב שהמנהל כתב',sceneTags:['lesson'],captionSource:'manual',captionEditedAt:456});
+  const response = await worker.fetch(jsonRequest('/data/images/driveimage_def12345678','PUT',{data:{driveFileId:'def12345678',driveModifiedTime:'new',originalTitle:'new.jpg',title:'new'},merge:true},await session()),environment);
+  assert.equal(response.status,200,await response.clone().text());
+  const saved = readDocument('images','driveimage_def12345678');
+  assert.equal(saved.aiTitleVersion,0);
+  assert.equal(saved.caption,'כיתוב שהמנהל כתב');
+  assert.deepEqual(saved.sceneTags,['lesson']);
+  assert.equal(saved.captionSource,'manual');
 });

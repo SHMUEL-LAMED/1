@@ -177,7 +177,7 @@
                 <label class="admin-menu-search flex-1 min-w-[190px]">
                     <i data-lucide="search" class="w-4 h-4"></i>
                     <span class="sr-only">חיפוש בגלריה</span>
-                    <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תאריך או תיקייה…" oninput="handleSearch(this.value)">
+                    <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תיאור, תאריך או תיקייה…" oninput="handleSearch(this.value)">
                     <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
                 </label>
 
@@ -220,6 +220,10 @@
                     </button>
                     <span id="imageCounter">טוען...</span>
                 </div>
+                <!-- סינון לפי סוג הרגע (תגיות הסצנה). השבבים נגזרים מהפריטים שבתצוגה
+                     (media-description.js), והשורה מוסתרת כשאין לאף פריט תגית. -->
+                <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
+                <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">
@@ -511,6 +515,18 @@
             </div>
         </div>
         <p id="slideshowStatus" class="sr-only" role="status" aria-live="polite"></p>
+        <!-- הכיתוב ותגיות הסצנה של הפריט (media-description.js). לצופה הקופסה
+             מוסתרת כשאין לפריט אף אחד מהם; למנהל היא מוצגת תמיד, עם כפתור העריכה. -->
+        <div id="lightboxDescription" class="lightbox-description" hidden>
+            <div class="lightbox-description-body">
+                <p id="lightboxCaption" class="lightbox-caption" hidden></p>
+                <p id="lightboxCaptionEmpty" class="lightbox-caption-empty" hidden>אין עדיין כיתוב ותגיות לפריט הזה.</p>
+                <ul id="lightboxTags" class="lightbox-tags" aria-label="סוג הרגע" hidden></ul>
+            </div>
+            <button type="button" id="lightboxEditDescription" class="lightbox-edit" title="עריכת כיתוב ותגיות" aria-label="עריכת הכיתוב והתגיות של הפריט" hidden>
+                <i data-lucide="pencil" class="w-4 h-4"></i><span>עריכה</span>
+            </button>
+        </div>
         <div class="text-center text-sm py-2"><span id="lightboxCounter">1 מתוך 10</span></div>
     </div>
 
@@ -544,6 +560,34 @@
             <div class="modal-foot">
                 <button type="button" onclick="closeModal('moveFolderModal')" class="btn-secondary-dark">ביטול</button>
                 <button type="button" id="moveFolderSubmitBtn" class="btn-primary-gold">העבר בענן</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- עריכת כיתוב ותגיות סצנה (מנהל). מעל התצוגה המלאה, שממנה הוא נפתח. -->
+    <div id="mediaDescriptionModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="mediaDescriptionHeading">
+        <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3 id="mediaDescriptionHeading"><i data-lucide="pencil" class="w-5 h-5"></i> כיתוב ותגיות</h3>
+                <button type="button" onclick="closeModal('mediaDescriptionModal')" class="modal-close" aria-label="סגירת חלון עריכת הכיתוב"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <form id="mediaDescriptionForm" class="modal-body overflow-y-auto" novalidate>
+                <p class="field-hint">הפריט: <strong id="mediaDescriptionSubject"></strong></p>
+                <label class="block"><span class="field-label">כיתוב</span>
+                    <textarea id="mediaDescriptionCaption" maxlength="140" rows="3" aria-describedby="mediaDescriptionCaptionHint mediaDescriptionCaptionCount" placeholder="לדוגמה: מעגל ריקודים גדול באולם הישיבה בשמחת תורה."></textarea>
+                </label>
+                <p id="mediaDescriptionCaptionHint" class="field-hint">משפט או שניים, עד 140 תווים: מה קורה ברגע הזה. בלי שמות ובלי תיאור של אנשים. כיתוב שנערך כאן לא יוחלף אוטומטית.</p>
+                <p id="mediaDescriptionCaptionCount" class="field-hint scene-caption-count">0 מתוך 140 תווים</p>
+                <fieldset class="scene-tag-fieldset">
+                    <legend class="field-label">סוג הרגע</legend>
+                    <div id="mediaDescriptionTags" class="scene-tag-picker"></div>
+                    <p id="mediaDescriptionTagsHint" class="field-hint" aria-live="polite"></p>
+                </fieldset>
+                <p id="mediaDescriptionStatus" class="field-hint" role="status" aria-live="polite"></p>
+            </form>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('mediaDescriptionModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="submit" form="mediaDescriptionForm" id="mediaDescriptionSave" class="btn-primary-gold">שמירה</button>
             </div>
         </div>
     </div>
