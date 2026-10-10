@@ -146,7 +146,7 @@ function renderFaceIndexPanel() {
         } else if (checkpoint?.updatedAt) {
             statusEl.textContent = `הריצה האחרונה: ${checkpoint.processed} הושלמו, ${checkpoint.failed} נכשלו (${new Date(checkpoint.updatedAt).toLocaleString('he-IL')}).`;
         } else {
-            statusEl.textContent = 'האינדוקס עדיין לא הופעל בדפדפן הזה.';
+            statusEl.textContent = window.CLOUD_BACKGROUND_JOBS ? 'האינדוקס מתבצע בענן גם כשהדפדפן סגור.' : 'האינדוקס עדיין לא הופעל בדפדפן הזה.';
         }
     }
 
@@ -274,6 +274,7 @@ async function saveFaceIndexEntries(entries) {
 }
 
 async function startFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("faces", true);
     if (!window.checkAdminPermission()) return;
     if (faceIndexRun.running) {
         window.showNotification('האינדוקס כבר פועל.', false);
@@ -382,6 +383,7 @@ async function startFaceIndexing() {
 window.startFaceIndexing = startFaceIndexing;
 
 function stopFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("faces", false);
     if (!faceIndexRun.running) return;
     faceIndexRun.stopRequested = true;
     faceIndexRun.message = 'עוצר אחרי הקבוצה הנוכחית…';
@@ -426,6 +428,7 @@ window.resetFaceIndex = resetFaceIndex;
 // הפעלה ראשונית אוטומטית: מנהל שנכנס לאתר מפעיל או ממשיך את האינדוקס
 // בלי לחפש את הכפתור. מצב האינדוקס עצמו נשמר בענן, ולכן אין עבודה כפולה.
 async function maybeStartInitialFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return;
     if (initialFaceIndexCheckRunning || faceIndexRun.running || !canWriteFaceIndex()) return;
     if (!Array.isArray(window.state?.images) || window.state.images.length === 0) return;
     try {
@@ -461,6 +464,7 @@ window.maybeStartInitialFaceIndexing = maybeStartInitialFaceIndexing;
 // נקראת אחרי שמירה מוצלחת של תמונה. הפונקציה לעולם אינה זורקת ואינה
 // מחזירה Promise שההעלאה ממתינה לו.
 function queueFaceIndexForImage(record) {
+    if (window.CLOUD_BACKGROUND_JOBS) return;
     try {
         if (!record || window.isVideoRecord(record)) return;
         const imageId = window.safeRecordId(record.id);

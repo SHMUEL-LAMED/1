@@ -1014,6 +1014,7 @@ async function updateUserEmailIndex(env, documentId, email, updatedAt = Date.now
 }
 
 async function requireUser(request, env, allowedRoles = null) {
+  if (backgroundActors.has(request)) return backgroundActors.get(request);
   const { account, token } = await resolveAccount(request, env);
   const isInitialSuperAdmin = isInitialSuperAdminHash(await sha256(account.email));
   const profile = isInitialSuperAdmin
@@ -1056,6 +1057,7 @@ const DATA_COLLECTIONS = new Set([
 ]);
 
 async function dataActor(request, env) {
+  if (backgroundActors.has(request)) return backgroundActors.get(request);
   const { account } = await resolveAccount(request, env);
   const initialAdmin = isInitialSuperAdminHash(await sha256(account.email));
   const profile = initialAdmin
@@ -1772,6 +1774,19 @@ async function handleDataRequest(request, env, url, ctx) {
       }
     }
 
+    if (collectionName === "images" && backgroundActors.has(request) && existing.driveFileId && nextData.driveModifiedTime !== existing.driveModifiedTime) {
+      // תוכן Drive שהוחלף חייב להיבדק מחדש, ולא לרשת את תוצאות הקובץ הקודם.
+      nextData.variants = {};
+      nextData.variantsVersion = 0;
+      nextData.aiTitleVersion = 0;
+      nextData.aiTitleGeneratedAt = null;
+      nextData.title = String(payload.data.originalTitle || payload.data.title || "").replace(/\.[^.]+$/, "");
+      nextData.originalTitle = String(payload.data.originalTitle || payload.data.title || "");
+      nextData.takenAt = payload.data.takenAt || null;
+      nextData.takenAtDate = payload.data.takenAtDate || null;
+      nextData.takenAtSource = payload.data.takenAtSource || null;
+      await deleteFaceIndexForImage(env, documentId);
+    }
     if (collectionName === "activityLogs") {
       if (existingRow && actor.role !== "super_admin") {
         throw apiError("רשומת פעילות קיימת אינה ניתנת לשינוי.", 409, "activity_log_immutable");
@@ -1834,7 +1849,7 @@ async function handleDataRequest(request, env, url, ctx) {
     }
     await bumpDataVersion(env, collectionName);
     if (collectionName === "images" && !existingRow && nextData.mediaType !== "video" && env.OPENAI_API_KEY && ctx?.waitUntil) {
-      ctx.waitUntil(generateImageTitle(request, env, documentId).catch(error => {
+      ctx.waitUntil(readBackgroundConfig(env).then(config => config.enabled.titles ? generateImageTitle(request, env, documentId) : null).catch(error => {
         console.warn("Automatic image title failed", error.code || "ai_title_failed");
       }));
     }
@@ -5463,6 +5478,171 @@ async function clearResolvedClientErrors(request, env) {
   return json(request, { success: true, deleted: (result.results || []).length });
 }
 
+// תהליך תחזוקה ב-GitHub Actions: אימות OIDC חתום, ללא סוד קבוע בדפדפן.
+const BACKGROUND_REPOSITORY = "SHMUEL-LAMED/1";
+const BACKGROUND_REPOSITORY_ID = "1308950667";
+const BACKGROUND_OWNER_ID = "295421676";
+const BACKGROUND_WORKFLOW = "SHMUEL-LAMED/1/.github/workflows/background-jobs.yml@refs/heads/main";
+const backgroundActors = new WeakMap();
+let githubJwksCache = null;
+const BACKGROUND_JOB_NAMES = ["titles", "faces", "variants", "dates", "drive"];
+
+async function readBackgroundConfig(env) {
+  const row = await readGalleryDocumentRow(env, "systemMeta", "backgroundJobs");
+  const saved = parseDocumentData(row);
+  return {
+    enabled: Object.fromEntries(BACKGROUND_JOB_NAMES.map(name => [name, saved.enabled?.[name] !== false])),
+    driveFolders: Array.isArray(saved.driveFolders) ? saved.driveFolders.slice(0, 50) : [{ id: "1Hb8mCpdnKcax8T6Xulq8PLXzlGcJaBhF", label: "שמחס'", autoSync: true }],
+    driveOwnerUid: String(saved.driveOwnerUid || ""),
+    intervalMinutes: Math.max(15, Math.min(1440, Number(saved.intervalMinutes) || 15)),
+    updatedAt: Number(saved.updatedAt) || 0
+  };
+}
+
+async function saveBackgroundDocument(env, id, value) {
+  const now = Date.now();
+  await env.GALLERY_DB.prepare(
+    "INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at) VALUES ('systemMeta', ?, ?, 'background-worker', ?, ?) ON CONFLICT(collection_name, document_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at"
+  ).bind(id, JSON.stringify(value), now, now).run();
+  await bumpDataVersion(env, "systemMeta");
+}
+
+async function verifyGithubBackgroundToken(request, env) {
+  const token = getBearerToken(request);
+  let parts, header, claims;
+  try {
+    parts = token.split(".");
+    if (parts.length !== 3 || token.length > 16000) throw new Error();
+    header = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[0])));
+    claims = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[1])));
+  } catch { throw apiError("אסימון תהליך הרקע אינו תקין.", 401, "background_invalid_token"); }
+  const now = Math.floor(Date.now() / 1000);
+  if (header.alg !== "RS256" || !header.kid || claims.iss !== "https://token.actions.githubusercontent.com" ||
+      claims.aud !== `${publicApiOrigin(request, env)}/background` || claims.repository !== BACKGROUND_REPOSITORY ||
+      claims.repository_id !== BACKGROUND_REPOSITORY_ID || claims.repository_owner_id !== BACKGROUND_OWNER_ID ||
+      claims.workflow_ref !== BACKGROUND_WORKFLOW || claims.ref !== "refs/heads/main" ||
+      !["schedule", "workflow_dispatch", "push"].includes(claims.event_name) ||
+      !Number.isFinite(claims.exp) || claims.exp <= now || claims.exp > now + 900 ||
+      !Number.isFinite(claims.iat) || claims.iat > now + 30 || claims.iat < now - 900 ||
+      (claims.nbf && claims.nbf > now + 30)) {
+    throw apiError("תהליך הרקע אינו מורשה.", 403, "background_untrusted_workflow");
+  }
+  async function keys(force = false) {
+    if (!force && githubJwksCache && githubJwksCache.expires > Date.now()) return githubJwksCache.keys;
+    const response = await fetch("https://token.actions.githubusercontent.com/.well-known/jwks", { signal: AbortSignal.timeout(10000) });
+    const payload = await response.json();
+    if (!response.ok || !Array.isArray(payload.keys)) throw apiError("לא ניתן לאמת את תהליך הרקע.", 503, "background_jwks_unavailable");
+    githubJwksCache = { keys: payload.keys, expires: Date.now() + 3600000 };
+    return payload.keys;
+  }
+  let jwk = (await keys()).find(key => key.kid === header.kid && key.kty === "RSA");
+  if (!jwk) jwk = (await keys(true)).find(key => key.kid === header.kid && key.kty === "RSA");
+  if (!jwk) throw apiError("חתימת תהליך הרקע אינה תקינה.", 401, "background_invalid_signature");
+  const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, base64UrlDecodeToBytes(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+  if (!valid) throw apiError("חתימת תהליך הרקע אינה תקינה.", 401, "background_invalid_signature");
+  return claims;
+}
+
+async function backgroundSession(request, env) {
+  const claims = await verifyGithubBackgroundToken(request, env);
+  await consumeRateLimit(env, "background-session", 20, 3600000, "יותר מדי ריצות רקע.", "background_session_rate_limit");
+  const payload = { scope: "gallery-maintenance", runId: String(claims.run_id || ""), exp: Math.floor(Date.now() / 1000) + 1800 };
+  const encoded = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  // הפרדת חתימה מאסימוני משתמש: שינוי bg1 ל-v1 אינו מעניק כניסה לחשבון.
+  const signature = await signSessionPayload(env, `background:${encoded}`);
+  const response = json(request, { success: true, token: `bg1.${encoded}.${signature}`, expiresAt: payload.exp * 1000 });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+function backgroundAllowedPath(method, path) {
+  if (method === "GET") return /^\/data\/(images|pendingImages|folders)(\/[^/]+)?$/.test(path) ||
+    ["/background/config", "/background/status", "/face/index/summary", "/media/variants/stats"].includes(path) || path.startsWith("/face-assets/") ||
+    /^\/media\/(probe\/[^/]+|(approved|pending|variants)\/)/.test(path);
+  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort"].includes(path);
+  if (method === "PUT") return path === "/upload/multipart/part" || /^\/data\/(images\/driveimage|folders\/drivefolder)_[A-Za-z0-9_-]+$/.test(path);
+  return false;
+}
+
+async function authorizeBackgroundRequest(request, env, path) {
+  const token = String(request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token.startsWith("bg1.")) return;
+  const parts = token.split(".");
+  let payload;
+  try { payload = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[1]))); } catch {}
+  if (parts.length !== 3 || payload?.scope !== "gallery-maintenance" || !Number.isFinite(payload?.exp) || payload.exp * 1000 <= Date.now() ||
+      !constantTimeHexEqual(parts[2] || "", await signSessionPayload(env, `background:${parts[1]}`))) {
+    throw apiError("הרשאת תהליך הרקע פגה.", 401, "background_session_expired");
+  }
+  if (!backgroundAllowedPath(request.method, path)) throw apiError("פעולה זו אינה מורשית לתהליך הרקע.", 403, "background_scope_denied");
+  const actor = { uid: "background-worker", email: "background@internal.invalid", role: "admin", status: "approved", initialAdmin: false, idToken: token,
+    account: { localId: "background-worker", email: "background@internal.invalid", displayName: "תהליך רקע בענן" } };
+  backgroundActors.set(request, actor);
+}
+
+async function backgroundConfig(request, env) {
+  const actor = await requireUser(request, env, ["admin", "super_admin"]);
+  const current = await readBackgroundConfig(env);
+  if (request.method === "GET") return json(request, { success: true, config: current });
+  const payload = await request.json().catch(() => ({}));
+  for (const name of BACKGROUND_JOB_NAMES) if (typeof payload.enabled?.[name] === "boolean") current.enabled[name] = payload.enabled[name];
+  if (Array.isArray(payload.driveFolders)) {
+    current.driveFolders = payload.driveFolders.slice(0, 50).map(folder => ({ id: String(folder.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 120), label: String(folder.label || "Drive").slice(0, 120), autoSync: folder.autoSync !== false })).filter(folder => folder.id.length >= 10);
+    current.driveOwnerUid = actor.uid;
+  }
+  if (payload.intervalMinutes !== undefined) current.intervalMinutes = Math.max(15, Math.min(1440, Number(payload.intervalMinutes) || 15));
+  current.updatedAt = Date.now();
+  await saveBackgroundDocument(env, "backgroundJobs", current);
+  return json(request, { success: true, config: current });
+}
+
+async function backgroundStatus(request, env) {
+  await requireUser(request, env, ["admin", "super_admin"]);
+  if (request.method === "GET") return json(request, { success: true, state: parseDocumentData(await readGalleryDocumentRow(env, "systemMeta", "backgroundState")) });
+  if (!backgroundActors.has(request)) throw apiError("רק תהליך הרקע יכול לעדכן את המצב.", 403, "background_scope_denied");
+  const payload = await request.json().catch(() => ({}));
+  if (JSON.stringify(payload.cursor || {}).length > 200000) throw apiError("מצב הריצה גדול מדי.", 400, "background_cursor_too_large");
+  // אובייקטים קטנים בלבד, ללא אסימונים, טביעות פנים או פרטי משתמשים ביומן.
+  const state = {
+    runId: String(payload.runId || "").replace(/[^0-9]/g, "").slice(0, 30),
+    updatedAt: Date.now(), startedAt: Number(payload.startedAt) || Date.now(),
+    phase: String(payload.phase || "idle").slice(0, 30),
+    cursor: payload.cursor && typeof payload.cursor === "object" ? JSON.parse(JSON.stringify(payload.cursor)) : {},
+    jobs: Object.fromEntries(BACKGROUND_JOB_NAMES.map(name => [name, {
+      processed: Math.max(0, Math.min(1000000, Number(payload.jobs?.[name]?.processed) || 0)),
+      failed: Math.max(0, Math.min(1000000, Number(payload.jobs?.[name]?.failed) || 0)),
+      message: String(payload.jobs?.[name]?.message || "").slice(0, 240)
+    }])),
+    retry: Array.isArray(payload.retry) ? payload.retry.slice(-500).map(item => ({ job: String(item.job || "").slice(0, 20), id: safeImageId(item.id), attempts: Math.min(10, Math.max(1, Number(item.attempts) || 1)), after: Math.min(Date.now() + 7 * 86400000, Number(item.after) || Date.now()) })) : []
+  };
+  await saveBackgroundDocument(env, "backgroundState", state);
+  return json(request, { success: true });
+}
+
+async function backgroundDriveToken(request, env) {
+  if (!backgroundActors.has(request)) throw apiError("פעולה זו מיועדת לתהליך הרקע.", 403, "background_scope_denied");
+  const config = await readBackgroundConfig(env);
+  if (!config.enabled.drive) return json(request, { success: true, connected: false });
+  let uid = config.driveOwnerUid;
+  if (!uid) {
+    const listed = await env.GALLERY_BUCKET.list({ prefix: "private/drive-oauth/credentials/", limit: 50 });
+    for (const object of listed.objects || []) {
+      const candidate = object.key.split("/").pop().replace(/\.json$/, "");
+      const profile = parseDocumentData(await readGalleryDocumentRow(env, "userProfiles", candidate));
+      if (profile.status === "approved" && ["admin", "super_admin"].includes(profile.role)) { uid = candidate; break; }
+    }
+  }
+  if (!uid) return json(request, { success: true, connected: false });
+  const profile = parseDocumentData(await readGalleryDocumentRow(env, "userProfiles", uid));
+  if (profile.status !== "approved" || !["admin", "super_admin"].includes(profile.role)) return json(request, { success: true, connected: false });
+  const actor = backgroundActors.get(request);
+  backgroundActors.set(request, { ...actor, uid, email: String(profile.email || "") });
+  const response = await getDriveAccessToken(request, env);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
 export default {
   async fetch(request, env, ctx) {
     runtimeEnv = env;
@@ -5482,6 +5662,11 @@ export default {
       await assertDatabaseEnvironment(env);
 
       const url = new URL(request.url);
+      if (request.method === "POST" && url.pathname === "/background/session") return await backgroundSession(request, env);
+      await authorizeBackgroundRequest(request, env, url.pathname);
+      if (["GET", "PUT"].includes(request.method) && url.pathname === "/background/config") return await backgroundConfig(request, env);
+      if (["GET", "POST"].includes(request.method) && url.pathname === "/background/status") return await backgroundStatus(request, env);
+      if (request.method === "POST" && url.pathname === "/background/drive-token") return await backgroundDriveToken(request, env);
       if (url.pathname.startsWith("/data/")) {
         return await handleDataRequest(request, env, url, ctx);
       }
@@ -5499,7 +5684,7 @@ export default {
           version: "2026-10-08-data-layer-cursors-etag-cache",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles",
+            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles", "cloud-background-jobs",
             "data-filters", "cursor-pagination", "etag-304", "edge-cache",
             "resumable-uploads", "face-people", "face-find-me", ...(streamConfig(env) ? ["cloudflare-stream"] : [])
           ],

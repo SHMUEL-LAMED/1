@@ -1054,6 +1054,12 @@ export class FakeWorker {
         if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
 
         try {
+            if (url.pathname === '/background/config') {
+                this.backgroundConfig ||= { enabled: { titles: true, faces: true, variants: true, dates: true, drive: true }, driveFolders: [], intervalMinutes: 15 };
+                if (method === 'PUT') this.backgroundConfig.enabled = { ...this.backgroundConfig.enabled, ...request.postDataJSON().enabled };
+                return json({ success: true, config: this.backgroundConfig });
+            }
+            if (url.pathname === '/background/status') return json({ success: true, state: { phase: 'idle', jobs: {}, cursor: {}, retry: [] } });
             if (method === 'GET' && url.pathname === '/media/variants/stats') return json(this.variantStats(request));
             if (method === 'GET' && url.pathname.startsWith('/media/')) {
                 // קובץ שהועלה בבדיקה מוגש כפי שנשמר; כל כתובת אחרת מקבלת את תמונת הבסיס.
