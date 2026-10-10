@@ -14,6 +14,12 @@ import {
     initLightboxSlideshow, isSlideshowActive, startSlideshow, stopSlideshow,
     slideshowNoteNavigation, handleSlideshowKey
 } from './lightbox-slideshow.js';
+// כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
+import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
+import {
+    renderSceneFilterChips, installSceneFilterChips, renderLightboxDescription,
+    installLightboxDescription, openDescriptionEditor
+} from './media-description.js';
 
 let currentFilteredImages = [];
 
@@ -571,23 +577,60 @@ window.setGalleryHebrewMonth = function(value) {
     autoloadForDateFilter();
 };
 
+// --- סינון לפי סוג הרגע (תגיות הסצנה) ---
+// תגית אחת בכל פעם; לחיצה על התגית הפעילה, או על "כל הרגעים", מבטלת את הסינון.
+// כמו בוררי התאריך, סינון פעיל בתיקייה שטרם נטענה כולה מושך את שאר העמודים.
+function activeSceneTag() {
+    return isSceneTagId(window.state.sceneTagFilter) ? window.state.sceneTagFilter : '';
+}
+
+window.hasActiveSceneFilter = function() {
+    return Boolean(activeSceneTag());
+};
+
+window.setGallerySceneTag = function(value) {
+    const next = isSceneTagId(value) && value !== activeSceneTag() ? value : '';
+    window.state.sceneTagFilter = next;
+    window.renderImages();
+    if (next && window.state.imagesHasMore) {
+        window.loadAllImagesForSearch?.()?.catch(error => console.warn('Scene filter autoload failed:', error));
+    }
+};
+
+// ההכרזה לקוראי מסך נכתבת רק כשהסינון השתנה, לא בכל ציור.
+let announcedSceneTag = null;
+function announceSceneFilter(count) {
+    const status = document.getElementById('gallerySceneFilterStatus');
+    const active = activeSceneTag();
+    if (!status || announcedSceneTag === active) return;
+    const first = announcedSceneTag === null;
+    announcedSceneTag = active;
+    if (first && !active) return;
+    status.textContent = active ? `מוצגים ${count} פריטים מסוג ${sceneTagLabel(active)}` : 'מוצגים כל הרגעים';
+}
+
 function getFilteredSortedImages() {
     let filtered = scopedGalleryImages();
     const hebrewFilters = activeHebrewFilters();
     if (hebrewFilters.year || hebrewFilters.month) {
         filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
     }
+    const sceneTag = activeSceneTag();
+    if (sceneTag) filtered = filtered.filter(img => recordHasSceneTag(img, sceneTag));
     if (window.state.searchQuery) {
         const q = window.state.searchQuery.toLowerCase();
         filtered = filtered.filter(img => {
             const folderName = window.state.folders.find(folder => folder.id === img.folderId)?.name || '';
+            // הכיתוב והתגיות נשמרו ברשומה בזמן ההעלאה, ולכן החיפוש בהם מיידי
+            // ואינו פונה ל־AI.
             return [
                 img.title,
                 img.date,
                 mediaDateInfo(img).hebrewText,
                 folderName,
                 img.uploadedByName,
-                img.originalFolderName
+                img.originalFolderName,
+                descriptionSearchText(img)
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
@@ -801,7 +844,7 @@ let galleryRenderPending = false;
 // שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
 function currentViewSignature() {
     return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
-        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || ''];
+        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag()];
 }
 
 function sameViewSignature(first, second) {
@@ -831,7 +874,10 @@ window._doRenderImages = function() {
     // פריט בלי מזהה אינו מקבל כרטיס, ולכן אינו נספר — כך המספור ומיקום
     // הכרטיס ברשת נשארים חופפים.
     galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
-    renderHebrewDateFilters(scopedGalleryImages());
+    const scoped = scopedGalleryImages();
+    renderHebrewDateFilters(scoped);
+    renderSceneFilterChips(document.getElementById('gallerySceneFilter'), scoped, activeSceneTag());
+    announceSceneFilter(galleryPageItems.length);
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 
@@ -867,7 +913,7 @@ function galleryCounterLabel(shownCount) {
     const state = window.state;
     if (state.imagesLoading && shownCount === 0) return 'טוען…';
     if (state.tempSearchResults !== null || !state.imagesHasMore) return `${shownCount} פריטים`;
-    if (state.searchQuery || window.hasActiveDateFilter?.()) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
+    if (state.searchQuery || window.hasActiveDateFilter?.() || window.hasActiveSceneFilter?.()) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
     const total = galleryFolderTotal();
     return total > shownCount ? `${shownCount} מתוך ${total} פריטים` : `${shownCount} פריטים`;
 }
@@ -1014,7 +1060,7 @@ function buildGalleryCard(img, isEditBlocked) {
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
-        : buildCardPicture(cardSource, title);
+        : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
             <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
@@ -2171,6 +2217,63 @@ function navigateLightbox(step) {
     slideshowNoteNavigation();
 }
 
+// --- כיתוב ותגיות: עריכה למנהל מתוך התצוגה המלאה ---
+// הרשומה נכתבת במיזוג (רק שדות התיאור), וה־Worker מנרמל אותה ומחזיר את
+// הרשומה המלאה. captionSource: 'manual' מבטיח שריצת ההשלמה לא תדרוס את העריכה.
+function replaceLoadedRecord(list, record) {
+    if (!Array.isArray(list)) return list;
+    const id = window.safeRecordId(record.id);
+    return list.map(item => (window.safeRecordId(item?.id) === id ? record : item));
+}
+
+async function saveMediaDescription(imageId, { caption, sceneTags }) {
+    if (!window.state.isAdminLoggedIn) throw new Error('עריכת הכיתוב זמינה למנהלים בלבד.');
+    const id = window.safeRecordId(imageId);
+    const current = currentFilteredImages.find(item => window.safeRecordId(item.id) === id)
+        || (window.state.images || []).find(item => window.safeRecordId(item.id) === id);
+    if (!id || !current) throw new Error('הפריט לא נמצא. רענן ונסה שוב.');
+    const { doc, setDoc } = window.firestoreModules;
+    const patch = { caption, sceneTags, captionSource: 'manual', captionEditedAt: Date.now() };
+    const result = await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'images', id), patch, { merge: true });
+    let saved;
+    if (result?.data && typeof result.data === 'object') {
+        saved = { ...result.data, id };
+    } else {
+        saved = { ...current, ...patch };
+        if (!caption) delete saved.caption;
+        if (!sceneTags.length) delete saved.sceneTags;
+    }
+    window.state.images = replaceLoadedRecord(window.state.images, saved);
+    window.state.latestImages = replaceLoadedRecord(window.state.latestImages, saved);
+    if (window.state.tempSearchResults !== null) window.state.tempSearchResults = replaceLoadedRecord(window.state.tempSearchResults, saved);
+    currentFilteredImages = replaceLoadedRecord(currentFilteredImages, saved);
+    window.noteGalleryImageUpserted?.(saved);
+    window.renderImages();
+    // בתצוגה המלאה מתעדכן רק התיאור; התמונה עצמה אינה נטענת מחדש.
+    const lightbox = document.getElementById('lightboxModal');
+    const shown = currentFilteredImages[window.state.currentLightboxIndex];
+    if (lightbox && !lightbox.classList.contains('hidden') && window.safeRecordId(shown?.id) === id) {
+        renderLightboxDescription(saved, { canEdit: true });
+    }
+    return saved;
+}
+
+function editCurrentLightboxDescription() {
+    if (!window.checkAdminPermission()) return;
+    const img = currentFilteredImages[window.state.currentLightboxIndex];
+    if (!img) return;
+    // מצגת שרצה הייתה מחליפה את הפריט שמאחורי החלון בזמן העריכה.
+    stopSlideshow({ silent: true });
+    openDescriptionEditor(img, { onSave: values => saveMediaDescription(img.id, values) });
+}
+
+// תגית בתצוגה המלאה: סוגרת את התצוגה ומסננת את הגלריה לאותו סוג רגע.
+function filterBySceneTagFromLightbox(tagId) {
+    if (!isSceneTagId(tagId)) return;
+    window.closeLightbox();
+    if (activeSceneTag() !== tagId) window.setGallerySceneTag(tagId);
+}
+
 // נקרא גם מ-closeModal (Escape הכללי) וגם מכפתור הסגירה.
 window.onLightboxClosed = function() {
     stopSlideshow({ silent: true });
@@ -2476,6 +2579,11 @@ function updateLightbox(immediate = false) {
     const lbDetails = document.getElementById('lightboxDetails');
     if(lbDetails) lbDetails.innerText = `${isVideo ? `סרטון${formatMediaDuration(img.duration) ? ` (${formatMediaDuration(img.duration)})` : ''}` : 'תמונה'} • ${lightboxDateLabel(img)} • תיקייה: ${f ? f.name : 'כללי'}`;
 
+    // הכיתוב ותגיות הסצנה, וכפתור העריכה למנהל. הכיתוב הוא גם הטקסט החלופי
+    // של התמונה לקוראי מסך, כשיש כזה.
+    renderLightboxDescription(img, { canEdit: Boolean(window.state.isAdminLoggedIn) });
+    if (lbImage && !isVideo) lbImage.alt = normalizeCaption(img.caption) || img.title || 'תצוגת תמונה';
+
     const lbDownload = document.getElementById('lightboxDownload');
     if(lbDownload) {
         lbDownload.disabled = !imageUrl;
@@ -2489,7 +2597,11 @@ function updateLightbox(immediate = false) {
 }
 document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');
-    if (lightbox && !lightbox.classList.contains('hidden')) {
+    // חלון עריכת הכיתוב יושב מעל התצוגה המלאה: החצים והרווח שייכים לשדה
+    // שבו, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
+    const editor = document.getElementById('mediaDescriptionModal');
+    const editorOpen = Boolean(editor && !editor.classList.contains('hidden'));
+    if (lightbox && !lightbox.classList.contains('hidden') && !editorOpen) {
         // רווח ו-Escape שייכים למצגת כשהיא פועלת (Escape עוצר אותה בלבד).
         if (handleSlideshowKey(e)) return;
         if (e.key === 'ArrowLeft') navigateLightbox(1);
@@ -2733,6 +2845,7 @@ window.changeImageFolder = changeImageFolder;
 window.openLightbox = openLightbox;
 window.navigateLightbox = navigateLightbox;
 window.getFilteredSortedImages = getFilteredSortedImages;
+window.saveMediaDescription = saveMediaDescription;
 
 // מאפס את מצב ההשהיה של תור ההעלאה; נקרא מ-closeModal ב-app.js.
 window.resetUploadPauseState = function() {
@@ -2747,4 +2860,7 @@ export function initGallery() {
     window.renderImages?.();
     const grid = document.getElementById('photosGrid');
     if (grid) installVideoHoverPreview(grid);
+    // שבבי סוג הרגע, תגיות התצוגה המלאה וכפתור העריכה — מאזין אחד לכל אחד.
+    installSceneFilterChips(document.getElementById('gallerySceneFilter'), tagId => window.setGallerySceneTag(tagId));
+    installLightboxDescription({ onTagSelect: filterBySceneTagFromLightbox, onEdit: editCurrentLightboxDescription });
 }

@@ -9,6 +9,8 @@
 import { test as base, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
+// הכיתובים ותגיות הסצנה: אותם כללים בדיוק כמו בדפדפן וב-Worker.
+import { normalizeCaption, normalizeSceneTags, AI_CAPTION_VERSION } from '../scene-tags.js';
 
 export const API_ORIGIN = 'https://simchas-gallery-api.0534169095.workers.dev';
 // באתר שמוגש מ-127.0.0.1 הקוד פונה ל-Worker של סביבת הניסוי (ראו api-environment.js);
@@ -262,6 +264,36 @@ function assertDataPermission(actor, collectionName, method, documentId = '') {
 }
 
 // increment() של הלקוח מגיע כאובייקט פעולה; השרת פותר אותו מול הערך הקודם.
+// כמו normalizeImageDescriptionFields ב-Worker: עותק ישן בלי השדות משאיר את
+// מה שנשמר, רק מנהל משנה אותם, וכל ערך מנורמל (כיתוב עד 140, תגיות מהטקסונומיה).
+const DESCRIPTION_FIELDS = ['caption', 'sceneTags', 'captionSource', 'aiCaptionVersion', 'aiCaptionGeneratedAt', 'captionEditedAt'];
+function normalizeDescriptionFields(data, existing, canEdit) {
+    const next = { ...data };
+    const previous = existing || {};
+    for (const field of DESCRIPTION_FIELDS) {
+        if (canEdit && next[field] !== undefined) continue;
+        if (previous[field] === undefined) delete next[field];
+        else next[field] = previous[field];
+    }
+    if (next.caption !== undefined) {
+        const caption = normalizeCaption(next.caption);
+        if (caption) next.caption = caption; else delete next.caption;
+    }
+    if (next.sceneTags !== undefined) {
+        const tags = normalizeSceneTags(next.sceneTags);
+        if (tags.length) next.sceneTags = tags; else delete next.sceneTags;
+    }
+    if (next.captionSource !== undefined && !['ai', 'manual'].includes(next.captionSource)) delete next.captionSource;
+    return next;
+}
+
+// התשובה המובנית של מודל ה-AI בזיוף: שם, כיתוב ותגיות (תוויות עבריות).
+export const FAKE_AI_DESCRIPTION = {
+    title: 'בחורים רוקדים במעגל',
+    caption: 'מעגל ריקודים גדול באולם, וסביבו קהל שמוחא כפיים.',
+    tags: ['ריקוד', 'תמונה קבוצתית']
+};
+
 function resolveDataOperations(value, previousValue) {
     if (value && typeof value === 'object' && value.__cloudflareOperation === 'increment') {
         return (Number(previousValue) || 0) + (Number(value.amount) || 0);
@@ -291,6 +323,13 @@ export class FakeWorker {
         this.failParts = new Set();
         // השהיה מלאכותית לכל העלאה רגילה, כדי שבדיקה תספיק ללחוץ "בטל".
         this.uploadDelayMs = 0;
+        // שם, כיתוב ותגיות (POST /ai-title): האם מוגדר מפתח AI, מה המודל
+        // "מחזיר" לכל רשומה (פונקציה שיכולה גם לזרוק apiError), אילו תמונות
+        // נשלחו אליו, ושער אופציונלי שמחזיק את הבקשה עד שהבדיקה משחררת אותו.
+        this.aiEnabled = true;
+        this.aiDescribe = () => FAKE_AI_DESCRIPTION;
+        this.aiCalls = [];
+        this.aiGate = null;
     }
 
     collection(name) {
@@ -497,6 +536,10 @@ export class FakeWorker {
             const existing = docs.get(documentId) || null;
             let nextData = resolveDataOperations(payload.data, existing || {});
             if (payload.merge === true) nextData = { ...(existing || {}), ...nextData };
+            if (['images', 'pendingImages'].includes(collectionName)) {
+                const admin = actor.status === 'approved' && ['admin', 'super_admin'].includes(actor.role);
+                nextData = normalizeDescriptionFields(nextData, existing, admin);
+            }
             // משתמש רגיל אינו משנה את הדרגה או את מצב האישור של עצמו.
             if (collectionName === 'userProfiles' && documentId === actor.uid && actor.role !== 'super_admin') {
                 nextData = {
@@ -737,6 +780,51 @@ export class FakeWorker {
         return { success: true, imageId, variants: attached.variants, variantsVersion: MEDIA_VARIANTS_VERSION, updated: attached.updated };
     }
 
+    // POST /ai-title — כמו generateImageDescription ב-Worker: מנהל בלבד, בלי
+    // מפתח 503, שם AI נשמר פעם אחת, כיתוב ותגיות פעם אחת לכל גרסה, וכיתוב
+    // ידני לעולם אינו נדרס. "המודל" הוא this.aiDescribe.
+    async handleAiTitle(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved' || !['admin', 'super_admin'].includes(actor.role)) {
+            throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        }
+        if (!this.aiEnabled) throw apiError('מפתח ה־AI אינו מוגדר בשרת.', 503, 'openai_key_missing');
+        const payload = JSON.parse(request.postData() || '{}');
+        const id = safeDataPart(payload.imageId, 'מזהה התמונה');
+        const docs = this.collection('images');
+        const record = docs.get(id);
+        if (!record) throw apiError('התמונה אינה קיימת בגלריה.', 404, 'not_found');
+        const describe = data => ({
+            id, title: data.title || '', caption: data.caption || '',
+            sceneTags: normalizeSceneTags(data.sceneTags), captionSource: data.captionSource || ''
+        });
+        const needsTitle = record.aiTitleVersion !== 1;
+        const needsCaption = record.aiCaptionVersion !== AI_CAPTION_VERSION && record.captionSource !== 'manual';
+        if (!needsTitle && !needsCaption) return { success: true, ...describe(record), skipped: true };
+        this.aiCalls.push(id);
+        if (this.aiGate) await this.aiGate;
+        const output = this.aiDescribe(record);
+        const now = Date.now();
+        const next = { ...record };
+        if (needsTitle) {
+            next.title = output.title;
+            next.originalTitle = record.originalTitle || record.title || '';
+            next.aiTitleVersion = 1;
+            next.aiTitleGeneratedAt = now;
+        }
+        if (needsCaption) {
+            const caption = normalizeCaption(output.caption);
+            const tags = normalizeSceneTags(output.tags);
+            if (caption) next.caption = caption; else delete next.caption;
+            if (tags.length) next.sceneTags = tags; else delete next.sceneTags;
+            next.captionSource = 'ai';
+            next.aiCaptionVersion = AI_CAPTION_VERSION;
+            next.aiCaptionGeneratedAt = now;
+        }
+        docs.set(id, next);
+        return { success: true, ...describe(next), skipped: false };
+    }
+
     // GET /media/variants/stats — כמו ב-Worker: סיכום הקבצים שנשמרו, לפי פורמט.
     variantStats(request) {
         const actor = this.actor(request);
@@ -822,12 +910,16 @@ export class FakeWorker {
             if (method === 'POST' && url.pathname === '/upload/multipart/abort') return json(this.handleMultipartAbort(request));
             if (method === 'POST' && url.pathname === '/media/variants') return json(await this.handleAttachVariants(request));
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
+            if (method === 'POST' && url.pathname === '/ai-title') return json(await this.handleAiTitle(request));
             if (url.pathname.startsWith('/data/')) {
                 const payload = this.handleData(request, url);
                 return method === 'GET' ? etagJson(payload) : json(payload);
             }
             if (method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
-                return json({ success: true, service: 'simchas-gallery-api', databaseConnected: true, bucketConnected: true });
+                return json({
+                    success: true, service: 'simchas-gallery-api', databaseConnected: true, bucketConnected: true,
+                    aiDescriptionsEnabled: this.aiEnabled
+                });
             }
             if (method === 'POST' && url.pathname === '/drive/token') {
                 this.actor(request);
