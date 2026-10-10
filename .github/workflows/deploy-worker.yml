@@ -169,27 +169,53 @@ jobs:
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        # העלאה דרך Versions API ואז פריסה של הגרסה ב-100%. ה-API הישן (PUT
+        # ‎/scripts) מקבל רק version_id: "latest" בירושת Bindings, וזה לא מספיק
+        # אחרי Rollback, כשהגרסה האחרונה שהועלתה אינה הגרסה הפעילה.
         run: |
-          api_url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${CLOUDFLARE_WORKER_NAME}?bindings_inherit=strict"
-          if ! curl --fail-with-body --silent --show-error \
-            --request PUT "$api_url" \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --form 'metadata=<worker-metadata.json;type=application/json' \
-            --form 'cloudflare-worker.js=@cloudflare-worker.js;type=application/javascript+module' \
-            --output deploy-response.json; then
-            echo "::error::Cloudflare rejected the upload. Response:"
-            cat deploy-response.json || true
-            echo
-            echo "Bindings sent:"
-            node -e 'console.log(JSON.stringify(JSON.parse(require("fs").readFileSync("worker-metadata.json","utf8")).bindings))'
-            exit 1
-          fi
-          node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-            const payload = JSON.parse(readFileSync("deploy-response.json", "utf8"));
-            if (payload?.success !== true) throw new Error(`Cloudflare rejected the deployment of ${process.env.CLOUDFLARE_WORKER_NAME}.`);
-            console.log(`Cloudflare Worker ${process.env.CLOUDFLARE_WORKER_NAME} deployed successfully.`);
-          '
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const workerName = process.env.CLOUDFLARE_WORKER_NAME;
+          const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}`;
+          const headers = { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` };
+
+          async function call(path, init, label) {
+            const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...headers, ...(init.headers || {}) } });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || payload?.success !== true) {
+              console.log(`::error::${label} was rejected by Cloudflare (${response.status}).`);
+              console.log(JSON.stringify(payload, null, 2));
+              process.exit(1);
+            }
+            return payload.result;
+          }
+
+          const metadata = JSON.parse(readFileSync("worker-metadata.json", "utf8"));
+          console.log(`Bindings: ${JSON.stringify(metadata.bindings)}`);
+          const form = new FormData();
+          form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+          form.append("cloudflare-worker.js", new Blob([readFileSync("cloudflare-worker.js")], { type: "application/javascript+module" }), "cloudflare-worker.js");
+
+          const version = await call("/versions?bindings_inherit=strict", { method: "POST", body: form }, "Version upload");
+          const versionId = version?.id;
+          if (!versionId) {
+            console.log("::error::Cloudflare did not return a version id.");
+            process.exit(1);
+          }
+          console.log(`Uploaded version ${versionId}.`);
+
+          await call("/deployments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              strategy: "percentage",
+              versions: [{ version_id: versionId, percentage: 100 }],
+              annotations: { "workers/message": metadata.annotations?.["workers/message"] || "" }
+            })
+          }, "Deployment");
+          console.log(`Cloudflare Worker ${workerName} deployed successfully (version ${versionId} at 100%).`);
+          NODE
 
       - name: Verify Worker health
         run: |
