@@ -945,7 +945,9 @@ async function ensureDatabaseSchema(env) {
     databaseSchemaReady = true;
   } catch (error) {
     console.error("D1 schema initialization failed", error);
-    throw apiError("מסד הנתונים מחובר, אך טבלת הנתונים אינה זמינה.", 500, "database_schema_unavailable");
+    const failure = apiError("מסד הנתונים מחובר, אך טבלת הנתונים אינה זמינה.", 500, "database_schema_unavailable");
+    failure.schemaCause = String(error?.cause?.message || error?.message || "unknown").split("\n")[0].replace(/https?:\/\/\S+/g, "[url]").slice(0,180);
+    throw failure;
   }
 }
 
@@ -5982,7 +5984,8 @@ export default {
         success: false,
         code: error?.code || "internal_error",
         message: error?.message || "אירעה שגיאה פנימית.",
-        ...(error?.code === "ai_title_failed" ? { providerCode: error.providerCode, providerStatus: error.providerStatus } : {})
+        ...(error?.code === "ai_title_failed" ? { providerCode: error.providerCode, providerStatus: error.providerStatus } : {}),
+        ...(error?.code === "database_schema_unavailable" ? { schemaCause: error.schemaCause } : {})
       }, status);
     }
   }
