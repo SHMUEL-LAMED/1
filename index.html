@@ -174,12 +174,21 @@
 
             <!-- סרגל הכלים: חיפוש, מיון וכלי ה-AI במקום אחד. -->
             <div class="gallery-toolbar">
-                <label class="admin-menu-search flex-1 min-w-[190px]">
-                    <i data-lucide="search" class="w-4 h-4"></i>
-                    <span class="sr-only">חיפוש בגלריה</span>
-                    <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תאריך או תיקייה…" oninput="handleSearch(this.value)">
-                    <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
-                </label>
+                <!-- שדה החיפוש הוא combobox: בפוקוס נפתח מתחתיו תפריט של חיפושים
+                     שמורים ואחרונים (search-history-ui.js). -->
+                <div id="gallerySearchBox" class="gallery-search flex-1 min-w-[190px]">
+                    <label class="admin-menu-search">
+                        <i data-lucide="search" class="w-4 h-4"></i>
+                        <span class="sr-only">חיפוש בגלריה</span>
+                        <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תאריך או תיקייה…" oninput="handleSearch(this.value)"
+                            role="combobox" aria-autocomplete="list" aria-haspopup="grid" aria-expanded="false" aria-controls="searchHistoryPopup"
+                            aria-describedby="searchHistoryHint">
+                        <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
+                    </label>
+                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
+                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים אחרונים ושמורים" hidden></div>
+                    <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
+                </div>
 
                 <div class="gallery-tools">
                     <div class="density-toggle" role="group" aria-label="צפיפות התצוגה">
@@ -199,6 +208,11 @@
                     </select>
                     <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter w-auto text-xs py-2">
                         <option value="">כל החודשים</option>
+                    </select>
+                    <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter w-auto text-xs py-2">
+                        <option value="">תמונות וסרטונים</option>
+                        <option value="image">תמונות בלבד</option>
+                        <option value="video">סרטונים בלבד</option>
                     </select>
                     <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>

@@ -15,6 +15,8 @@ import { installErrorMonitor } from './error-monitor.js';
 import { resolveApiBaseUrl, resolveApiEnvironment } from './api-environment.js';
 import { installSiteUpdateWatcher } from './auto-update.js';
 import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './capture-date.js';
+// חיפושים אחרונים ושמורים: התפריט שמתחת לשדה החיפוש של הגלריה.
+import { initSearchHistory } from './search-history-ui.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -26,7 +28,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v62';
+const SITE_VERSION = 'v64';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -233,7 +235,7 @@ window.DEFAULT_GALLERY_FOLDERS = [
 
 // --- 1. Global State ---
 window.state = {
-    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '',
+    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', mediaTypeFilter: '',
     currentLightboxIndex: -1, tempSearchResults: null,
     bulkSelectionMode: false, selectedMediaIds: new Set(), activeEventFolderId: '',
     isLocked: true, isAdminLoggedIn: false, isSuperAdmin: false, isGoogleUser: false, isInitialSuperAdminAccount: false, currentUser: null,
@@ -1481,7 +1483,8 @@ function initArchiveExperience() {
             if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
             const active = document.activeElement;
             if (active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return;
-            if (document.querySelector('[role="dialog"]:not(.hidden)[aria-modal="true"]')) return;
+            // המגירה הסגורה (#adminDrawer) נשארת בדף כ-inert ולא כ-hidden, ואינה חוסמת.
+            if (document.querySelector('[role="dialog"]:not(.hidden):not([inert])[aria-modal="true"]')) return;
             event.preventDefault();
             searchInput.focus();
             searchInput.select();
@@ -1539,6 +1542,7 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduleIconRefresh();
         initSessionUI();
         initGallery();
+        initSearchHistory();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
         const serviceWorkerRegistration = 'serviceWorker' in navigator
