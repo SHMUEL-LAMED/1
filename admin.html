@@ -628,6 +628,22 @@
                 </div>
             </section>
 
+            <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות לתמונות עם AI">
+                <div class="admin-panel">
+                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות לתמונות עם AI</h3></div>
+                    <div class="admin-panel-body">
+                        <p>כל תמונה מקבלת שם קצר בעברית לפי מה שרואים בה. תמונות חדשות מקבלות שם אוטומטית ברקע; כאן אפשר להשלים שמות לתמונות הקיימות. השמות נשמרים בענן ואפשר לערוך אותם אחר כך. העיבוד משתמש בחשבון OpenAI API הקיים.</p>
+                        <p id="aiTitlesSummary" class="field-hint"></p>
+                        <p id="aiTitlesStatus" role="status" aria-live="polite">טוען…</p>
+                        <div class="flex gap-2">
+                            <button id="aiTitlesStart" type="button" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך</button>
+                            <button id="aiTitlesStop" type="button" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
+                        </div>
+                        <div id="aiTitlesFailures" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ============ מסך: כלי תחזוקה ============ -->
             <section id="view-tools" class="admin-view" data-view="tools" aria-label="כלי תחזוקה">
                 <div class="admin-panel">
