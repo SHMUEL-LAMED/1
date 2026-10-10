@@ -4183,13 +4183,16 @@ function httpsUrl(value) {
 }
 
 // פרצוף כפי שהוא נשלח ללקוח: מזהה, גרסה, מיקום וכתובת התמונה — לעולם לא טביעה.
+// url היא התצוגה הקטנה לחיתוך; sourceUrl היא התמונה שאונדקסה, שעליה הדפדפן
+// של המנהל מאתר את הפרצוף כשחסר לו מיקום. ברשימה הציבורית נשלחת רק url.
 function faceView(row) {
   return {
     imageId: String(row.imageId),
     faceIndex: Number(row.faceIndex),
     updatedAt: Number(row.updatedAt),
     box: readFaceBox(row.boxJson),
-    url: httpsUrl(row.thumbUrl) || httpsUrl(row.imageUrl)
+    url: httpsUrl(row.thumbUrl) || httpsUrl(row.imageUrl),
+    sourceUrl: httpsUrl(row.imageUrl)
   };
 }
 
@@ -4774,6 +4777,26 @@ async function readFaceGroups(env, url) {
     };
   }
   const requested = String(url.searchParams.get("view") || "suggested");
+  // רשימה קצרה של כל הקבוצות (מזהה, שם ומונה) לבחירת יעד באיחוד ובהעברה.
+  if (requested === "options") {
+    const rows = (await env.GALLERY_DB.prepare(
+      `SELECT person_id AS personId, name, status, hidden, face_count AS faceCount FROM face_persons
+       WHERE model_version = ? AND face_count > 0
+       ORDER BY status = 'approved' DESC, name, face_count DESC, person_id LIMIT 500`
+    ).bind(FACE_MODEL_VERSION).all()).results || [];
+    return {
+      success: true,
+      view: "options",
+      counts,
+      options: rows.map(row => ({
+        personId: String(row.personId),
+        name: String(row.name || ""),
+        status: row.status === "approved" ? "approved" : "suggested",
+        hidden: Number(row.hidden) === 1,
+        faceCount: Number(row.faceCount) || 0
+      }))
+    };
+  }
   const view = ["suggested", "approved", "hidden", "review"].includes(requested) ? requested : "suggested";
   if (view === "review") {
     const rows = (await env.GALLERY_DB.prepare(

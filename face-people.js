@@ -1,4 +1,14 @@
-// Admin-only manual identity correction. Descriptors remain on the server.
+// face-people.js — מסך "פרצופים ואינדוקס" בלוח הניהול: אנשים בגלריה.
+//
+// שני חלקים, שניהם למנהלים בלבד, והטביעות עצמן אינן מגיעות לדפדפן:
+//   openPeopleManager — הקבוצות שהקיבוץ האוטומטי הציע, תור "לבדיקה", האנשים
+//     המאושרים והמוסתרים. כאן המנהל מאשר ונותן שם, משנה שם, ממזג קבוצות,
+//     מעביר או מסיר פרצוף, בוחר תמונה ראשית ומסתיר אדם.
+//   openFacePeople — הרשת הישנה של כל הפרצופים, לאיחוד ידני של "זה אותו אדם".
+// פרצוף שאונדקס לפני שנשמר לו מיקום מקבל אותו כאן: הדפדפן מאתר שוב את
+// הפרצופים בתמונה שאונדקסה ושולח את המיקום בלבד (POST /face/boxes).
+import { boxFromDetection, faceCountLabel, faceCropStyle, imageCountLabel } from './people-model.js';
+
 let offset = 0;
 let person = '';
 let busy = false;
@@ -15,6 +25,33 @@ function button(text, action, disabled = false) {
     node.onclick = action;
     return node;
 }
+
+// --- מיקום הפרצופים: נשלח בקבוצות קטנות, בלי לעכב את המסך ---
+const pendingBoxes = new Map();
+let boxFlushTimer = null;
+function queueFaceBox(face, box) {
+    if (!box || !Number.isSafeInteger(face?.updatedAt)) return;
+    pendingBoxes.set(key(face), { imageId: face.imageId, faceIndex: face.faceIndex, updatedAt: face.updatedAt, box });
+    clearTimeout(boxFlushTimer);
+    boxFlushTimer = setTimeout(flushFaceBoxes, 800);
+}
+async function flushFaceBoxes() {
+    const entries = [...pendingBoxes.values()];
+    pendingBoxes.clear();
+    for (let index = 0; index < entries.length; index += 50) {
+        try {
+            await window.r2Request('/face/boxes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ boxes: entries.slice(index, index + 50) })
+            });
+        } catch (error) {
+            // מיקום חסר אינו תקלה: התצוגה פשוט מציגה את התמונה כולה.
+            console.warn('Face boxes were not saved:', error);
+        }
+    }
+}
+
 function toolbar() {
     el('facePeopleToolbar').replaceChildren(
         button(`זה אותו אדם — איחוד (${selected.size})`, () => mutate('merge'), busy || selected.size < 2),
@@ -39,6 +76,7 @@ async function mutate(action, face) {
         busy = false;
         await openFacePeople();
         el('facePeopleStatus').textContent = action === 'merge' ? 'הפרצופים אוחדו. החיפוש ישתמש בקישור החדש.' : 'הפרצוף הופרד מהקבוצה.';
+        refreshManagerSilently();
     } catch (error) {
         el('facePeopleStatus').textContent = error.message || 'השמירה נכשלה. הבחירה נשמרה כדי שתוכל לנסות שוב.';
     } finally { busy = false; toolbar(); }
@@ -119,6 +157,8 @@ export async function openFacePeople() {
                     for (const { face, canvas, caption, check } of items) {
                         const box = detections[face.faceIndex]?.detection.box;
                         if (!box) { caption.textContent = 'לא ניתן להציג פרצוף זה. נסה לרענן.'; continue; }
+                        // אותו זיהוי משמש גם להשלמת המיקום השמור של הפרצוף.
+                        queueFaceBox(face, boxFromDetection(box, image.naturalWidth, image.naturalHeight));
                         const pad = Math.max(box.width, box.height) * 0.2;
                         const x = Math.max(0, box.x - pad), y = Math.max(0, box.y - pad);
                         canvas.getContext('2d').drawImage(image, x, y,
@@ -136,4 +176,483 @@ export async function openFacePeople() {
     } catch (error) {
         el('facePeopleStatus').textContent = error.message || 'טעינת הפרצופים נכשלה. נסה לרענן.';
     } finally { if (current === generation) { busy = false; toolbar(); } }
+}
+
+// ==========================================================================
+// אנשים בגלריה: הצעות, לבדיקה, מאושרים ומוסתרים
+// ==========================================================================
+
+const VIEW_LABELS = {
+    suggested: 'הצעות',
+    review: 'לבדיקה',
+    approved: 'אנשים מאושרים',
+    hidden: 'מוסתרים'
+};
+const CLUSTER_MAX_ROUNDS = 40;
+
+const manager = {
+    view: 'suggested',
+    offset: 0,
+    personId: '',
+    busy: false,
+    clustering: false,
+    generation: 0,
+    options: [],
+    counts: null,
+    bound: false
+};
+
+function managerStatus(text) {
+    const node = el('peopleAdminStatus');
+    if (node) node.textContent = text;
+}
+
+function clusterStatus(text) {
+    const node = el('peopleClusterStatus');
+    if (node) node.textContent = text;
+}
+
+function personLabel(person) {
+    if (person?.name) return person.name;
+    return `קבוצה ללא שם (${faceCountLabel(person?.faceCount || 0)})`;
+}
+
+async function groupsRequest(query) {
+    return window.r2Request(`/face/groups?${query}`);
+}
+
+async function groupsMutation(body) {
+    return window.r2Request('/face/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+}
+
+function createFaceCrop(face, label = '') {
+    const frame = document.createElement('span');
+    frame.className = 'face-crop';
+    const url = window.safeImageUrl?.(face?.url) || '';
+    if (!url) {
+        frame.classList.add('is-empty');
+        return frame;
+    }
+    const image = document.createElement('img');
+    image.alt = label;
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    const style = faceCropStyle(face.box);
+    if (style) {
+        image.classList.add('is-cropped');
+        Object.assign(image.style, style);
+    }
+    image.src = url;
+    frame.append(image);
+    return frame;
+}
+
+function actionButton(text, handler, { tone = 'secondary', disabled = false, label = '' } = {}) {
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = tone === 'primary' ? 'btn-primary-gold' : tone === 'danger' ? 'btn-danger-soft' : 'btn-secondary-dark';
+    node.textContent = text;
+    node.disabled = disabled || manager.busy;
+    if (label) node.setAttribute('aria-label', label);
+    node.addEventListener('click', handler);
+    return node;
+}
+
+// בחירת קבוצה (למיזוג או להעברה) מתוך הרשימה הקצרה שהשרת מחזיר.
+function personSelect(id, label, { excludeId = '', allowNew = false } = {}) {
+    const wrap = document.createElement('span');
+    wrap.className = 'people-admin-select';
+    const caption = document.createElement('label');
+    caption.className = 'sr-only';
+    caption.htmlFor = id;
+    caption.textContent = label;
+    const select = document.createElement('select');
+    select.id = id;
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = label;
+    select.append(placeholder);
+    if (allowNew) {
+        const fresh = document.createElement('option');
+        fresh.value = '__new__';
+        fresh.textContent = 'קבוצה חדשה';
+        select.append(fresh);
+    }
+    for (const option of manager.options) {
+        if (option.personId === excludeId) continue;
+        const node = document.createElement('option');
+        node.value = option.personId;
+        node.textContent = `${personLabel(option)}${option.hidden ? ' · מוסתר' : ''}`;
+        select.append(node);
+    }
+    wrap.append(caption, select);
+    return { wrap, select };
+}
+
+async function runMutation(body, successText) {
+    if (manager.busy) return false;
+    manager.busy = true;
+    managerStatus('שומר…');
+    try {
+        await groupsMutation(body);
+        manager.busy = false;
+        await loadManagerView();
+        managerStatus(successText);
+        return true;
+    } catch (error) {
+        manager.busy = false;
+        managerStatus(error?.status === 409
+            ? 'הנתונים השתנו בינתיים. הרשימה רועננה — נסה שוב.'
+            : (error?.message || 'השמירה נכשלה. נסה שוב.'));
+        if (error?.status === 409) await loadManagerView({ keepStatus: true });
+        return false;
+    }
+}
+
+function renderCounts(counts = {}) {
+    for (const node of document.querySelectorAll('[data-people-count]')) {
+        node.textContent = String(Number(counts[node.dataset.peopleCount]) || 0);
+    }
+    for (const tab of document.querySelectorAll('[data-people-view]')) {
+        const active = manager.personId === '' && tab.dataset.peopleView === manager.view;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+}
+
+function nameForm(personEntry) {
+    const form = document.createElement('form');
+    form.className = 'people-admin-name';
+    const id = `peopleName-${personEntry.personId}`;
+    const label = document.createElement('label');
+    label.htmlFor = id;
+    label.textContent = 'שם';
+    const input = document.createElement('input');
+    input.id = id;
+    input.type = 'text';
+    input.maxLength = 60;
+    input.required = true;
+    input.autocomplete = 'off';
+    input.value = personEntry.name || '';
+    input.placeholder = 'למשל: ר׳ משה כהן';
+    const approved = personEntry.status === 'approved';
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.className = approved ? 'btn-secondary-dark' : 'btn-primary-gold';
+    submit.textContent = approved ? 'שמור שם' : 'אשר ושמור שם';
+    submit.disabled = manager.busy;
+    form.append(label, input, submit);
+    form.addEventListener('submit', event => {
+        event.preventDefault();
+        const name = input.value.trim();
+        if (!name) {
+            managerStatus('יש להזין שם לפני האישור.');
+            input.focus();
+            return;
+        }
+        runMutation(
+            { action: approved ? 'rename' : 'approve', personId: personEntry.personId, name },
+            approved ? `השם עודכן ל„${name}”.` : `„${name}” אושר ונוסף לרשימת האנשים בגלריה.`
+        );
+    });
+    return form;
+}
+
+function renderPersonCard(personEntry, { detail = false } = {}) {
+    const card = document.createElement('article');
+    card.className = 'people-admin-card';
+    card.setAttribute('aria-label', personLabel(personEntry));
+    const faces = document.createElement('div');
+    faces.className = 'people-admin-faces';
+    const samples = personEntry.samples?.length ? personEntry.samples : (personEntry.cover ? [personEntry.cover] : []);
+    samples.forEach((face, index) => faces.append(createFaceCrop(face, index === 0 ? `פרצוף של ${personLabel(personEntry)}` : '')));
+    const meta = document.createElement('p');
+    meta.className = 'people-admin-meta';
+    meta.textContent = `${faceCountLabel(personEntry.faceCount)} · ${imageCountLabel(personEntry.imageCount)}${personEntry.status === 'approved' ? ' · מאושר' : ''}`;
+
+    const actions = document.createElement('div');
+    actions.className = 'people-admin-actions';
+    if (!detail) actions.append(actionButton('פתח קבוצה', () => openPersonDetail(personEntry.personId)));
+    const merge = personSelect(`peopleMerge-${personEntry.personId}`, 'מזג לתוך…', { excludeId: personEntry.personId });
+    actions.append(merge.wrap, actionButton('מזג', () => {
+        if (!merge.select.value) { managerStatus('בחר קבוצה למיזוג.'); merge.select.focus(); return; }
+        const target = manager.options.find(option => option.personId === merge.select.value);
+        if (!window.confirm(`למזג את ${personLabel(personEntry)} לתוך ${personLabel(target)}?`)) return;
+        runMutation({ action: 'merge', targetId: merge.select.value, sourceId: personEntry.personId }, 'הקבוצות מוזגו.');
+    }, { label: `מיזוג ${personLabel(personEntry)} לקבוצה שנבחרה` }));
+    actions.append(personEntry.hidden
+        ? actionButton('הצג שוב', () => runMutation({ action: 'unhide', personId: personEntry.personId }, 'האדם מוצג שוב.'))
+        : actionButton('הסתר', () => runMutation({ action: 'hide', personId: personEntry.personId }, 'האדם הוסתר מהגלריה.'), { tone: 'danger' }));
+    card.append(faces, meta, nameForm(personEntry), actions);
+    return card;
+}
+
+function renderReviewCard(item) {
+    const card = document.createElement('article');
+    card.className = 'people-admin-card people-admin-review';
+    const pair = document.createElement('div');
+    pair.className = 'people-admin-pair';
+    const candidateLabel = item.candidate ? personLabel(item.candidate) : 'אין הצעה';
+    pair.append(createFaceCrop(item, 'הפרצוף לבדיקה'), createFaceCrop(item.candidate?.cover, item.candidate ? `הפרצוף הראשי של ${candidateLabel}` : ''));
+    const question = document.createElement('p');
+    question.className = 'people-admin-meta';
+    question.textContent = item.candidate
+        ? `האם זה ${candidateLabel}? (מרחק ${item.distance})`
+        : 'לא נמצאה קבוצה מתאימה. אפשר לשייך ידנית או להשאיר כבודד.';
+
+    const actions = document.createElement('div');
+    actions.className = 'people-admin-actions';
+    if (item.candidate) {
+        actions.append(actionButton('כן, זה הוא', () => runMutation({ action: 'accept', face: faceRef(item), personId: item.candidate.personId }, 'הפרצוף שויך.'), { tone: 'primary' }));
+    }
+    const assign = personSelect(`peopleAssign-${item.imageId}-${item.faceIndex}`, 'שייך ל…');
+    actions.append(assign.wrap, actionButton('שייך', () => {
+        if (!assign.select.value) { managerStatus('בחר אדם לשיוך.'); assign.select.focus(); return; }
+        runMutation({ action: 'accept', face: faceRef(item), personId: assign.select.value }, 'הפרצוף שויך.');
+    }));
+    actions.append(
+        actionButton('לא — אדם אחר', () => runMutation({ action: 'reject', face: faceRef(item) }, 'הפרצוף יקובץ בנפרד.')),
+        actionButton('התעלם', () => runMutation({ action: 'remove', face: faceRef(item) }, 'הפרצוף לא יקובץ.'), { tone: 'danger' })
+    );
+    card.append(pair, question, actions);
+    return card;
+}
+
+function faceRef(face) {
+    return { imageId: face.imageId, faceIndex: face.faceIndex, updatedAt: face.updatedAt };
+}
+
+function renderMemberCard(face, personEntry) {
+    const card = document.createElement('article');
+    card.className = 'people-admin-card people-admin-member';
+    const meta = document.createElement('p');
+    meta.className = 'people-admin-meta';
+    const isCover = personEntry.cover && personEntry.cover.imageId === face.imageId && personEntry.cover.faceIndex === face.faceIndex;
+    meta.textContent = `${face.source === 'auto' ? 'שויך אוטומטית' : 'שויך ידנית'}${isCover ? ' · תמונה ראשית' : ''}`;
+    const actions = document.createElement('div');
+    actions.className = 'people-admin-actions';
+    if (!isCover) actions.append(actionButton('קבע כתמונה ראשית', () => runMutation({ action: 'cover', personId: personEntry.personId, face: faceRef(face) }, 'התמונה הראשית עודכנה.')));
+    const move = personSelect(`peopleMove-${face.imageId}-${face.faceIndex}`, 'העבר ל…', { excludeId: personEntry.personId, allowNew: true });
+    actions.append(move.wrap, actionButton('העבר', () => {
+        if (!move.select.value) { managerStatus('בחר לאן להעביר.'); move.select.focus(); return; }
+        const body = { action: 'move', face: faceRef(face) };
+        if (move.select.value !== '__new__') body.targetId = move.select.value;
+        runMutation(body, 'הפרצוף הועבר.');
+    }));
+    actions.append(actionButton('הסר מהקבוצה', () => runMutation({ action: 'remove', face: faceRef(face) }, 'הפרצוף הוסר מהקבוצה.'), { tone: 'danger' }));
+    card.append(createFaceCrop(face, `פרצוף ${face.faceIndex + 1} בתמונה`), meta, actions);
+    return card;
+}
+
+function renderPages(hasMore) {
+    const pages = el('peopleAdminPages');
+    if (!pages) return;
+    pages.replaceChildren();
+    if (manager.offset === 0 && !hasMore) return;
+    pages.append(
+        actionButton('הקודם', () => { manager.offset = Math.max(0, manager.offset - 24); loadManagerView(); }, { disabled: manager.offset === 0 }),
+        document.createTextNode(` עמוד ${Math.floor(manager.offset / 24) + 1} `),
+        actionButton('הבא', () => { manager.offset += 24; loadManagerView(); }, { disabled: !hasMore })
+    );
+}
+
+function collectMissingBoxes(data) {
+    const faces = [];
+    const add = face => { if (face && !face.box && face.sourceUrl) faces.push(face); };
+    for (const entry of data.persons || []) { (entry.samples || []).forEach(add); add(entry.cover); }
+    for (const item of data.faces || []) { add(item); add(item.candidate?.cover); }
+    if (data.person) add(data.person.cover);
+    return faces;
+}
+
+// פרצופים מוצגים בלי מיקום שמור: מאתרים אותם בתמונה שאונדקסה, שולחים את
+// המיקום, ומציירים מחדש. רק לפרצופים שבמסך, שתי תמונות בכל פעם.
+async function completeMissingBoxes(faces, current) {
+    if (!faces.length) return;
+    const byImage = new Map();
+    for (const face of faces) {
+        if (!byImage.has(face.imageId)) byImage.set(face.imageId, []);
+        byImage.get(face.imageId).push(face);
+    }
+    let found = 0;
+    try {
+        await window.ensureFaceIndexModule();
+        const engine = await window.ensureFaceEngine();
+        const queue = [...byImage.values()];
+        await Promise.all([0, 1].map(async () => {
+            while (queue.length && current === manager.generation) {
+                const items = queue.shift();
+                try {
+                    const image = await window.loadFaceImageElement(items[0].sourceUrl);
+                    const detections = await engine.detectAllFaces(image).withFaceLandmarks().withFaceDescriptors();
+                    for (const face of items) {
+                        const box = boxFromDetection(detections?.[face.faceIndex]?.detection?.box, image.naturalWidth, image.naturalHeight);
+                        if (!box) continue;
+                        face.box = box;
+                        queueFaceBox(face, box);
+                        found += 1;
+                    }
+                } catch (error) {
+                    console.warn('Face position could not be completed:', error);
+                }
+            }
+        }));
+    } catch (error) {
+        console.warn('Face engine unavailable for face positions:', error);
+    }
+    if (found && current === manager.generation && !manager.busy) {
+        clearTimeout(boxFlushTimer);
+        await flushFaceBoxes();
+        await loadManagerView({ keepStatus: true, skipBoxes: true });
+    }
+}
+
+async function loadOptions() {
+    try {
+        const data = await groupsRequest('view=options');
+        manager.options = Array.isArray(data?.options) ? data.options : [];
+    } catch (error) {
+        console.warn('People options failed to load:', error);
+    }
+}
+
+async function loadManagerView({ keepStatus = false, skipBoxes = false } = {}) {
+    const list = el('peopleAdminList');
+    if (!list || !window.state?.isAdminLoggedIn) return;
+    const current = ++manager.generation;
+    if (!keepStatus) managerStatus('טוען…');
+    list.setAttribute('aria-busy', 'true');
+    try {
+        const query = manager.personId
+            ? `person=${encodeURIComponent(manager.personId)}&offset=${manager.offset}`
+            : `view=${manager.view}&offset=${manager.offset}`;
+        const [data] = await Promise.all([groupsRequest(query), loadOptions()]);
+        if (current !== manager.generation) return;
+        manager.counts = data.counts || null;
+        renderCounts(data.counts);
+        renderClusterSummary(data.counts);
+        const cards = [];
+        if (data.view === 'person') {
+            const header = document.createElement('div');
+            header.className = 'people-admin-detail-head';
+            const title = document.createElement('h4');
+            title.textContent = personLabel(data.person);
+            header.append(title, actionButton('חזרה לרשימה', () => { manager.personId = ''; manager.offset = 0; loadManagerView(); }));
+            cards.push(header, renderPersonCard({ ...data.person, samples: [] }, { detail: true }));
+            for (const face of data.faces || []) cards.push(renderMemberCard(face, data.person));
+        } else if (data.view === 'review') {
+            for (const item of data.faces || []) cards.push(renderReviewCard(item));
+        } else {
+            for (const entry of data.persons || []) cards.push(renderPersonCard(entry));
+        }
+        list.replaceChildren(...cards);
+        renderPages(Boolean(data.hasMore));
+        if (!keepStatus) {
+            const empty = {
+                suggested: 'אין הצעות חדשות. קבוצות חדשות יופיעו כאן מעצמן אחרי אינדוקס של תמונות.',
+                review: 'אין פרצופים שממתינים לבדיקה.',
+                approved: 'עדיין לא אושר אף אדם. אשר קבוצה מהלשונית „הצעות” ותן לה שם.',
+                hidden: 'אין אנשים מוסתרים.',
+                person: 'אין פרצופים בקבוצה הזו.'
+            }[data.view] || '';
+            const count = data.view === 'person' ? (data.faces || []).length : (data.persons || data.faces || []).length;
+            managerStatus(count ? `${VIEW_LABELS[data.view] || personLabel(data.person)}: ${count} בעמוד הזה.` : empty);
+        }
+        if (!skipBoxes) completeMissingBoxes(collectMissingBoxes(data), current);
+    } catch (error) {
+        if (current !== manager.generation) return;
+        managerStatus(error?.status === 404 && !manager.personId
+            ? 'ניהול האנשים עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'
+            : (error?.message || 'הטעינה נכשלה. נסה שוב.'));
+        if (manager.personId && error?.status === 404) { manager.personId = ''; }
+    } finally {
+        if (current === manager.generation) list.removeAttribute('aria-busy');
+    }
+}
+
+function openPersonDetail(personId) {
+    manager.personId = personId;
+    manager.offset = 0;
+    loadManagerView();
+}
+
+function renderClusterSummary(counts) {
+    if (manager.clustering || !counts) return;
+    const runButton = el('peopleClusterRunBtn');
+    if (runButton) runButton.disabled = false;
+    clusterStatus(counts.unclustered
+        ? `${faceCountLabel(counts.unclustered)} עדיין לא קובצו. הקיבוץ רץ מעצמו אחרי אינדוקס, ואפשר להריץ אותו עכשיו.`
+        : 'כל הפרצופים קובצו. פרצופים מתמונות חדשות יקובצו מעצמם אחרי האינדוקס.');
+}
+
+// ריצת קיבוץ מהדפדפן: ממשיכה בקבוצות עד שאין יותר פרצופים חדשים.
+async function runPeopleClustering() {
+    if (manager.clustering) return;
+    manager.clustering = true;
+    const runButton = el('peopleClusterRunBtn');
+    if (runButton) runButton.disabled = true;
+    let processed = 0;
+    let joined = 0;
+    let created = 0;
+    let review = 0;
+    try {
+        for (let round = 0; round < CLUSTER_MAX_ROUNDS; round += 1) {
+            clusterStatus(`מקבץ פרצופים… (${processed} עד כה)`);
+            const result = await window.r2Request('/face/clusters/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            if (result?.busy) {
+                clusterStatus('ריצת קיבוץ אחרת פועלת כרגע. נסה שוב בעוד דקה.');
+                return;
+            }
+            processed += Number(result?.processed) || 0;
+            joined += Number(result?.joined) || 0;
+            created += Number(result?.created) || 0;
+            review += Number(result?.review) || 0;
+            if (!result?.processed || !result?.remaining) break;
+        }
+        clusterStatus(processed
+            ? `הקיבוץ הושלם: ${processed} פרצופים — ${joined} הצטרפו לאנשים קיימים, ${created} קבוצות חדשות, ${review} לבדיקה.`
+            : 'אין פרצופים חדשים לקיבוץ.');
+    } catch (error) {
+        clusterStatus(error?.status === 404
+            ? 'הקיבוץ עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'
+            : `הקיבוץ נעצר: ${error?.message || 'שגיאה לא ידועה'}. אפשר להריץ אותו שוב.`);
+    } finally {
+        manager.clustering = false;
+        if (runButton) runButton.disabled = false;
+        await loadManagerView({ keepStatus: true });
+    }
+}
+
+function bindManager() {
+    if (manager.bound) return;
+    manager.bound = true;
+    for (const tab of document.querySelectorAll('[data-people-view]')) {
+        tab.addEventListener('click', () => {
+            manager.view = tab.dataset.peopleView;
+            manager.personId = '';
+            manager.offset = 0;
+            loadManagerView();
+        });
+    }
+    el('peopleClusterRunBtn')?.addEventListener('click', () => runPeopleClustering());
+}
+
+function refreshManagerSilently() {
+    if (manager.bound) loadManagerView({ keepStatus: true });
+}
+
+export async function openPeopleManager() {
+    if (!window.state?.isAdminLoggedIn || !el('peopleAdminList')) return;
+    bindManager();
+    await loadManagerView();
+    // פרצופים שאונדקסו ועוד לא קובצו (למשל קיימים מלפני העדכון) מקובצים מיד.
+    if (Number(manager.counts?.unclustered) > 0) runPeopleClustering();
 }

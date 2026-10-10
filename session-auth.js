@@ -492,6 +492,8 @@ function setupFirestoreListeners(user) {
         // עם סמני דפדוף.
         if (window.PAGE_MODE !== 'admin' && typeof window.startGalleryFeed === 'function') {
             window.galleryUnsubscribers.push(window.startGalleryFeed());
+            // קישור ישיר לאלבום של אדם (#person/<id>) נפתח רק עכשיו, כשהצפייה אושרה.
+            window.routePeopleHash?.();
             return;
         }
 
