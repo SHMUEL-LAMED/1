@@ -143,7 +143,7 @@ test.before(async () => {
     if (href === "https://api.openai.com/v1/responses") {
       aiCalls += 1;
       if (onAiCall) onAiCall();
-      return Response.json({ output: [{ content: [{ type: "output_text", text: aiResponse }] }] }, { status: aiStatus });
+      return Response.json(aiStatus >= 400 ? { error: { code: "model_not_found", message: "private provider details must not escape" } } : { output: [{ content: [{ type: "output_text", text: aiResponse }] }] }, { status: aiStatus });
     }
     return new Response("not mocked", { status: 500 });
   };
@@ -256,4 +256,13 @@ test("new approved image starts a background title task", async () => {
   assert.equal(tasks.length, 1);
   await Promise.all(tasks);
   assert.equal(readDocument("images", "photo1").aiTitleVersion, 1);
+});
+
+test("AI failure exposes only provider status and code for maintenance diagnosis", async () => {
+  await seedImage(); aiStatus = 404;
+  const response = await titleCall();
+  const body = await response.json();
+  assert.equal(body.providerCode,"model_not_found");
+  assert.equal(body.providerStatus,404);
+  assert.equal(JSON.stringify(body).includes("private provider details"),false);
 });

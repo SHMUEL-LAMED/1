@@ -14,7 +14,7 @@ export function noteRetry(retries, job, id, now = Date.now()) {
     return [...retries.filter(item => item.job !== job || item.id !== id), { job, id, attempts, after: now + Math.min(86400000, 900000 * 2 ** (attempts - 1)) }].slice(-500);
 }
 
-export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_ORIGIN, budgetMs = 12 * 60 * 1000, maxItems = 40, authenticate, launchBrowser, report = console.log } = {}) {
+export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_ORIGIN, budgetMs = 12 * 60 * 1000, maxItems = Number(process.env.BACKGROUND_MAX_ITEMS) || 40, authenticate, launchBrowser, report = console.log } = {}) {
     const startedAt = Date.now();
     const deadline = startedAt + budgetMs;
     let token = await authenticate(apiOrigin);
@@ -23,6 +23,13 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
     const jobs = Object.fromEntries(JOB_NAMES.map(name => [name, { processed: 0, failed: 0, message: '' }]));
     let retry = [];
     let cursor = {};
+    const diagnostics = new Map();
+    const noteFailure = (job, error) => {
+        const code = String(error.code || error.name || "Error").replace(/[^a-zA-Z0-9_-]/g, "").slice(0,80);
+        const detail = String(error.message || "").split("\n")[0].replace(/https?:\/\/\S+/g, "[url]").replace(/(?:Bearer |sk-)[A-Za-z0-9_.-]+/g, "[redacted]").slice(0,180);
+        diagnostics.set(`${job}:${code}:${detail}`, { job, code, status: error.status || 0, detail });
+        report(JSON.stringify({ diagnostic: { job, code, status: error.status || 0, detail } }));
+    };
     const api = async (path, options = {}) => {
         const response = await fetch(`${apiOrigin}${path}`, {
             ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
@@ -33,7 +40,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             return response;
         }
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw Object.assign(new Error(data.code || 'request_failed'), { status: response.status });
+        if (!response.ok) throw Object.assign(new Error(data.code || 'request_failed'), { status: response.status, code: data.providerCode || data.code });
         return data;
     };
     const post = (path, data) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -71,7 +78,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 const outHeaders = Object.fromEntries(response.headers);
                 outHeaders['access-control-allow-origin'] = '*';
                 // Node fetch מפענח דחיסה בעצמו.
-                delete outHeaders['content-encoding']; delete outHeaders['content-length'];
+                for (const name of ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete outHeaders[name];
                 await route.fulfill({ status: response.status, headers: outHeaders, body: Buffer.from(await response.arrayBuffer()) });
             } catch { await route.abort(); }
         });
@@ -179,7 +186,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                             await put('images', id, { ...existing, folderId, driveFolderId: folder.id });
                         }
                     }
-                } catch { jobs.drive.failed += 1; retry = noteRetry(retry, 'drive', id); }
+                } catch (error) { noteFailure("drive", error); jobs.drive.failed += 1; retry = noteRetry(retry, 'drive', id); }
                 folder.offset = i + 1;
                 cursor.drive = { pending };
                 await progress('drive');
@@ -209,6 +216,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 jobs[name].processed += 1;
                 retry = retry.filter(item => item.job !== name || item.id !== record.id);
             } catch (error) {
+                noteFailure(name, error);
                 jobs[name].failed += 1;
                 retry = noteRetry(retry, name, record.id);
                 if (name === 'titles' && [429, 502, 503].includes(error.status)) { jobs[name].message = 'מנוע AI אינו זמין כרגע; ינסה שוב בריצה הבאה'; break; }
@@ -225,7 +233,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         const images = await list('images');
         const pending = await list('pendingImages');
         await progress('starting');
-        try { await syncDrive(images); } catch { jobs.drive.message = 'סנכרון Drive נכשל; ינסה שוב בריצה הבאה'; jobs.drive.failed += 1; }
+        try { await syncDrive(images); } catch (error) { noteFailure('drive', error); jobs.drive.message = 'סנכרון Drive נכשל; ינסה שוב בריצה הבאה'; jobs.drive.failed += 1; }
         const media = [...new Map([...pending, ...images].filter(stored).map(record => [record.id, record])).values()];
         const variantCandidates = selectVariantCandidates(media, { sanitize: value => value, isSupported: item => String(item.url).startsWith(`${apiOrigin}/media/`) }).candidates;
         await runJob('variants', variantCandidates.map(item => media.find(record => record.id === item.imageId)), createVariants);
@@ -276,7 +284,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             }
         }
         await progress('idle');
-        report(JSON.stringify({ processed: jobs, runId: process.env.GITHUB_RUN_ID || '' }));
+        report(JSON.stringify({ processed: jobs, diagnostics: [...diagnostics.values()], runId: process.env.GITHUB_RUN_ID || '' }));
     } catch (error) {
         await progress('failed').catch(() => {});
         throw error;
