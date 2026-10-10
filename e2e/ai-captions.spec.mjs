@@ -86,6 +86,39 @@ test('שבבי סוג הרגע מסננים את הגלריה, מכריזים ע
     await expect(chip(page, 'dance').locator('.scene-chip-count')).toHaveText('0 פריטים');
 });
 
+test('שבב סוג רגע בתיקייה שטרם נטענה כולה מושך את שאר העמודים מעצמו, בלי גלילה', async ({ page, worker }) => {
+    // 133 פריטים — יותר מעמוד אחד של הפיד (120). כולם ריקוד, ו-13 הישנים
+    // ביותר (שמגיעים רק בעמוד השני) הם גם סעודה.
+    worker.seedFolders().seedImages(Array.from({ length: 133 }, (_, index) => imageRecord(index + 1, {
+        sceneTags: index < 13 ? ['dance', 'meal'] : ['dance'],
+        captionSource: 'ai',
+        aiCaptionVersion: 1
+    })));
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('#imageCounter')).toHaveText('120 מתוך 133 פריטים');
+    await expect(chip(page, 'dance').locator('.scene-chip-count')).toHaveText('120 פריטים');
+    await expect(chip(page, 'meal')).toHaveCount(0);
+    const cursorRequests = () => worker.requestsTo('GET', '/data/images?')
+        .filter(entry => new URL(entry.path, 'https://fake.invalid').searchParams.has('after'));
+    expect(cursorRequests()).toHaveLength(0);
+
+    await chip(page, 'dance').click();
+    await expect(chip(page, 'dance')).toHaveAttribute('aria-pressed', 'true');
+    // המונה אינו נתקע על "מחפש גם בפריטים ישנים…": העמוד השני נטען והתוצאה מלאה.
+    await expect(page.locator('#imageCounter')).toHaveText('133 פריטים');
+    await expect(chip(page, 'dance').locator('.scene-chip-count')).toHaveText('133 פריטים');
+    // תגית שקיימת רק בפריטים הישנים מופיעה עכשיו בשורה.
+    await expect(chip(page, 'meal').locator('.scene-chip-count')).toHaveText('13 פריטים');
+    expect(await page.evaluate(() => ({ loaded: window.state.images.length, more: window.state.imagesHasMore })))
+        .toEqual({ loaded: 133, more: false });
+    expect(cursorRequests()).toHaveLength(1);
+
+    await chip(page, 'meal').click();
+    await expect(cardTitles(page)).toHaveCount(13);
+    await expect(page.locator('#imageCounter')).toHaveText('13 פריטים');
+});
+
 test('בלי כיתובים ותגיות אין שורת שבבים ואין תיאור בתצוגה המלאה', async ({ page, worker }) => {
     worker.seedGallery({ images: 2 });
     await seedSession(page, { worker });
