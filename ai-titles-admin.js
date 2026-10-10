@@ -116,7 +116,10 @@ async function describeWithRetry(record) {
 }
 
 async function start() {
-    if (running || !aiEnabled) return;
+    // בלי מפתח AI בשרת אין מה להפעיל — לא בדפדפן ולא בענן.
+    if (!aiEnabled) return;
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("titles", true);
+    if (running) return;
     running = true;
     stopped = false;
     element('aiTitlesStart').disabled = true;
@@ -169,6 +172,7 @@ async function start() {
 export async function openAiTitles() {
     element('aiTitlesStart').onclick = start;
     element('aiTitlesStop').onclick = () => {
+        if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob('titles', false);
         stopped = true;
         element('aiTitlesStop').disabled = true;
         element('aiTitlesStatus').textContent = 'מסיים את התמונה הנוכחית ועוצר…';
@@ -177,10 +181,14 @@ export async function openAiTitles() {
     try {
         const [enabled] = await Promise.all([readAiAvailability(), refresh()]);
         aiEnabled = enabled;
+        // מצב העיבוד בענן (background-jobs-admin.js) מתעדכן כל כמה שניות; הסימון
+        // הזה משאיר את הכפתור כבוי ואת ההסבר במקומם כשאין מפתח AI.
+        window.aiDescriptionsUnavailable = !aiEnabled;
         element('aiTitlesStart').disabled = !aiEnabled;
         element('aiTitlesStatus').textContent = aiEnabled
             ? 'מוכן. השם המקורי נשמר לצד שם ה־AI, וכיתוב שנערך ידנית לא יוחלף.'
             : 'מפתח ה־AI אינו מוגדר בשרת, ולכן שמות, כיתובים ותגיות אוטומטיים כבויים. אפשר עדיין לערוך כיתוב ותגיות ידנית מהתצוגה המלאה בגלריה.';
+        if (aiEnabled && window.CLOUD_BACKGROUND_JOBS) await window.refreshCloudBackgroundJobs();
     } catch (error) {
         element('aiTitlesStatus').textContent = error.message || 'החיבור לענן עדיין לא מוכן. פתח את המסך שוב.';
     }

@@ -149,10 +149,10 @@ const ADMIN_VIEWS = [
     {
         id: 'faceindex',
         group: 'כלי מערכת',
-        title: 'פרצופים ואינדוקס',
-        description: 'הצגת הפרצופים שזוהו, איחוד אותו אדם בלוקים שונים והכנת חיפוש פנים.',
+        title: 'אנשים, פרצופים ואינדוקס',
+        description: 'קיבוץ אוטומטי של פרצופים לאנשים, אישור ושמות, תור לבדיקה, איחוד ידני והכנת חיפוש פנים.',
         icon: 'scan-face',
-        keywords: 'פנים אינדוקס חיפוש ai'
+        keywords: 'פנים אינדוקס חיפוש ai אנשים שמות קיבוץ אלבום'
     },
     {
         id: 'variants',
@@ -336,7 +336,7 @@ function runViewHook(viewId) {
             .catch(() => window.loadDriveFolders?.());
     }
     if (viewId === 'faceindex') {
-        import('./face-people.js').then(module => module.openFacePeople())
+        import('./face-people.js').then(module => { module.openPeopleManager(); module.openFacePeople(); })
             .catch(() => { document.getElementById('facePeopleStatus').textContent = 'לא ניתן לטעון את ניהול הפרצופים. רענן ונסה שוב.'; });
         // renderFaceIndexPanel ו-refreshFaceIndexSummary מוגדרות רק בתוך
         // face-index.js, והוא נטען עצלה. בלי ההמתנה לטעינה שתי הקריאות
@@ -347,6 +347,9 @@ function runViewHook(viewId) {
                 return window.refreshFaceIndexSummary?.();
             })
             .catch(error => console.error('Face index module failed to load:', error));
+    }
+    if (['faceindex', 'capturedates', 'aititles', 'variants', 'drive'].includes(viewId)) {
+        setTimeout(() => window.refreshCloudBackgroundJobs?.(), 1500);
     }
     if (viewId === 'capturedates') {
         // גם מודול תאריכי הצילום נטען עצלה, רק כשהמסך נפתח.

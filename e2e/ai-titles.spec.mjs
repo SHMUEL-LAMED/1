@@ -1,13 +1,37 @@
-// מסך "שמות, כיתובים ותגיות עם AI" בלוח הניהול: ריצת ההשלמה שולחת רק תמונות
-// שחסר להן שם או כיתוב, ממשיכה מהמקום שנעצרה, ובלי מפתח AI בשרת אינה שולחת דבר.
-// "המודל" הוא הזיוף שב-e2e/fixtures.mjs (POST /ai-title).
+// מסך "שמות, כיתובים ותגיות עם AI" בלוח הניהול. כברירת מחדל העיבוד רץ בענן
+// (CLOUD_BACKGROUND_JOBS), והמסך רק מפעיל ועוצר אותו. ריצת ההשלמה בדפדפן נשארה
+// כגיבוי: היא שולחת רק תמונות שחסר להן שם או כיתוב, ממשיכה מהמקום שנעצרה, ובלי
+// מפתח AI בשרת אינה שולחת דבר. "המודל" הוא הזיוף שב-e2e/fixtures.mjs (POST /ai-title).
 import { test, expect, seedSession, imageRecord, FAKE_AI_DESCRIPTION } from './fixtures.mjs';
 
-async function openAiScreen(page) {
+// local: ריצת ההשלמה בדפדפן במקום בענן (כמו בבדיקת התצוגות המקדימות). הדגל
+// נכבה לפני פתיחת המסך, ולכן מצב הענן אינו מוצג בו כלל.
+async function openAiScreen(page, { local = false } = {}) {
     await page.goto('/admin.html');
+    if (local) await page.evaluate(() => { window.CLOUD_BACKGROUND_JOBS = false; });
     await page.locator('#adminNav [data-view-target="aititles"]').click();
     await expect(page.locator('#view-aititles')).toBeVisible();
 }
+
+test('הפעלת AI ועצירה נשמרות בענן בלי עיבוד בדפדפן המשתמש', async ({ page, worker }) => {
+    worker.seedGallery({ images: 2 });
+    await seedSession(page, { worker, role: 'admin' });
+    await openAiScreen(page);
+    await expect(page.locator('#aiTitlesSummary')).toContainText('2 תמונות ממתינות');
+    await expect(page.locator('#aiTitlesStatus')).toContainText('פעיל בענן');
+    await page.locator('#aiTitlesStop').click();
+    await expect(page.locator('#aiTitlesStatus')).toContainText('מושהה');
+    await page.locator('#aiTitlesStart').click();
+    // "אפשר לסגור את הדפדפן" מופיע גם במצב המושהה, ולכן ממתינים למצב הפעיל
+    // עצמו — הוא מוצג רק אחרי שההפעלה נשמרה בענן ונקראה ממנו שוב.
+    await expect(page.locator('#aiTitlesStatus')).toContainText('פעיל בענן');
+    await expect(page.locator('#aiTitlesStatus')).toContainText('אפשר לסגור את הדפדפן');
+    expect(worker.backgroundConfig.enabled.titles).toBe(true);
+    expect(worker.requestsTo('POST', '/ai-title')).toHaveLength(0);
+    await page.reload();
+    await page.locator('#adminNav [data-view-target="aititles"]').click();
+    await expect(page.locator('#aiTitlesStatus')).toContainText('פעיל בענן');
+});
 
 test('מנהל משלים שמות, כיתובים ותגיות, והמשך מדלג על מה שכבר עובד', async ({ page, worker }) => {
     worker.seedFolders().seedImages([
@@ -20,7 +44,7 @@ test('מנהל משלים שמות, כיתובים ותגיות, והמשך מד
         imageRecord(4, { mediaType: 'video', mimeType: 'video/mp4' })
     ]);
     await seedSession(page, { worker, role: 'admin' });
-    await openAiScreen(page);
+    await openAiScreen(page, { local: true });
 
     await expect(page.locator('#aiTitlesSummary')).toContainText('2 תמונות ממתינות');
     await expect(page.locator('#aiTitlesStart')).toBeEnabled();
@@ -50,7 +74,7 @@ test('עצירה באמצע הריצה וחידושה ממשיכים מהתמו�
     await seedSession(page, { worker, role: 'admin' });
     let release;
     worker.aiGate = new Promise(resolve => { release = resolve; });
-    await openAiScreen(page);
+    await openAiScreen(page, { local: true });
     await expect(page.locator('#aiTitlesSummary')).toContainText('3 תמונות ממתינות');
 
     await page.locator('#aiTitlesStart').click();
@@ -83,7 +107,7 @@ test('מכסה מלאה בשרת עוצרת את הריצה עם הסבר, וא�
         error.code = 'ai_title_rate_limit';
         throw error;
     };
-    await openAiScreen(page);
+    await openAiScreen(page, { local: true });
     await page.locator('#aiTitlesStart').click();
     await expect(page.locator('#aiTitlesStatus')).toContainText('הריצה נעצרה');
     await expect(page.locator('#aiTitlesStatus')).toContainText('מכסת התיאורים לשעה התמלאה');
@@ -101,5 +125,11 @@ test('בלי מפתח AI בשרת המסך מסביר שהתכונה כבויה 
     await expect(page.locator('#aiTitlesStatus')).toContainText('מפתח ה־AI אינו מוגדר בשרת');
     await expect(page.locator('#aiTitlesStart')).toBeDisabled();
     await expect(page.locator('#aiTitlesSummary')).toContainText('1 תמונות ממתינות');
+    // רענון מצב הענן (רץ כל כמה שניות) אינו מדליק את הכפתור ואינו מוחק את ההסבר.
+    await page.evaluate(() => window.refreshCloudBackgroundJobs());
+    await expect(page.locator('#cloudBackgroundSummary')).toContainText('שמות, כיתובים ותגיות AI');
+    await expect(page.locator('#aiTitlesStatus')).toContainText('מפתח ה־AI אינו מוגדר בשרת');
+    await expect(page.locator('#aiTitlesStart')).toBeDisabled();
     expect(worker.requestsTo('POST', '/ai-title')).toHaveLength(0);
+    expect(worker.requestsTo('PUT', '/background/config')).toHaveLength(0);
 });

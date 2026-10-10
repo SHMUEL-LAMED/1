@@ -564,7 +564,27 @@
             </section>
 
             <!-- ============ מסך: אינדוקס פנים ============ -->
-            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אינדוקס פנים">
+            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אנשים, פרצופים ואינדוקס">
+                <div class="admin-panel" id="peopleManagerPanel">
+                    <div class="admin-panel-head"><h3><i data-lucide="users-round"></i> אנשים בגלריה — קיבוץ אוטומטי ושמות</h3></div>
+                    <div class="admin-panel-body">
+                        <p>פרצופים דומים מקובצים לאנשים מעצמם, אחרי כל אינדוקס. כל קבוצה חדשה ממתינה כאן לאישור ולשם; רק אנשים מאושרים עם שם מוצגים למשתמשי הגלריה, עם אלבום שמתעדכן בכל תמונה חדשה. פרצוף שאינו ודאי מגיע ללשונית „לבדיקה” ואינו משויך עד שתחליט.</p>
+                        <div class="people-admin-run">
+                            <p id="peopleClusterStatus" class="field-hint" role="status" aria-live="polite">בודק אם יש פרצופים חדשים לקיבוץ…</p>
+                            <button type="button" id="peopleClusterRunBtn" class="btn-secondary-dark">קבץ פרצופים חדשים</button>
+                        </div>
+                        <div class="admin-filter-chips people-admin-tabs" role="group" aria-label="תצוגת האנשים">
+                            <button type="button" class="admin-filter-chip is-active" data-people-view="suggested" aria-pressed="true" aria-controls="peopleAdminList">הצעות <span data-people-count="suggested">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="review" aria-pressed="false" aria-controls="peopleAdminList">לבדיקה <span data-people-count="review">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="singles" aria-pressed="false" aria-controls="peopleAdminList">בודדים <span data-people-count="singles">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="approved" aria-pressed="false" aria-controls="peopleAdminList">אנשים מאושרים <span data-people-count="approved">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="hidden" aria-pressed="false" aria-controls="peopleAdminList">מוסתרים <span data-people-count="hidden">0</span></button>
+                        </div>
+                        <p id="peopleAdminStatus" class="field-hint" role="status" aria-live="polite">הרשימה נטענת בפתיחת המסך.</p>
+                        <div id="peopleAdminList" class="people-admin-list"></div>
+                        <div id="peopleAdminPages" class="people-admin-pages"></div>
+                    </div>
+                </div>
                 <div class="admin-panel">
                     <div class="admin-panel-head"><h3>ניהול פרצופים — זה אותו אדם</h3></div>
                     <div class="admin-panel-body">
@@ -581,7 +601,7 @@
                         <p>סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
                         <p id="faceIndexSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">טוען את מצב האינדוקס…</p>
                         <div class="progress-track"><div id="faceIndexProgressBar" class="progress-bar"></div></div>
-                        <p id="faceIndexStatusText" class="field-hint" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
+                        <p id="faceIndexStatusText" class="field-hint" role="status" aria-live="polite">האינדוקס פועל בענן גם כשהדפדפן סגור.</p>
                         <div class="flex gap-2">
                             <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך אינדוקס</button>
                             <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
@@ -641,6 +661,8 @@
                             <button id="aiTitlesStop" type="button" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
                         </div>
                         <div id="aiTitlesFailures" class="admin-list"></div>
+                        <p class="field-hint">עבודות הרקע רצות בענן בערך כל 15 דקות, גם כשהדפדפן סגור. העלאה מהמחשב חייבת להסתיים לפני סגירת הדפדפן.</p>
+                        <div id="cloudBackgroundSummary" role="status" aria-live="polite"></div>
                     </div>
                 </div>
             </section>

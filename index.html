@@ -203,6 +203,12 @@
                     <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
                     </button>
+                    <button type="button" onclick="openPeopleDirectory()" title="האנשים שזוהו בגלריה, עם כל התמונות של כל אחד" class="face-search-button people-tool-button px-3 py-2 text-xs">
+                        <i data-lucide="users-round" class="w-4 h-4"></i><span>אנשים</span>
+                    </button>
+                    <button type="button" onclick="openFindMe()" title="מציאת התמונות שבהן אני מופיע" class="face-search-button people-tool-button px-3 py-2 text-xs">
+                        <i data-lucide="user-round-search" class="w-4 h-4"></i><span>התמונות שלי</span>
+                    </button>
                     <button type="button" onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="brain-circuit" class="w-4 h-4"></i><span>חיפוש AI</span>
                     </button>
@@ -646,6 +652,62 @@
             <div class="modal-foot">
                 <button type="button" onclick="closeModal('faceSearchModal')" class="btn-secondary-dark">ביטול</button>
                 <button type="button" id="submitFaceSearchBtn" onclick="executeFaceSearch()" disabled class="btn-primary-gold">חפש פרצוף</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- אנשים בגלריה: רשימת האנשים שמנהל אישר ונתן להם שם (people.js) -->
+    <div id="peopleDirectoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="peopleDirectoryTitle">
+        <div class="modal-card modal-animate-popup max-w-2xl max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3 id="peopleDirectoryTitle"><i data-lucide="users-round" class="w-5 h-5"></i> אנשים בגלריה</h3>
+                <button type="button" onclick="closeModal('peopleDirectoryModal')" class="modal-close" aria-label="סגירת רשימת האנשים"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body overflow-y-auto">
+                <label class="people-search">
+                    <i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i>
+                    <span class="sr-only">חיפוש אדם לפי שם</span>
+                    <input id="peopleDirectorySearch" type="search" autocomplete="off" placeholder="חיפוש לפי שם…" oninput="filterPeopleDirectory(this.value)">
+                </label>
+                <p id="peopleDirectoryStatus" class="field-hint" role="status" aria-live="polite">טוען את רשימת האנשים…</p>
+                <ul id="peopleDirectoryList" class="people-grid" aria-label="האנשים בגלריה"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- התמונות שלי: זיהוי לפי תמונת הפרופיל או סלפי, בדפדפן בלבד (people.js) -->
+    <div id="findMeModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="findMeTitle" aria-describedby="findMePrivacyNote">
+        <div class="modal-card modal-animate-popup max-w-md max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3 id="findMeTitle"><i data-lucide="user-round-search" class="w-5 h-5"></i> התמונות שלי</h3>
+                <button type="button" onclick="closeModal('findMeModal')" class="modal-close" aria-label="סגירת חלון התמונות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body overflow-y-auto">
+                <p id="findMePrivacyNote" class="find-me-privacy">הזיהוי נעשה בדפדפן שלך. לשרת נשלחת רק טביעה מספרית של הפנים — לא התמונה — לצורך ההשוואה, והיא אינה נשמרת, אלא אם סימנת „זכור אותי”. אפשר למחוק אותה בכל עת ב„שכח אותי”. סלפי שתבחר מעובד במכשיר בלבד ואינו מועלה.</p>
+                <div id="findMeSaved" class="find-me-saved" hidden>
+                    <p class="text-xs font-bold">טביעת הפנים שלך שמורה, כדי שתוכל לחפש בלחיצה אחת.</p>
+                    <div class="find-me-actions">
+                        <button type="button" id="findMeUseSavedBtn" onclick="findMeWithSaved()" class="btn-primary-gold">חפש עם הטביעה השמורה</button>
+                        <button type="button" id="findMeForgetBtn" onclick="forgetFindMe()" class="btn-danger-soft">שכח אותי</button>
+                    </div>
+                </div>
+                <button type="button" id="findMeProfileBtn" onclick="findMeFromProfile()" class="btn-primary-gold w-full"><i data-lucide="scan-face" class="w-4 h-4"></i> מצא אותי לפי תמונת הפרופיל ב־Google</button>
+                <label class="find-me-remember">
+                    <input type="checkbox" id="findMeRemember">
+                    <span>זכור אותי — לשמור את הטביעה (בלי התמונה) לחיפוש מהיר בפעם הבאה</span>
+                </label>
+                <div id="findMeSelfie" class="find-me-selfie" hidden>
+                    <label id="findMeSelfieLabel" class="drop-zone" for="findMeSelfieInput" tabindex="-1">
+                        <input type="file" id="findMeSelfieInput" accept="image/*" capture="user" onchange="findMeFromSelfie(event)">
+                        <span class="drop-zone-icon"><i data-lucide="camera" class="w-6 h-6"></i></span>
+                        <span class="text-xs font-bold">בחר או צלם סלפי</span>
+                        <span class="field-hint">התמונה מעובדת במכשיר שלך בלבד ואינה מועלית.</span>
+                    </label>
+                </div>
+                <p id="findMeStatus" class="find-me-status" role="status" aria-live="polite"></p>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('findMeModal')" class="btn-secondary-dark">סגירה</button>
             </div>
         </div>
     </div>

@@ -15,6 +15,7 @@ import './drive-sync.js';
 import './popup-admin.js';
 import { initAdmin } from './admin.js';
 import './admin-ui.js';
+import './background-jobs-admin.js';
 
 // מנהל שנכנס ישירות לכתובת הדף בלי הרשאה לא יראה לוח ריק: המסך מסביר
 // מה חסר ומציע חזרה לגלריה. הבדיקה חוזרת בכל שינוי מצב התחברות, כי

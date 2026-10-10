@@ -8,6 +8,8 @@
 // הקובץ מטפל גם בתמונות חדשות: אחרי העלאה או אישור, התמונה נכנסת לתור
 // אינדוקס קטן ברקע. כישלון בזיהוי הפנים אינו מעכב ואינו מפיל את ההעלאה.
 
+import { boxFromDetection } from './people-model.js';
+
 // כמה תמונות נסרקות במקביל. במחשב חזק משתמשים בעד שישה מסלולים;
 // במכשיר חלש נשארים עם שניים כדי לא להפיל את הזיכרון או להקפיא את המסך.
 const FACE_INDEX_MAX_CONCURRENCY = 6;
@@ -144,7 +146,7 @@ function renderFaceIndexPanel() {
         } else if (checkpoint?.updatedAt) {
             statusEl.textContent = `הריצה האחרונה: ${checkpoint.processed} הושלמו, ${checkpoint.failed} נכשלו (${new Date(checkpoint.updatedAt).toLocaleString('he-IL')}).`;
         } else {
-            statusEl.textContent = 'האינדוקס עדיין לא הופעל בדפדפן הזה.';
+            statusEl.textContent = window.CLOUD_BACKGROUND_JOBS ? 'האינדוקס מתבצע בענן גם כשהדפדפן סגור.' : 'האינדוקס עדיין לא הופעל בדפדפן הזה.';
         }
     }
 
@@ -223,6 +225,9 @@ async function fetchPendingImageIds(candidates) {
 }
 
 // הפקת הטביעות של תמונה אחת. זו הפעם היחידה שבה התמונה יורדת לדפדפן.
+// מיקום כל פרצוף בתמונה (לחיתוך התצוגה של האדם), לפי מזהה התמונה.
+const faceBoxCache = new Map();
+
 async function describeImageFaces(faceapi, candidate) {
     const cached = window.descriptorCache?.[candidate.imageId];
     if (Array.isArray(cached)) return cached.slice(0, FACE_INDEX_MAX_FACES);
@@ -230,13 +235,21 @@ async function describeImageFaces(faceapi, candidate) {
     // ensureFaceEngine כבר ודאה את שני הכלים לפני שהריצה התחילה.
     const element = await window.loadFaceImageElement(candidate.url);
     const detections = await faceapi.detectAllFaces(element).withFaceLandmarks().withFaceDescriptors();
-    const faces = (detections || [])
-        .slice(0, FACE_INDEX_MAX_FACES)
-        .map(detection => Array.from(detection.descriptor, value => Math.round(value * 1e6) / 1e6));
+    const kept = (detections || []).slice(0, FACE_INDEX_MAX_FACES);
+    const faces = kept.map(detection => Array.from(detection.descriptor, value => Math.round(value * 1e6) / 1e6));
+    const boxes = kept.map(detection => boxFromDetection(detection?.detection?.box, element?.naturalWidth, element?.naturalHeight));
+    if (boxes.length && boxes.every(Boolean)) faceBoxCache.set(candidate.imageId, boxes);
     if (window.descriptorCache) window.descriptorCache[candidate.imageId] = faces;
     // נותן לדפדפן לצייר ולטפל באירועים בין זיהויים כבדים.
     await faceIndexDelay(0);
     return faces;
+}
+
+// רשומת אינדוקס לתמונה: הטביעות, ומיקומי הפרצופים כשכולם ידועים.
+function indexEntry(imageId, faces) {
+    const boxes = faceBoxCache.get(imageId);
+    faceBoxCache.delete(imageId);
+    return boxes && boxes.length === faces.length ? { imageId, faces, boxes } : { imageId, faces };
 }
 
 async function saveFaceIndexEntries(entries) {
@@ -261,6 +274,7 @@ async function saveFaceIndexEntries(entries) {
 }
 
 async function startFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("faces", true);
     if (!window.checkAdminPermission()) return;
     if (faceIndexRun.running) {
         window.showNotification('האינדוקס כבר פועל.', false);
@@ -302,7 +316,7 @@ async function startFaceIndexing() {
             const results = await Promise.all(batch.map(async candidate => {
                 try {
                     const faces = await describeImageFaces(faceapi, candidate);
-                    return { entry: { imageId: candidate.imageId, faces }, faceCount: faces.length };
+                    return { entry: indexEntry(candidate.imageId, faces), faceCount: faces.length };
                 } catch (error) {
                     console.warn('אינדוקס פנים דילג על תמונה:', candidate.imageId, error);
                     return {
@@ -369,6 +383,7 @@ async function startFaceIndexing() {
 window.startFaceIndexing = startFaceIndexing;
 
 function stopFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("faces", false);
     if (!faceIndexRun.running) return;
     faceIndexRun.stopRequested = true;
     faceIndexRun.message = 'עוצר אחרי הקבוצה הנוכחית…';
@@ -413,6 +428,7 @@ window.resetFaceIndex = resetFaceIndex;
 // הפעלה ראשונית אוטומטית: מנהל שנכנס לאתר מפעיל או ממשיך את האינדוקס
 // בלי לחפש את הכפתור. מצב האינדוקס עצמו נשמר בענן, ולכן אין עבודה כפולה.
 async function maybeStartInitialFaceIndexing() {
+    if (window.CLOUD_BACKGROUND_JOBS) return;
     if (initialFaceIndexCheckRunning || faceIndexRun.running || !canWriteFaceIndex()) return;
     if (!Array.isArray(window.state?.images) || window.state.images.length === 0) return;
     try {
@@ -448,6 +464,7 @@ window.maybeStartInitialFaceIndexing = maybeStartInitialFaceIndexing;
 // נקראת אחרי שמירה מוצלחת של תמונה. הפונקציה לעולם אינה זורקת ואינה
 // מחזירה Promise שההעלאה ממתינה לו.
 function queueFaceIndexForImage(record) {
+    if (window.CLOUD_BACKGROUND_JOBS) return;
     try {
         if (!record || window.isVideoRecord(record)) return;
         const imageId = window.safeRecordId(record.id);
@@ -485,7 +502,7 @@ async function drainAutoIndexQueue() {
             const pending = await fetchPendingImageIds(candidates);
             const entries = await Promise.all(pending.map(async candidate => {
                 try {
-                    return { imageId: candidate.imageId, faces: await describeImageFaces(faceapi, candidate) };
+                    return indexEntry(candidate.imageId, await describeImageFaces(faceapi, candidate));
                 } catch (error) {
                     console.warn('אינדוקס אוטומטי דילג על תמונה:', candidate.imageId, error);
                     return { imageId: candidate.imageId, status: 'failed', errorCode: 'image_scan_failed' };

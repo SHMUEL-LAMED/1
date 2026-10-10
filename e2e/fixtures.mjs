@@ -330,6 +330,9 @@ export class FakeWorker {
         this.aiDescribe = () => FAKE_AI_DESCRIPTION;
         this.aiCalls = [];
         this.aiGate = null;
+        // אנשים בגלריה: אנשים, תור "לבדיקה", פרצופים בודדים, התאמות של חיפוש
+        // הפנים, טביעות "זכור אותי" שנשמרו, ומיקומי פרצופים שהדפדפן השלים.
+        this.people = { persons: new Map(), review: [], singles: [], unclustered: 0, matches: [], me: new Map(), boxes: [], clusterRuns: 0 };
     }
 
     collection(name) {
@@ -846,6 +849,273 @@ export class FakeWorker {
         return { success: true, files, bytes, images: images.size, byFormat, variantsVersion: MEDIA_VARIANTS_VERSION };
     }
 
+    // --- אנשים בגלריה: אותם נתיבים, צורות והרשאות כמו ב-Worker (ראו
+    // manageFaceGroups, listFacePersons, facePersonAlbum ו-faceMeRequest) ---
+
+    // אדם בזיוף: קבוצת פרצופים עם שם, מצב והסתרה. פרצוף = {imageId, faceIndex, box}.
+    seedPerson({ personId, name = '', status = 'suggested', hidden = false, faces = [], cover = null } = {}) {
+        this.people.persons.set(personId, {
+            personId, name, status, hidden,
+            faces: faces.map(face => ({ faceIndex: 0, updatedAt: 1_700_000_000_000, box: null, source: 'auto', ...face })),
+            cover
+        });
+        return this;
+    }
+
+    seedReview(face) {
+        this.people.review.push({ faceIndex: 0, updatedAt: 1_700_000_000_000, box: null, distance: 0.42, ...face });
+        return this;
+    }
+
+    seedSingle(face) {
+        this.people.singles.push({ faceIndex: 0, updatedAt: 1_700_000_000_000, box: null, ...face });
+        return this;
+    }
+
+    requireApprovedActor(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
+        return actor;
+    }
+
+    requireAdminActor(request) {
+        const actor = this.requireApprovedActor(request);
+        if (!['admin', 'super_admin'].includes(actor.role)) throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        return actor;
+    }
+
+    faceView(face) {
+        const record = this.collection('images').get(face.imageId);
+        const thumb = record?.variants?.thumb?.url;
+        return {
+            imageId: face.imageId,
+            faceIndex: face.faceIndex,
+            updatedAt: face.updatedAt,
+            box: face.box || null,
+            url: thumb || mediaUrl(face.imageId),
+            sourceUrl: record?.url || mediaUrl(face.imageId)
+        };
+    }
+
+    // רק פרצופים מתמונות שקיימות בגלריה המאושרת, כמו FACE_VALID_ASSIGNMENT.
+    liveFaces(person) {
+        return person.faces.filter(face => this.collection('images').has(face.imageId));
+    }
+
+    personSummary(person, { samples = 0 } = {}) {
+        const faces = this.liveFaces(person);
+        const coverFace = faces.find(face => person.cover && face.imageId === person.cover.imageId && face.faceIndex === person.cover.faceIndex)
+            || faces.find(face => face.box) || faces[0] || null;
+        return {
+            personId: person.personId,
+            name: person.name,
+            status: person.status,
+            hidden: person.hidden,
+            faceCount: faces.length,
+            imageCount: new Set(faces.map(face => face.imageId)).size,
+            cover: coverFace ? this.faceView(coverFace) : null,
+            ...(samples ? { samples: faces.slice(0, samples).map(face => this.faceView(face)) } : {})
+        };
+    }
+
+    peopleCounts() {
+        const persons = [...this.people.persons.values()].map(person => this.personSummary(person));
+        return {
+            suggested: persons.filter(person => person.status === 'suggested' && !person.hidden && person.faceCount > 0).length,
+            approved: persons.filter(person => person.status === 'approved' && !person.hidden && person.faceCount > 0).length,
+            hidden: persons.filter(person => person.hidden && person.faceCount > 0).length,
+            review: this.people.review.length,
+            singles: this.people.singles.length,
+            unclustered: this.people.unclustered
+        };
+    }
+
+    publicPerson(summary) {
+        return {
+            personId: summary.personId,
+            name: summary.name,
+            faceCount: summary.faceCount,
+            imageCount: summary.imageCount,
+            cover: summary.cover ? { imageId: summary.cover.imageId, box: summary.cover.box, url: summary.cover.url } : null
+        };
+    }
+
+    listPersons(request) {
+        this.requireApprovedActor(request);
+        const persons = [...this.people.persons.values()]
+            .map(person => this.personSummary(person))
+            .filter(person => person.status === 'approved' && !person.hidden && person.name && person.faceCount > 0)
+            .map(person => this.publicPerson(person));
+        return { success: true, version: 1, persons };
+    }
+
+    personAlbum(request, personId) {
+        const actor = this.requireApprovedActor(request);
+        const person = this.people.persons.get(personId);
+        const isAdmin = ['admin', 'super_admin'].includes(actor.role);
+        if (!person || (!isAdmin && (person.status !== 'approved' || person.hidden || !person.name))) {
+            throw apiError('האדם לא נמצא.', 404, 'person_not_found');
+        }
+        const images = this.collection('images');
+        const ids = [...new Set(this.liveFaces(person).map(face => face.imageId))]
+            .sort((a, b) => (Number(images.get(b)?.takenAt ?? images.get(b)?.createdAt) || 0) - (Number(images.get(a)?.takenAt ?? images.get(a)?.createdAt) || 0));
+        return { success: true, version: 1, person: this.publicPerson(this.personSummary(person)), imageIds: ids };
+    }
+
+    readGroups(request, url) {
+        this.requireAdminActor(request);
+        const counts = this.peopleCounts();
+        const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+        const personId = url.searchParams.get('person');
+        if (personId) {
+            const person = this.people.persons.get(personId);
+            if (!person) throw apiError('האדם לא נמצא.', 404, 'person_not_found');
+            const faces = this.liveFaces(person);
+            return {
+                success: true, view: 'person', counts, person: this.personSummary(person), offset,
+                faces: faces.slice(offset, offset + 24).map(face => ({ ...this.faceView(face), source: face.source })),
+                hasMore: faces.length > offset + 24
+            };
+        }
+        const view = url.searchParams.get('view') || 'suggested';
+        const all = [...this.people.persons.values()].map(person => this.personSummary(person, { samples: 6 }));
+        if (view === 'options') {
+            return {
+                success: true, view, counts,
+                options: all.filter(person => person.faceCount > 0)
+                    .map(({ personId: id, name, status, hidden, faceCount }) => ({ personId: id, name, status, hidden, faceCount }))
+            };
+        }
+        if (view === 'review') {
+            return {
+                success: true, view, counts, offset, hasMore: false,
+                faces: this.people.review.map(item => {
+                    const candidate = this.people.persons.get(item.candidateId);
+                    return { ...this.faceView(item), distance: item.distance, candidate: candidate ? this.personSummary(candidate) : null };
+                })
+            };
+        }
+        if (view === 'singles') {
+            return { success: true, view, counts, offset, hasMore: false, faces: this.people.singles.map(item => this.faceView(item)) };
+        }
+        const persons = all.filter(person => (view === 'hidden'
+            ? person.hidden
+            : !person.hidden && person.status === view && person.faceCount > 0));
+        return { success: true, view, counts, offset, hasMore: false, persons };
+    }
+
+    takeFace(reference) {
+        for (const person of this.people.persons.values()) {
+            const index = person.faces.findIndex(face => face.imageId === reference?.imageId && face.faceIndex === reference?.faceIndex);
+            if (index >= 0) {
+                if (person.faces[index].updatedAt !== reference.updatedAt) throw apiError('הנתונים השתנו. רענן את הרשימה ונסה שוב.', 409, 'stale_faces');
+                return person.faces.splice(index, 1)[0];
+            }
+        }
+        for (const queue of [this.people.review, this.people.singles]) {
+            const queueIndex = queue.findIndex(face => face.imageId === reference?.imageId && face.faceIndex === reference?.faceIndex);
+            if (queueIndex >= 0) return queue.splice(queueIndex, 1)[0];
+        }
+        throw apiError('הנתונים השתנו. רענן את הרשימה ונסה שוב.', 409, 'stale_faces');
+    }
+
+    mutateGroups(request) {
+        this.requireAdminActor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        const person = id => {
+            const found = this.people.persons.get(String(id || ''));
+            if (!found) throw apiError('האדם לא נמצא. ייתכן שהקבוצה אוחדה או נמחקה. רענן ונסה שוב.', 404, 'person_not_found');
+            return found;
+        };
+        const name = () => {
+            const value = String(payload.name ?? '').replace(/\s+/g, ' ').trim();
+            if (!value) throw apiError('יש להזין שם.', 400, 'invalid_person_name');
+            if (value.length > 60) throw apiError('השם ארוך מדי (עד 60 תווים).', 400, 'invalid_person_name');
+            return value;
+        };
+        switch (payload.action) {
+            case 'approve': { const target = person(payload.personId); target.name = name(); target.status = 'approved'; break; }
+            case 'rename': { const target = person(payload.personId); target.name = name(); break; }
+            case 'hide': person(payload.personId).hidden = true; break;
+            case 'unhide': person(payload.personId).hidden = false; break;
+            case 'merge': {
+                const target = person(payload.targetId);
+                const source = person(payload.sourceId);
+                target.faces.push(...source.faces.map(face => ({ ...face, source: 'manual' })));
+                if (!target.name && source.name) target.name = source.name;
+                if (source.status === 'approved') target.status = 'approved';
+                // כמו ב-Worker: ההסתרה גוברת במיזוג.
+                if (source.hidden) target.hidden = true;
+                this.people.persons.delete(source.personId);
+                break;
+            }
+            case 'move': {
+                const face = this.takeFace(payload.face);
+                if (payload.targetId) person(payload.targetId).faces.push({ ...face, source: 'manual' });
+                else {
+                    const id = `fp_new_${this.people.persons.size + 1}`;
+                    this.seedPerson({ personId: id, faces: [{ ...face, source: 'manual' }] });
+                }
+                break;
+            }
+            case 'accept': {
+                const target = person(payload.personId);
+                const face = this.takeFace(payload.face);
+                target.faces.push({ ...face, source: 'manual' });
+                break;
+            }
+            case 'reject': {
+                // "לא — אדם אחר": הפרצוף חוזר להיות בודד, כמו ב-Worker.
+                const { imageId, faceIndex, updatedAt, box } = this.takeFace(payload.face);
+                this.people.singles.push({ imageId, faceIndex, updatedAt, box });
+                break;
+            }
+            case 'remove':
+                this.takeFace(payload.face);
+                break;
+            case 'cover': {
+                const target = person(payload.personId);
+                target.cover = { imageId: payload.face.imageId, faceIndex: payload.face.faceIndex };
+                break;
+            }
+            default:
+                throw apiError('הפעולה המבוקשת אינה מוכרת.', 400, 'invalid_action');
+        }
+        return { success: true, action: payload.action };
+    }
+
+    faceMe(request) {
+        const actor = this.requireApprovedActor(request);
+        const method = request.method();
+        if (method === 'DELETE') {
+            this.people.me.delete(actor.uid);
+            return { success: true, remembered: false };
+        }
+        if (method === 'PUT') {
+            const payload = JSON.parse(request.postData() || '{}');
+            if (payload.consent !== true) throw apiError('שמירת הטביעה מחייבת הסכמה מפורשת („זכור אותי”).', 400, 'consent_required');
+            if (!Array.isArray(payload.descriptor) || payload.descriptor.length !== 128) throw apiError('טביעת פנים חייבת להכיל בדיוק 128 מספרים.', 400, 'invalid_face_descriptor');
+            this.people.me.set(actor.uid, payload.descriptor);
+            return { success: true, remembered: true, savedAt: Date.now() };
+        }
+        const remembered = this.people.me.has(actor.uid);
+        return { success: true, remembered, savedAt: remembered ? 1 : 0 };
+    }
+
+    faceSearch(request, { saved = false } = {}) {
+        const actor = this.requireApprovedActor(request);
+        if (saved) {
+            if (!this.people.me.has(actor.uid)) throw apiError('אין טביעה שמורה. חפש שוב לפי תמונה.', 404, 'face_me_not_saved');
+        } else {
+            const payload = JSON.parse(request.postData() || '{}');
+            if (!Array.isArray(payload.descriptor) || payload.descriptor.length !== 128) throw apiError('טביעת פנים חייבת להכיל בדיוק 128 מספרים.', 400, 'invalid_face_descriptor');
+        }
+        const matches = this.people.matches
+            .filter(match => this.collection('images').has(match.imageId))
+            .map(match => ({ imageId: match.imageId, distance: match.distance, confidence: 80, source: 'biometric', strength: 'strong' }));
+        return { success: true, matches, coverage: { totalImages: 0, indexedImages: 0, remainingImages: 0, failedImages: 0, ready: true } };
+    }
+
     async handle(route) {
         const request = route.request();
         const url = new URL(request.url());
@@ -890,6 +1160,12 @@ export class FakeWorker {
         if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
 
         try {
+            if (url.pathname === '/background/config') {
+                this.backgroundConfig ||= { enabled: { titles: true, faces: true, variants: true, dates: true, drive: true }, driveFolders: [], intervalMinutes: 15 };
+                if (method === 'PUT') this.backgroundConfig.enabled = { ...this.backgroundConfig.enabled, ...request.postDataJSON().enabled };
+                return json({ success: true, config: this.backgroundConfig });
+            }
+            if (url.pathname === '/background/status') return json({ success: true, state: { phase: 'idle', jobs: {}, cursor: {}, retry: [] } });
             if (method === 'GET' && url.pathname === '/media/variants/stats') return json(this.variantStats(request));
             if (method === 'GET' && url.pathname.startsWith('/media/')) {
                 // קובץ שהועלה בבדיקה מוגש כפי שנשמר; כל כתובת אחרת מקבלת את תמונת הבסיס.
@@ -920,6 +1196,46 @@ export class FakeWorker {
                     success: true, service: 'simchas-gallery-api', databaseConnected: true, bucketConnected: true,
                     aiDescriptionsEnabled: this.aiEnabled
                 });
+            }
+            if (method === 'GET' && url.pathname === '/face-assets/face-api.js') {
+                return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'text/javascript; charset=utf-8' }, body: FACE_API_STUB });
+            }
+            if (method === 'GET' && url.pathname === '/face/persons') return json(this.listPersons(request));
+            if (method === 'GET' && url.pathname.startsWith('/face/persons/')) {
+                return json(this.personAlbum(request, decodeURIComponent(url.pathname.slice('/face/persons/'.length))));
+            }
+            if (method === 'GET' && url.pathname === '/face/groups') return json(this.readGroups(request, url));
+            if (method === 'POST' && url.pathname === '/face/groups') return json(this.mutateGroups(request));
+            if (method === 'POST' && url.pathname === '/face/clusters/run') {
+                this.requireAdminActor(request);
+                this.people.clusterRuns += 1;
+                const processed = this.people.unclustered;
+                this.people.unclustered = 0;
+                return json({ success: true, busy: false, processed, joined: processed, created: 0, review: 0, seeded: 0, remaining: 0 });
+            }
+            if (method === 'POST' && url.pathname === '/face/boxes') {
+                this.requireAdminActor(request);
+                const { boxes = [] } = JSON.parse(request.postData() || '{}');
+                this.people.boxes.push(...boxes);
+                for (const entry of boxes) {
+                    for (const person of this.people.persons.values()) {
+                        for (const face of person.faces) {
+                            if (face.imageId === entry.imageId && face.faceIndex === entry.faceIndex && !face.box) face.box = entry.box;
+                        }
+                    }
+                }
+                return json({ success: true, saved: boxes.length });
+            }
+            if (url.pathname === '/face/me' && ['GET', 'PUT', 'DELETE'].includes(method)) return json(this.faceMe(request));
+            if (method === 'POST' && url.pathname === '/face/me/search') return json(this.faceSearch(request, { saved: true }));
+            if (method === 'POST' && url.pathname === '/face/search') return json(this.faceSearch(request));
+            if (method === 'GET' && url.pathname === '/face/people') {
+                this.requireAdminActor(request);
+                return json({ faces: [], hasMore: false });
+            }
+            if (method === 'GET' && url.pathname === '/face/index/summary') {
+                this.requireApprovedActor(request);
+                return json({ success: true, totalImages: 0, indexedImages: 0, remainingImages: 0, failedImages: 0, faceCount: 0, ready: true });
             }
             if (method === 'POST' && url.pathname === '/drive/token') {
                 this.actor(request);
@@ -955,6 +1271,23 @@ const GIS_STUB = `(() => {
 })();`;
 const LUCIDE_STUB = 'window.lucide = { createIcons() {} };';
 
+// מנוע זיהוי הפנים: במקום face-api.js והמודלים, תחליף שמחזיר תמיד את אותה
+// טביעה ואת אותו מיקום — כך "התמונות שלי" ונתיבי המיקום רצים בדפדפן אמיתי
+// בלי רשת. window.__faceStubNoFace מדמה תמונה שאין בה פנים.
+export const FACE_API_STUB = `(() => {
+    const net = () => ({ isLoaded: true, async loadFromUri() {} });
+    const descriptor = () => Float32Array.from({ length: 128 }, (_, index) => (index === 1 ? 0.68 : 0.08));
+    const detection = { descriptor: descriptor(), detection: { box: { x: 2, y: 1, width: 4, height: 5 } } };
+    window.faceapi = {
+        nets: { ssdMobilenetv1: net(), faceLandmark68Net: net(), faceRecognitionNet: net() },
+        detectSingleFace: () => ({ withFaceLandmarks: () => ({ withFaceDescriptor: async () => (window.__faceStubNoFace ? undefined : detection) }) }),
+        detectAllFaces: () => ({ withFaceLandmarks: () => ({ withFaceDescriptors: async () => [0, 1, 2, 3].map(index => ({
+            descriptor: descriptor(),
+            detection: { box: { x: 1 + index, y: 1, width: 3, height: 4 } }
+        })) }) })
+    };
+})();`;
+
 const script = body => route => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
 const isLocal = url => url.hostname === '127.0.0.1' || url.hostname === 'localhost';
 
@@ -975,10 +1308,10 @@ export async function installRoutes(context, worker) {
 // שדפדפן של משתמש שכבר התחבר פעם מכיל — וזורע את הפרופיל התואם בזיוף.
 export async function seedSession(page, {
     worker, uid = DEFAULT_USER.uid, email = DEFAULT_USER.email, name = DEFAULT_USER.name,
-    approved = true, role = 'viewer', status = approved ? 'approved' : 'pending', issuedAgoMs = 0
+    approved = true, role = 'viewer', status = approved ? 'approved' : 'pending', issuedAgoMs = 0, picture = ''
 } = {}) {
-    worker?.seedUser({ uid, email, name, status, role });
-    const token = fakeSessionToken({ uid, email, name }, { issuedAgoMs });
+    worker?.seedUser({ uid, email, name, status, role, picture });
+    const token = fakeSessionToken({ uid, email, name, picture }, { issuedAgoMs });
     await page.addInitScript(([key, value]) => {
         // פעם אחת לכל לשונית: רענון אחרי התנתקות אינו מחזיר את האסימון.
         try {

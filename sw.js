@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v63";
+const CACHE_VERSION = "v64";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -12,6 +12,8 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // admin.html ומודולי הניהול אינם כאן בכוונה, מאותו טעם: הם שייכים למנהל
 // בלבד ונכנסים למטמון רק כשהוא פותח את לוח הניהול. גם face-index.js
 // ו-drive-sync.js הם כלי ניהול ולכן אינם נטענים מראש לאורח.
+// people.js ו-people-model.js (אנשים בגלריה ו"התמונות שלי") נטענים בייבוא
+// דינמי, אך נשמרים מראש כמו face-search.js, כי הם חלק מדף הגלריה עצמו.
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -34,6 +36,8 @@ const APP_SHELL = [
   "./session-auth.js",
   "./popup-announcement.js",
   "./face-search.js",
+  "./people.js",
+  "./people-model.js",
   "./cloudflare-client.js",
   "./api-environment.js",
   "./auto-update.js",

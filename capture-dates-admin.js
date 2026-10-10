@@ -226,6 +226,7 @@ async function processCaptureCandidate(candidate) {
 }
 
 async function startCaptureDatesJob() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("dates", true);
     if (!window.checkAdminPermission()) return;
     if (captureRun.running) {
         window.showNotification('הריצה כבר פועלת.', false);
@@ -281,6 +282,7 @@ async function startCaptureDatesJob() {
 window.startCaptureDatesJob = startCaptureDatesJob;
 
 function stopCaptureDatesJob() {
+    if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("dates", false);
     if (!captureRun.running) return;
     captureRun.stopRequested = true;
     captureRun.message = 'עוצר אחרי הפריטים שבבדיקה…';
