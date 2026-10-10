@@ -582,6 +582,8 @@ function setupFirestoreListeners(user) {
                 ? snapshot.data().followedFolderIds.map(safeRecordId).filter(Boolean)
                 : [];
             window.state.followedFolders = new Set(ids);
+            // החיפושים השמורים (בכוכב) נשמרים באותו מסמך; ראו search-history-ui.js.
+            window.syncSavedSearchesFromPreferences?.(snapshot.exists() ? snapshot.data() : null);
         }, handleFsError));
     }
 
