@@ -106,6 +106,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           # רק לשחזור (ראו למטה): ערכי סודות שאי אפשר לקרוא מ-Cloudflare.
+          RESTORE_SECRET_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           RESTORE_SECRET_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           RESTORE_SECRET_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
