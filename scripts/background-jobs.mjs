@@ -251,14 +251,30 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         }
         await runJob('faces', faceImages.filter(record => pendingFaces.has(record.id)), async record => {
             const view = await ensurePage();
-            const faces = await view.evaluate(async record => {
+            // הטביעות ומיקום כל פרצוף בתמונה (לחיתוך התצוגה של האדם, ראו people-model.js).
+            const { faces, boxes } = await view.evaluate(async record => {
                 await import('/face-search.js');
+                const { boxFromDetection } = await import('/people-model.js');
                 const engine = await window.loadFaceApi();
                 const image = await window.loadFaceImageElement(record.url);
-                return (await engine.detectAllFaces(image).withFaceLandmarks().withFaceDescriptors()).slice(0,20).map(face => Array.from(face.descriptor));
+                const detections = (await engine.detectAllFaces(image).withFaceLandmarks().withFaceDescriptors()).slice(0,20);
+                return {
+                    faces: detections.map(face => Array.from(face.descriptor)),
+                    boxes: detections.map(face => boxFromDetection(face.detection?.box, image.naturalWidth, image.naturalHeight))
+                };
             }, record);
-            await post('/face/index', { images: [{ imageId: record.id, faces }] });
+            const entry = { imageId: record.id, faces };
+            if (boxes.length && boxes.every(Boolean)) entry.boxes = boxes;
+            await post('/face/index', { images: [entry] });
         });
+        // קיבוץ הפרצופים לאנשים: ה-Worker מקבץ גם לבד אחרי כל אינדוקס, וכאן
+        // הוא ממשיך עד הסוף גם פרצופים ישנים שעוד לא קובצו.
+        if (config.enabled.faces) {
+            for (let round = 0; round < 40 && Date.now() < deadline; round += 1) {
+                const result = await post('/face/clusters/run', {});
+                if (result.busy || !result.processed || !result.remaining) break;
+            }
+        }
         await progress('idle');
         report(JSON.stringify({ processed: jobs, runId: process.env.GITHUB_RUN_ID || '' }));
     } catch (error) {

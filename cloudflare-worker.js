@@ -5560,7 +5560,7 @@ function backgroundAllowedPath(method, path) {
   if (method === "GET") return /^\/data\/(images|pendingImages|folders)(\/[^/]+)?$/.test(path) ||
     ["/background/config", "/background/status", "/face/index/summary", "/media/variants/stats"].includes(path) || path.startsWith("/face-assets/") ||
     /^\/media\/(probe\/[^/]+|(approved|pending|variants)\/)/.test(path);
-  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort"].includes(path);
+  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort"].includes(path);
   if (method === "PUT") return path === "/upload/multipart/part" || /^\/data\/(images\/driveimage|folders\/drivefolder)_[A-Za-z0-9_-]+$/.test(path);
   return false;
 }
