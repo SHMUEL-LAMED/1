@@ -171,12 +171,19 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           api_url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${CLOUDFLARE_WORKER_NAME}?bindings_inherit=strict"
-          curl --fail-with-body --silent --show-error \
+          if ! curl --fail-with-body --silent --show-error \
             --request PUT "$api_url" \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --form 'metadata=<worker-metadata.json;type=application/json' \
             --form 'cloudflare-worker.js=@cloudflare-worker.js;type=application/javascript+module' \
-            --output deploy-response.json
+            --output deploy-response.json; then
+            echo "::error::Cloudflare rejected the upload. Response:"
+            cat deploy-response.json || true
+            echo
+            echo "Bindings sent:"
+            node -e 'console.log(JSON.stringify(JSON.parse(require("fs").readFileSync("worker-metadata.json","utf8")).bindings))'
+            exit 1
+          fi
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const payload = JSON.parse(readFileSync("deploy-response.json", "utf8"));
