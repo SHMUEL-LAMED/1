@@ -105,9 +105,6 @@ jobs:
       - name: Inherit all bindings of the target Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # רק לשחזור (ראו למטה): ערכי סודות שאי אפשר לקרוא מ-Cloudflare.
-          RESTORE_SECRET_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          RESTORE_SECRET_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           node --input-type=module <<'NODE'
           import { writeFileSync } from "node:fs";
@@ -117,7 +114,6 @@ jobs:
           const headers = { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` };
           const REQUIRED = ["GALLERY_DB", "GALLERY_BUCKET"];
           const namesOf = list => [...new Set((list || []).map(item => String(item?.name || "").trim()).filter(Boolean))];
-          const hasRequired = names => REQUIRED.every(name => names.includes(name));
 
           async function api(path) {
             const response = await fetch(`${apiBase}${path}`, { headers });
@@ -128,71 +124,50 @@ jobs:
             return payload.result;
           }
 
-          // מצב רגיל: הגרסה האחרונה שהועלתה תקינה, ויורשים ממנה (Cloudflare מקבל
-          // בירושה רק את "latest").
-          let latestNames = [];
+          // ה-Bindings נלקחים מהגרסה שמשרתת עכשיו (הפריסה הפעילה), ולא מהגרסה
+          // האחרונה שהועלתה: אחרי Rollback הגרסה האחרונה עלולה להיות גרסה שבורה
+          // בלי D1/R2 (כמו הבנייה האוטומטית של Workers Builds ב-8.10).
+          let inheritFrom = "latest";
+          let bindingNames = [];
           try {
-            latestNames = namesOf(await api("/bindings"));
-          } catch (error) {
-            throw new Error(`Unable to read the existing bindings of Worker "${workerName}". The Worker must already exist in the Cloudflare dashboard; this workflow never creates it. ${error.message}`);
-          }
-
-          let bindings;
-          if (hasRequired(latestNames)) {
-            bindings = latestNames.map(name => ({ type: "inherit", name }));
-            console.log(`Inheriting ${bindings.length} bindings from the latest version of ${workerName}.`);
-          } else {
-            // שחזור: הגרסה האחרונה שבורה (למשל אחרי Rollback מעל פריסה של Workers
-            // Builds). את ה-Bindings לוקחים במפורש מהגרסה הפעילה. סודות אינם
-            // ניתנים לקריאה, ולכן ערכיהם נלקחים מסודות GitHub באותו שם.
-            console.log(`::warning::The latest version of ${workerName} lacks ${REQUIRED.join("/")}; restoring bindings explicitly from the active version.`);
             const deployments = await api("/deployments");
             const list = Array.isArray(deployments) ? deployments : deployments?.deployments || [];
-            const active = list.slice().sort((x, y) => String(y?.created_on || "").localeCompare(String(x?.created_on || "")))[0];
-            const activeVersionId = (active?.versions || []).slice().sort((x, y) => Number(y?.percentage || 0) - Number(x?.percentage || 0))[0]?.version_id;
-            if (!activeVersionId) throw new Error(`Could not find the active version of ${workerName}.`);
+            const active = list
+              .slice()
+              .sort((x, y) => String(y?.created_on || "").localeCompare(String(x?.created_on || "")))[0];
+            const versions = (active?.versions || []).slice().sort((x, y) => Number(y?.percentage || 0) - Number(x?.percentage || 0));
+            const activeVersionId = versions[0]?.version_id;
+            if (!activeVersionId) throw new Error("no active deployment version");
             const detail = await api(`/versions/${activeVersionId}`);
-            const source = Array.isArray(detail?.resources?.bindings) ? detail.resources.bindings : [];
-            if (!hasRequired(namesOf(source))) {
-              throw new Error(`The active version ${activeVersionId} of ${workerName} lacks ${REQUIRED.join("/")}. Roll the Worker back to a version that has them first.`);
+            bindingNames = namesOf(detail?.resources?.bindings);
+            inheritFrom = activeVersionId;
+            console.log(`Active version of ${workerName}: ${activeVersionId} (${versions[0]?.percentage ?? "?"}%).`);
+          } catch (error) {
+            throw new Error(`Unable to read active bindings of ${workerName}; refusing to inherit from an undeployed version. ${error.message}`);
+          }
+
+          for (const required of REQUIRED) {
+            if (!bindingNames.includes(required)) {
+              throw new Error(`Required binding is missing on the active version of Worker "${workerName}": ${required}. Roll the Worker back to a version that has it, or add it in the dashboard; this workflow never creates databases or buckets.`);
             }
-            const missingSecrets = [];
-            bindings = source.map(binding => {
-              if (binding.type === "secret_text") {
-                const value = process.env[`RESTORE_SECRET_${binding.name}`];
-                if (!value) {
-                  missingSecrets.push(binding.name);
-                  return null;
-                }
-                return { type: "secret_text", name: binding.name, text: value };
-              }
-              if (binding.type === "d1") {
-                // ה-API מחזיר לפעמים database_id; ההעלאה מצפה ל-id.
-                const { database_id, ...rest } = binding;
-                return { ...rest, id: binding.id || database_id };
-              }
-              return binding;
-            });
-            if (missingSecrets.length) {
-              throw new Error(`Restoring ${workerName} needs the values of its secrets, which Cloudflare never returns. Add these as GitHub Actions secrets (Settings → Secrets and variables → Actions) and run this workflow again: ${missingSecrets.join(", ")}. Nothing was deployed; the active version keeps serving.`);
-            }
-            console.log(`Restoring ${bindings.length} bindings from active version ${activeVersionId}: ${bindings.map(item => `${item.name}(${item.type})`).join(", ")}.`);
           }
 
           writeFileSync("worker-metadata.json", JSON.stringify({
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
-            bindings,
+            // רק ה-API החדש workers/workers תומך בירושה ממזהה גרסה מסוים.
+            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: inheritFrom })),
             annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
+          console.log(`Preserving ${bindingNames.length} bindings of ${workerName} (inherited from ${inheritFrom}).`);
           NODE
 
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        # העלאה דרך Versions API ואז פריסה של הגרסה ב-100%. ה-API הישן (PUT
-        # ‎/scripts) מקבל רק version_id: "latest" בירושת Bindings, וזה לא מספיק
-        # אחרי Rollback, כשהגרסה האחרונה שהועלתה אינה הגרסה הפעילה.
+        # ה-API החדש workers/workers מקבל JSON עם modules וירושה ממזהה גרסה.
+        # scripts/versions מקבל בירושה רק latest, ולכן אינו מתאים אחרי Rollback.
+        # מעלים גרסה, בודקים שחיבורי השרת נשמרו ורק אז פורסים אותה ב-100%.
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
@@ -201,8 +176,9 @@ jobs:
           const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}`;
           const headers = { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` };
 
-          async function call(path, init, label) {
-            const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...headers, ...(init.headers || {}) } });
+          const versionApiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/workers/${workerName}`;
+          async function call(path, init, label, base = apiBase) {
+            const response = await fetch(`${base}${path}`, { ...init, headers: { ...headers, ...(init.headers || {}) } });
             const payload = await response.json().catch(() => null);
             if (!response.ok || payload?.success !== true) {
               console.log(`::error::${label} was rejected by Cloudflare (${response.status}).`);
@@ -213,12 +189,24 @@ jobs:
           }
 
           const metadata = JSON.parse(readFileSync("worker-metadata.json", "utf8"));
-          console.log(`Bindings: ${metadata.bindings.map(item => `${item.name}(${item.type})`).join(", ")}`);
-          const form = new FormData();
-          form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-          form.append("cloudflare-worker.js", new Blob([readFileSync("cloudflare-worker.js")], { type: "application/javascript+module" }), "cloudflare-worker.js");
+          console.log(`Bindings: ${JSON.stringify(metadata.bindings)}`);
+          const version = await call("/versions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...metadata,
+              modules: [{
+                name: "cloudflare-worker.js",
+                content_type: "application/javascript+module",
+                content_base64: readFileSync("cloudflare-worker.js").toString("base64")
+              }]
+            })
+          }, "Version upload", versionApiBase);
+          const uploadedNames = new Set((version?.bindings || []).map(binding => binding.name));
+          if (metadata.bindings.some(binding => !uploadedNames.has(binding.name))) {
+            throw new Error("Uploaded version is missing inherited bindings; refusing to deploy.");
+          }
 
-          const version = await call("/versions?bindings_inherit=strict", { method: "POST", body: form }, "Version upload");
           const versionId = version?.id;
           if (!versionId) {
             console.log("::error::Cloudflare did not return a version id.");

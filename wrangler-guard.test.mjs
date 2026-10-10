@@ -21,11 +21,10 @@ test("wrangler.jsonc חוסם את Workers Builds: נקודת כניסה שאי�
     }
 });
 
-test("ה-Action של הפריסה משחזר Bindings מהגרסה הפעילה כשהאחרונה שבורה", async () => {
+test("ה-Action של הפריסה יורש Bindings מהגרסה הפעילה ולא מהאחרונה", async () => {
     const workflow = await readFile(new URL("./.github/workflows/deploy-worker.yml", import.meta.url), "utf8");
     assert.match(workflow, /api\("\/deployments"\)/);
-    assert.match(workflow, /RESTORE_SECRET_/);
-    assert.doesNotMatch(workflow, /JSON\.stringify\(metadata\.bindings\)/, "ערכי סודות אסור להדפיס ללוג");
-    assert.match(workflow, /type: "inherit", name \}/);
-    assert.match(workflow, /bindings_inherit=strict/);
+    assert.match(workflow, /version_id: inheritFrom/);
+    assert.match(workflow, /workers\/workers\/\$\{workerName\}/);
+    assert.match(workflow, /Uploaded version is missing inherited bindings; refusing to deploy/);
 });

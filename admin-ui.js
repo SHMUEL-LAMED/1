@@ -171,6 +171,14 @@ const ADMIN_VIEWS = [
         keywords: 'תאריך צילום exif מיון תאריך עברי takenAt השלמה'
     },
     {
+        id: 'aititles',
+        group: 'כלי מערכת',
+        title: 'שמות לתמונות עם AI',
+        description: 'שמות קצרים בעברית לפי התוכן של כל תמונה.',
+        icon: 'sparkles',
+        keywords: 'שמות תמונות בינה מלאכותית ai'
+    },
+    {
         id: 'tools',
         group: 'כלי מערכת',
         title: 'תחזוקה ואבחון',
@@ -348,6 +356,11 @@ function runViewHook(viewId) {
                 return window.refreshCaptureDatesSummary?.();
             })
             .catch(error => console.error('Capture dates module failed to load:', error));
+    }
+    if (viewId === 'aititles') {
+        import('./ai-titles-admin.js').then(module => module.openAiTitles()).catch(() => {
+            document.getElementById('aiTitlesStatus').textContent = 'לא ניתן לטעון את הכלי. רענן ונסה שוב.';
+        });
     }
     if (viewId === 'variants') {
         // גם מודול התצוגות נטען עצלה; המונה והכפתורים מצוירים רק אחרי שהוא הגיע.

@@ -43,6 +43,7 @@ const CANONICAL_VIEW_ORDER = [
   "faceindex",
   "variants",
   "capturedates",
+  "aititles",
   "tools"
 ];
 
