@@ -199,6 +199,7 @@ const manager = {
     generation: 0,
     options: [],
     counts: null,
+    lastRunMessage: '',
     bound: false
 };
 
@@ -584,9 +585,13 @@ function renderClusterSummary(counts) {
     if (manager.clustering || !counts) return;
     const runButton = el('peopleClusterRunBtn');
     if (runButton) runButton.disabled = false;
-    clusterStatus(counts.unclustered
-        ? `${faceCountLabel(counts.unclustered)} עדיין לא קובצו. הקיבוץ רץ מעצמו אחרי אינדוקס, ואפשר להריץ אותו עכשיו.`
-        : 'כל הפרצופים קובצו. פרצופים מתמונות חדשות יקובצו מעצמם אחרי האינדוקס.');
+    if (counts.unclustered) {
+        manager.lastRunMessage = '';
+        clusterStatus(`${faceCountLabel(counts.unclustered)} עדיין לא קובצו. הקיבוץ רץ מעצמו אחרי אינדוקס, ואפשר להריץ אותו עכשיו.`);
+        return;
+    }
+    // סיכום הריצה האחרונה נשאר גלוי גם כשהרשימה מתרעננת אחריה.
+    clusterStatus(manager.lastRunMessage || 'כל הפרצופים קובצו. פרצופים מתמונות חדשות יקובצו מעצמם אחרי האינדוקס.');
 }
 
 // ריצת קיבוץ מהדפדפן: ממשיכה בקבוצות עד שאין יותר פרצופים חדשים.
@@ -617,17 +622,19 @@ async function runPeopleClustering() {
             review += Number(result?.review) || 0;
             if (!result?.processed || !result?.remaining) break;
         }
-        clusterStatus(processed
+        manager.lastRunMessage = processed
             ? `הקיבוץ הושלם: ${processed} פרצופים — ${joined} הצטרפו לאנשים קיימים, ${created} קבוצות חדשות, ${review} לבדיקה.`
-            : 'אין פרצופים חדשים לקיבוץ.');
+            : 'אין פרצופים חדשים לקיבוץ.';
+        clusterStatus(manager.lastRunMessage);
     } catch (error) {
         clusterStatus(error?.status === 404
             ? 'הקיבוץ עדיין אינו זמין בשרת. יש לפרוס את גרסת ה־Worker העדכנית.'
             : `הקיבוץ נעצר: ${error?.message || 'שגיאה לא ידועה'}. אפשר להריץ אותו שוב.`);
     } finally {
+        // הרשימה מתרעננת לפני שהדגל יורד, כדי שסיכום הריצה לא יוחלף בסיכום הכללי.
+        await loadManagerView({ keepStatus: true });
         manager.clustering = false;
         if (runButton) runButton.disabled = false;
-        await loadManagerView({ keepStatus: true });
     }
 }
 

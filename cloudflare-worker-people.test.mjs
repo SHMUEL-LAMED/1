@@ -456,6 +456,7 @@ test("הרשימה הציבורית: רק אנשים מאושרים עם שם, �
   // קבוצה שלא אושרה אינה גלויה לצופה, גם בגישה ישירה.
   assert.equal((await call(`/face/persons/${personB.personId}`, "GET", undefined, "viewer-token")).status, 404);
   assert.equal((await call("/face/persons/bad..id", "GET", undefined, "viewer-token")).status, 400);
+  assert.equal((await call("/face/persons/%E0%A4%A", "GET", undefined, "viewer-token")).status, 400);
 });
 
 test("תמונה שנמחקה יוצאת מהאלבום ומהמונים, ורק מדיה מאושרת נכללת", async () => {

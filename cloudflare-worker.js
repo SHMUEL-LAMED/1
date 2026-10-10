@@ -5074,7 +5074,13 @@ async function listFacePersons(request, env, ctx) {
 
 async function facePersonAlbum(request, env, ctx, url) {
   const user = await requireFaceViewer(request, env);
-  const personId = facePersonId(decodeURIComponent(url.pathname.slice("/face/persons/".length)));
+  let rawId = "";
+  try {
+    rawId = decodeURIComponent(url.pathname.slice("/face/persons/".length));
+  } catch {
+    throw apiError("מזהה האדם אינו תקין.", 400, "invalid_person_id");
+  }
+  const personId = facePersonId(rawId);
   const version = await readDataVersion(env, FACE_PEOPLE_DATA_VERSION);
   const isAdmin = ["admin", "super_admin"].includes(user.role);
   return serveCachedFaceJson(request, ctx, `person/${personId}?v=${version}&p=${facePermissionClass(user)}`, async () => {

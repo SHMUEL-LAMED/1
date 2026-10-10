@@ -12,6 +12,8 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // admin.html ומודולי הניהול אינם כאן בכוונה, מאותו טעם: הם שייכים למנהל
 // בלבד ונכנסים למטמון רק כשהוא פותח את לוח הניהול. גם face-index.js
 // ו-drive-sync.js הם כלי ניהול ולכן אינם נטענים מראש לאורח.
+// people.js ו-people-model.js (אנשים בגלריה ו"התמונות שלי") נטענים בייבוא
+// דינמי, אך נשמרים מראש כמו face-search.js, כי הם חלק מדף הגלריה עצמו.
 const APP_SHELL = [
   "./",
   "./index.html",
