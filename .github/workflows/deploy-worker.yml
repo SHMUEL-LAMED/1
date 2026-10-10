@@ -13,12 +13,14 @@ on:
     paths:
       - cloudflare-worker.js
       - .github/workflows/deploy-worker.yml
+      - wrangler.jsonc
   pull_request:
     branches: [main, staging]
     types: [closed]
     paths:
       - cloudflare-worker.js
       - .github/workflows/deploy-worker.yml
+      - wrangler.jsonc
   workflow_dispatch:
     inputs:
       target:
@@ -109,28 +111,59 @@ jobs:
 
           const workerName = process.env.CLOUDFLARE_WORKER_NAME;
           const apiBase = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${workerName}`;
-          const response = await fetch(`${apiBase}/bindings`, {
-            headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` }
-          });
-          const payload = await response.json();
-          if (!response.ok || payload?.success !== true || !Array.isArray(payload.result)) {
-            throw new Error(`Unable to read the existing bindings of Worker "${workerName}" (${response.status}). The Worker must already exist in the Cloudflare dashboard; this workflow never creates it.`);
+          const headers = { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` };
+          const REQUIRED = ["GALLERY_DB", "GALLERY_BUCKET"];
+          const namesOf = list => [...new Set((list || []).map(item => String(item?.name || "").trim()).filter(Boolean))];
+
+          async function api(path) {
+            const response = await fetch(`${apiBase}${path}`, { headers });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || payload?.success !== true) {
+              throw new Error(`Cloudflare API ${path} failed (${response.status}): ${JSON.stringify(payload?.errors || payload)}`);
+            }
+            return payload.result;
           }
 
-          const bindingNames = [...new Set(payload.result.map(item => String(item?.name || "").trim()).filter(Boolean))];
-          for (const required of ["GALLERY_DB", "GALLERY_BUCKET"]) {
+          // ה-Bindings נלקחים מהגרסה שמשרתת עכשיו (הפריסה הפעילה), ולא מהגרסה
+          // האחרונה שהועלתה: אחרי Rollback הגרסה האחרונה עלולה להיות גרסה שבורה
+          // בלי D1/R2 (כמו הבנייה האוטומטית של Workers Builds ב-8.10).
+          let inheritFrom = "latest";
+          let bindingNames = [];
+          try {
+            const deployments = await api("/deployments");
+            const list = Array.isArray(deployments) ? deployments : deployments?.deployments || [];
+            const active = list
+              .slice()
+              .sort((x, y) => String(y?.created_on || "").localeCompare(String(x?.created_on || "")))[0];
+            const versions = (active?.versions || []).slice().sort((x, y) => Number(y?.percentage || 0) - Number(x?.percentage || 0));
+            const activeVersionId = versions[0]?.version_id;
+            if (!activeVersionId) throw new Error("no active deployment version");
+            const detail = await api(`/versions/${activeVersionId}`);
+            bindingNames = namesOf(detail?.resources?.bindings);
+            inheritFrom = activeVersionId;
+            console.log(`Active version of ${workerName}: ${activeVersionId} (${versions[0]?.percentage ?? "?"}%).`);
+          } catch (error) {
+            console.log(`::warning::Could not read the active deployment of ${workerName} (${error.message}); falling back to the latest version's bindings.`);
+            try {
+              bindingNames = namesOf(await api("/bindings"));
+            } catch (inner) {
+              throw new Error(`Unable to read the existing bindings of Worker "${workerName}". The Worker must already exist in the Cloudflare dashboard; this workflow never creates it. ${inner.message}`);
+            }
+          }
+
+          for (const required of REQUIRED) {
             if (!bindingNames.includes(required)) {
-              throw new Error(`Required binding is missing on Worker "${workerName}": ${required}. Add it in the dashboard first; this workflow never creates databases or buckets.`);
+              throw new Error(`Required binding is missing on the active version of Worker "${workerName}": ${required}. Roll the Worker back to a version that has it, or add it in the dashboard; this workflow never creates databases or buckets.`);
             }
           }
 
           writeFileSync("worker-metadata.json", JSON.stringify({
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
-            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: "latest" })),
+            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: inheritFrom })),
             annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
-          console.log(`Preserving ${bindingNames.length} existing bindings of ${workerName}.`);
+          console.log(`Preserving ${bindingNames.length} bindings of ${workerName} (inherited from ${inheritFrom}).`);
           NODE
 
       - name: Deploy Worker

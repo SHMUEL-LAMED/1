@@ -1,0 +1,16 @@
+// מחסום מכוון: הקובץ הזה קיים כדי שפריסה דרך Cloudflare Workers Builds תיכשל.
+//
+// ה-Worker של הגלריה נפרס אך ורק דרך .github/workflows/deploy-worker.yml, שיורש
+// את חיבורי D1 ו-R2. שילוב ה-Git של Cloudflare מריץ `npx wrangler deploy` בכל
+// דחיפה; בלי קובץ הגדרות wrangler מזהה את Vite ופורס את האתר הבנוי כ-Worker
+// סטטי בשם simchas-gallery-api, ומוחק את ה-API ואת ה-Bindings שלו. זה קרה בפועל
+// אחרי המעבר ל-Vite (8.10).
+//
+// נקודת הכניסה מצביעה על קובץ שאינו קיים, ולכן wrangler נכשל לפני כל העלאה.
+// אין לשנות את main לקובץ אמיתי ואין להוסיף כאן Bindings (wrangler-guard.test.mjs
+// נועל זאת). השילוב נותק בדשבורד; הקובץ הוא הגנה נוספת אם יחובר שוב.
+{
+  "name": "simchas-gallery-api",
+  "main": "./WORKERS-BUILDS-DISABLED--deploy-via-github-actions-only.js",
+  "compatibility_date": "2026-08-13"
+}
