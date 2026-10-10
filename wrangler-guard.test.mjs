@@ -25,5 +25,6 @@ test("ה-Action של הפריסה יורש Bindings מהגרסה הפעילה ו
     const workflow = await readFile(new URL("./.github/workflows/deploy-worker.yml", import.meta.url), "utf8");
     assert.match(workflow, /api\("\/deployments"\)/);
     assert.match(workflow, /version_id: inheritFrom/);
-    assert.match(workflow, /bindings_inherit=strict/);
+    assert.match(workflow, /workers\/workers\/\$\{workerName\}/);
+    assert.match(workflow, /Uploaded version is missing inherited bindings; refusing to deploy/);
 });
