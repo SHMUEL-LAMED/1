@@ -64,7 +64,7 @@ async function mutate(action, face) {
     if (busy) return;
     const faces = face ? [face] : [...selected.values()];
     if (!window.confirm(action === 'merge'
-        ? `לאחד את ${faces.length} הפרצופים ואת כל הקבוצות המשויכות אליהם לאותו אדם?`
+        ? `לאחד את ${faces.length} הפרצופים ואת כל הקבוצות המשויכות אליהם לאותו אדם? אם אחת הקבוצות מוסתרת, גם הקבוצה המאוחדת תהיה מוסתרת.`
         : 'להפריד את הפרצוף הזה מקבוצת האדם?')) return;
     busy = true;
     ++generation;
@@ -384,7 +384,11 @@ function renderPersonCard(personEntry, { detail = false } = {}) {
     actions.append(merge.wrap, actionButton('מזג', () => {
         if (!merge.select.value) { managerStatus('בחר קבוצה למיזוג.'); merge.select.focus(); return; }
         const target = manager.options.find(option => option.personId === merge.select.value);
-        if (!window.confirm(`למזג את ${personLabel(personEntry)} לתוך ${personLabel(target)}?`)) return;
+        // ההסתרה גוברת במיזוג (גם בשרת): המנהל רואה זאת לפני האישור.
+        const staysHidden = personEntry.hidden || target?.hidden
+            ? ' הקבוצה המאוחדת תהיה מוסתרת מהגלריה עד "הצג שוב".'
+            : '';
+        if (!window.confirm(`למזג את ${personLabel(personEntry)} לתוך ${personLabel(target)}?${staysHidden}`)) return;
         runMutation({ action: 'merge', targetId: merge.select.value, sourceId: personEntry.personId }, 'הקבוצות מוזגו.');
     }, { label: `מיזוג ${personLabel(personEntry)} לקבוצה שנבחרה` }));
     actions.append(personEntry.hidden

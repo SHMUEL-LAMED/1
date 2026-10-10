@@ -605,6 +605,75 @@ test("הסתרה מוציאה אדם מהרשימה ומהאלבום, וביטו
   assert.equal((await call("/face/persons", "GET", undefined, "viewer-token")).payload.persons.length, 1);
 });
 
+// אדם שהוסתר (למשל, ביקש לא להופיע) נשאר מוסתר גם כשממזגים אותו לקבוצה
+// גלויה, וגם כשקבוצה גלויה ממוזגת לתוכו: ההסתרה גוברת בכל מסלול איחוד.
+async function assertHiddenFromViewers(personId, imageIds) {
+  const list = await call("/face/persons", "GET", undefined, "viewer-token");
+  assert.equal(list.status, 200, list.text);
+  assert.deepEqual(list.payload.persons, [], "אדם מוסתר אינו ברשימה הציבורית");
+  assert.equal((await call(`/face/persons/${personId}`, "GET", undefined, "viewer-token")).status, 404,
+    "האלבום של אדם מוסתר אינו נגיש לצופה");
+  const admin = await call(`/face/persons/${personId}`);
+  assert.equal(admin.status, 200, admin.text);
+  assert.deepEqual([...admin.payload.imageIds].sort(), imageIds);
+  const hidden = await groups("view=hidden");
+  assert.deepEqual(hidden.persons.map(person => [person.personId, person.hidden]), [[personId, true]]);
+  assert.equal((await groups("view=approved")).persons.length, 0);
+}
+
+test("מיזוג אדם מוסתר לתוך קבוצה גלויה משאיר את הקבוצה המאוחדת מוסתרת", async () => {
+  await seedThreePeople();
+  await cluster();
+  const [personA, personB] = (await groups()).persons;
+  await mutate({ action: "approve", personId: personA.personId, name: "פלוני" });
+  await mutate({ action: "hide", personId: personA.personId });
+
+  // המקור המוסתר ממוזג לתוך קבוצה מוצעת וגלויה.
+  const merged = await mutate({ action: "merge", targetId: personB.personId, sourceId: personA.personId });
+  assert.equal(merged.status, 200, merged.text);
+  const row = sql.prepare("SELECT name, status, hidden FROM face_persons WHERE person_id = ?").get(personB.personId);
+  assert.deepEqual({ ...row }, { name: "פלוני", status: "approved", hidden: 1 });
+  await assertHiddenFromViewers(personB.personId, ["a1", "a2", "a3", "b1"]);
+  // גם החיפוש אינו מתרחב דרך הקבוצה המאוחדת.
+  const search = await call("/face/search", "POST", { descriptor: face(A, -0.45) }, "viewer-token");
+  assert.deepEqual(search.payload.matches.map(match => match.imageId), ["a1"]);
+});
+
+test("מיזוג קבוצה גלויה לתוך אדם מוסתר אינו מבטל את ההסתרה", async () => {
+  await seedThreePeople();
+  await cluster();
+  const [personA, personB] = (await groups()).persons;
+  await mutate({ action: "approve", personId: personA.personId, name: "גלוי" });
+  await mutate({ action: "approve", personId: personB.personId, name: "מוסתר" });
+  await mutate({ action: "hide", personId: personB.personId });
+
+  const merged = await mutate({ action: "merge", targetId: personB.personId, sourceId: personA.personId });
+  assert.equal(merged.status, 200, merged.text);
+  assert.equal(sql.prepare("SELECT hidden FROM face_persons WHERE person_id = ?").get(personB.personId).hidden, 1);
+  await assertHiddenFromViewers(personB.personId, ["a1", "a2", "a3", "b1"]);
+});
+
+test("האיחוד הידני הישן של אדם מוסתר עם אדם גלוי וגדול ממנו משאיר את כולם מוסתרים", async () => {
+  await seedThreePeople();
+  await cluster();
+  // V: שלושה פרצופים, מאושר וגלוי. H: שני פרצופים, מאושר ומוסתר.
+  const [personV, personH] = (await groups()).persons;
+  await mutate({ action: "approve", personId: personV.personId, name: "גלוי" });
+  await mutate({ action: "approve", personId: personH.personId, name: "מוסתר" });
+  await mutate({ action: "hide", personId: personH.personId });
+
+  const legacy = (await call("/face/people")).payload.faces;
+  const v1 = legacy.find(item => item.personId === personV.personId);
+  const h1 = legacy.find(item => item.personId === personH.personId);
+  const merged = await call("/face/people", "POST", { action: "merge", faces: [v1, h1] });
+  assert.equal(merged.status, 200, merged.text);
+
+  // היעד נבחר לפי "מאושר, ואז הגדול" — V — אבל ההסתרה של H עוברת אליו.
+  assert.equal(sql.prepare("SELECT COUNT(DISTINCT person_id) AS n FROM face_people").get().n, 1);
+  assert.equal(sql.prepare("SELECT person_id FROM face_people LIMIT 1").get().person_id, personV.personId);
+  await assertHiddenFromViewers(personV.personId, ["a1", "a2", "a3", "b1"]);
+});
+
 // --- הרשאות ופרטיות ---
 
 test("ניהול וקיבוץ למנהלים בלבד; הרשימה והאלבום למשתמשים מאושרים בלבד", async () => {

@@ -956,6 +956,8 @@ export class FakeWorker {
                 target.faces.push(...source.faces.map(face => ({ ...face, source: 'manual' })));
                 if (!target.name && source.name) target.name = source.name;
                 if (source.status === 'approved') target.status = 'approved';
+                // כמו ב-Worker: ההסתרה גוברת במיזוג.
+                if (source.hidden) target.hidden = true;
                 this.people.persons.delete(source.personId);
                 break;
             }

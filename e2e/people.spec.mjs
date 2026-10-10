@@ -235,6 +235,37 @@ test('מנהל פותח קבוצה חדשה לפרצוף בודד; קבוצה ש
     expect(approved.faces.map(face => `${face.imageId}:${face.faceIndex}`)).toEqual(['img_e2e_3:1']);
 });
 
+test('מיזוג אדם מוסתר לקבוצה מוצעת: האישור מזהיר שהקבוצה תוסתר, והיא אינה מופיעה לצופים', async ({ page, worker }) => {
+    seedPeopleGallery(worker);
+    await seedSession(page, { worker, role: 'admin', name: 'מנהל הגלריה' });
+    await page.goto('/admin.html');
+    await page.locator('#adminNav [data-view-target="faceindex"]').click();
+
+    await expect(page.locator('[data-people-count="hidden"]')).toHaveText('1');
+    await page.locator('[data-people-view="hidden"]').click();
+    await expect(page.locator('[data-people-view="hidden"]')).toHaveAttribute('aria-pressed', 'true');
+    const hiddenCard = page.locator('#peopleAdminList .people-admin-card');
+    await expect(hiddenCard).toHaveCount(1);
+    await expect(hiddenCard).toHaveAttribute('aria-label', 'מוסתר');
+    await hiddenCard.getByRole('combobox', { name: 'מזג לתוך…' }).selectOption('fp_pending');
+    const confirmed = new Promise(resolve => page.once('dialog', dialog => {
+        resolve(dialog.message());
+        dialog.accept();
+    }));
+    await hiddenCard.getByRole('button', { name: 'מיזוג מוסתר לקבוצה שנבחרה' }).click();
+    expect(await confirmed).toBe('למזג את מוסתר לתוך קבוצה ללא שם (2 פרצופים)? הקבוצה המאוחדת תהיה מוסתרת מהגלריה עד "הצג שוב".');
+    await expect(page.locator('#peopleAdminStatus')).toHaveText('הקבוצות מוזגו.');
+    await expect(page.locator('[data-people-count="hidden"]')).toHaveText('1');
+    await expect(page.locator('[data-people-count="suggested"]')).toHaveText('0');
+    expect(worker.people.persons.get('fp_pending')).toMatchObject({ name: 'מוסתר', status: 'approved', hidden: true });
+
+    // הקבוצה המאוחדת אינה ברשימת האנשים של הגלריה.
+    await page.goto('/');
+    await page.getByRole('button', { name: 'אנשים', exact: true }).click();
+    await expect(page.locator('#peopleDirectoryList .person-card')).toHaveCount(2);
+    await expect(page.locator('#peopleDirectoryList')).not.toContainText('מוסתר');
+});
+
 test('מנהל מאשר קבוצה מוצעת עם שם, מכריע בפרצוף לבדיקה, והאדם מופיע ברשימת האנשים', async ({ page, worker }) => {
     seedPeopleGallery(worker);
     worker.people.unclustered = 3;

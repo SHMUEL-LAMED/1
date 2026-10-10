@@ -3974,6 +3974,7 @@ async function manageFacePeople(request, env, url) {
   }
   // האיחוד נשמר על אדם קיים מתוך הבחירה (מאושר קודם, אחר כך הקבוצה הגדולה),
   // כדי ששם שכבר ניתן לא ילך לאיבוד. רק כשאין אף קבוצה נוצר אדם חדש.
+  // ההסתרה של כל אחת מהקבוצות עוברת ליעד (adoptFacePersonDetails).
   const existing = await env.GALLERY_DB.prepare(`${selected}
     SELECT DISTINCT s.person_id AS personId, fp.status AS status, COALESCE(fp.face_count, 0) AS faceCount
     FROM selected s LEFT JOIN face_persons fp ON fp.person_id = s.person_id
@@ -4314,7 +4315,8 @@ async function ensureFacePersonRow(env, personId, now = Date.now()) {
 }
 
 // אחרי איחוד: אם לאדם שנשאר אין שם, הוא מקבל את השם של אדם שאוחד לתוכו,
-// ואם אחד מהם אושר — גם הוא מאושר.
+// ואם אחד מהם אושר — גם הוא מאושר. אם אחד מהם הוסתר, הקבוצה המאוחדת
+// מוסתרת: איחוד לעולם אינו חושף לצופים תמונות של אדם שהמנהל הסתיר.
 async function adoptFacePersonDetails(env, targetId, sourceIds, now = Date.now()) {
   const sources = [...new Set(sourceIds.map(String))].filter(id => id && id !== targetId);
   if (!sources.length) return;
@@ -4326,9 +4328,11 @@ async function adoptFacePersonDetails(env, targetId, sourceIds, now = Date.now()
          ORDER BY status = 'approved' DESC, face_count DESC, person_id LIMIT 1), '') END,
        status = CASE WHEN status = 'approved' OR EXISTS (
          SELECT 1 FROM face_persons WHERE person_id IN (${placeholders}) AND status = 'approved') THEN 'approved' ELSE status END,
+       hidden = CASE WHEN hidden = 1 OR EXISTS (
+         SELECT 1 FROM face_persons WHERE person_id IN (${placeholders}) AND hidden = 1) THEN 1 ELSE 0 END,
        updated_at = ?
      WHERE person_id = ?`
-  ).bind(...sources, ...sources, now, targetId).run();
+  ).bind(...sources, ...sources, ...sources, now, targetId).run();
 }
 
 async function markFacesByKey(env, rows, mark, now = Date.now()) {
