@@ -759,7 +759,11 @@ async function loadDriveFolders() {
   const existingList = document.getElementById('driveFoldersList');
   if (existingList) existingList.innerHTML = '';
   try {
-    const settings = getDriveAutoSyncSettings();
+    let settings = getDriveAutoSyncSettings();
+    if (window.CLOUD_BACKGROUND_JOBS) {
+      const { config } = await window.r2Request("/background/config");
+      settings = { folders: config.driveFolders.map(f => ({ url: `https://drive.google.com/drive/folders/${f.id}`, label: f.label, autoSync: f.autoSync })), enabled: config.enabled.drive, intervalMinutes: config.intervalMinutes };
+    }
     const folders = Array.isArray(settings.folders) ? settings.folders : [];
     const noMsg = document.getElementById('noFoldersMsg');
     const enabled = document.getElementById('driveAutoSyncEnabled');
@@ -840,6 +844,7 @@ async function saveDriveFoldersToWorker() {
       intervalMinutes: Number(document.getElementById('driveAutoSyncInterval')?.value || 30),
       lastSync: previous.lastSync || null
     };
+    if (window.CLOUD_BACKGROUND_JOBS) await window.r2Request("/background/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: { drive: document.getElementById("driveAutoSyncEnabled")?.checked !== false }, driveFolders: folders.map(f => ({ id: parseDriveFolderId(f.url), label: f.label, autoSync: f.autoSync })), intervalMinutes: settings.intervalMinutes }) });
     localStorage.setItem('simchatDriveAutoSync', JSON.stringify(settings));
     scheduleDriveAutoSync();
     if (resultEl) { resultEl.style.color = '#22c55e'; resultEl.textContent = `✅ ההגדרות נשמרו (${folders.length} תיקיות)`; }
@@ -851,6 +856,7 @@ async function saveDriveFoldersToWorker() {
 }
 
 async function syncNowFromWorker() {
+  if (window.CLOUD_BACKGROUND_JOBS) return window.setCloudBackgroundJob("drive", true);
   const resultEl = document.getElementById('workerSyncResult');
   const btn = document.getElementById('workerSyncBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ מסנכרן...'; }
@@ -890,6 +896,7 @@ parentDriveFolderId: null
 }
 let driveAutoSyncTimer = null;
 function scheduleDriveAutoSync() {
+  if (window.CLOUD_BACKGROUND_JOBS) return;
   if (driveAutoSyncTimer) clearInterval(driveAutoSyncTimer);
   const settings = getDriveAutoSyncSettings();
   if (!settings.enabled) return;
@@ -907,6 +914,16 @@ window.syncNowFromWorker = syncNowFromWorker;
 window.loadDriveFolders = loadDriveFolders;
 window.restoreDriveConnection = restoreDriveConnection;
 window.startGoogleDriveSync = async function(confirmed = false) {
+    if (window.CLOUD_BACKGROUND_JOBS) {
+      if (!window.checkAdminPermission?.()) return;
+      const id = parseDriveFolderId(document.getElementById("driveFolderInput")?.value);
+      if (!id) return window.showNotification("הדבק קישור תקין לתיקיית Drive.", false);
+      const { config } = await window.r2Request("/background/config");
+      const folders = config.driveFolders.filter(f => f.id !== id);
+      folders.push({ id, label: "Google Drive", autoSync: true });
+      await window.r2Request("/background/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driveFolders: folders, enabled: { drive: true } }) });
+      return window.setCloudBackgroundJob("drive", true);
+    }
     if (!window.checkAdminPermission?.()) return;
     if (!driveAccessToken || driveAccessTokenExpiresAt <= Date.now() + 60000) {
         await restoreDriveConnection(false, true);

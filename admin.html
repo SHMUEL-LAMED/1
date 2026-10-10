@@ -581,7 +581,7 @@
                         <p>סריקה חד־פעמית של התמונות הקיימות. כל תמונה יורדת פעם אחת, טביעות הפנים נשמרות בענן, ומאז חיפוש הפנים מתבצע בשרת בתוך שניות. אפשר לעצור ולהמשיך בכל שלב — ההמשך מתחיל מהמקום שנעצר, גם אחרי רענון.</p>
                         <p id="faceIndexSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">טוען את מצב האינדוקס…</p>
                         <div class="progress-track"><div id="faceIndexProgressBar" class="progress-bar"></div></div>
-                        <p id="faceIndexStatusText" class="field-hint" role="status" aria-live="polite">האינדוקס עדיין לא הופעל בדפדפן הזה.</p>
+                        <p id="faceIndexStatusText" class="field-hint" role="status" aria-live="polite">האינדוקס פועל בענן גם כשהדפדפן סגור.</p>
                         <div class="flex gap-2">
                             <button type="button" id="faceIndexStartBtn" onclick="startFaceIndexing()" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך אינדוקס</button>
                             <button type="button" id="faceIndexStopBtn" onclick="stopFaceIndexing()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
@@ -640,6 +640,8 @@
                             <button id="aiTitlesStop" type="button" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
                         </div>
                         <div id="aiTitlesFailures" class="admin-list"></div>
+                        <p class="field-hint">עבודות הרקע רצות בענן בערך כל 15 דקות, גם כשהדפדפן סגור. העלאה מהמחשב חייבת להסתיים לפני סגירת הדפדפן.</p>
+                        <div id="cloudBackgroundSummary" role="status" aria-live="polite"></div>
                     </div>
                 </div>
             </section>

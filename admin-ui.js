@@ -348,6 +348,9 @@ function runViewHook(viewId) {
             })
             .catch(error => console.error('Face index module failed to load:', error));
     }
+    if (['faceindex', 'capturedates', 'aititles', 'variants', 'drive'].includes(viewId)) {
+        setTimeout(() => window.refreshCloudBackgroundJobs?.(), 1500);
+    }
     if (viewId === 'capturedates') {
         // גם מודול תאריכי הצילום נטען עצלה, רק כשהמסך נפתח.
         window.ensureCaptureDatesModule?.()
