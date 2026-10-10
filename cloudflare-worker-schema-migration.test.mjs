@@ -110,7 +110,7 @@ test.before(() => {
 });
 test.after(() => { globalThis.fetch = originalFetch; });
 
-test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (7): טבלת התצוגות, אינדקס תאריך הצילום וטבלאות ההעלאה בחלקים נוצרים, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
+test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (8): טבלת התצוגות, אינדקס תאריך הצילום וטבלאות ההעלאה בחלקים נוצרים, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
   const d1 = productionDatabaseAtVersion4();
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: new R2() };
 
@@ -128,7 +128,7 @@ test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (7): ט�
     assert.ok(tables.includes(name), `${name} חסר אחרי המיגרציה`);
   }
   // 5 — התצוגות; 6 — אינדקס המיון לפי תאריך הצילום; 7 — ההעלאה בחלקים ו-Stream.
-  assert.equal(meta(d1, "gallery"), 7);
+  assert.equal(meta(d1, "gallery"), 8);
   // המיגרציה אינה נוגעת בגרסאות הנתונים של שכבת הנתונים.
   assert.equal(meta(d1, "data_version:images"), 1000);
   assert.equal(meta(d1, "data_version:userProfiles"), 2000);

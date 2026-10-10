@@ -89,7 +89,7 @@ test.before(() => {
 });
 test.after(() => { globalThis.fetch = originalFetch; });
 
-test("מסד בגרסה 6 עולה ל-7: טבלאות ההעלאה בחלקים ו-Stream נוצרות, הנתונים נשמרים, וההעלאה בחלקים עובדת", async () => {
+test("מסד בגרסה 6 עולה לגרסה הנוכחית (8), דרך 7: טבלאות ההעלאה בחלקים ו-Stream נוצרות, הנתונים נשמרים, וההעלאה בחלקים עובדת", async () => {
   const d1 = databaseAtVersion6();
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: new R2() };
   const meta = key => d1.database.prepare("SELECT schema_version FROM gallery_schema_meta WHERE schema_key = ?").get(key)?.schema_version;
@@ -100,7 +100,7 @@ test("מסד בגרסה 6 עולה ל-7: טבלאות ההעלאה בחלקים 
   for (const name of ["upload_sessions", "idx_upload_sessions_owner", "upload_session_parts", "stream_videos", "idx_gallery_documents_taken_at"]) {
     assert.ok(names.includes(name), `${name} חסר אחרי המיגרציה`);
   }
-  assert.equal(meta("gallery"), 7);
+  assert.equal(meta("gallery"), 8);
   assert.equal(meta("data_version:images"), 1000);
   assert.match(await first.text(), /"old-1"/);
 
