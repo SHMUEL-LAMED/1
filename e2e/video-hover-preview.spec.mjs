@@ -29,6 +29,22 @@ async function stubPlayback(page) {
     });
 }
 
+
+// הגלריה ממשיכה להזיז כרטיסים בזמן שתמונות ופוסטרים נטענים. ריחוף לפני שהפריסה
+// התייצבה משאיר את העכבר מחוץ לכרטיס אחרי ההזזה, ואז pointerout עוצר את התצוגה
+// המקדימה. לכן ממתינים שמיקום הכרטיס יישאר זהה לאורך כמה בדיקות רצופות.
+async function waitForStableBox(locator) {
+    let previous = '';
+    let stableCount = 0;
+    await expect.poll(async () => {
+        const box = await locator.boundingBox();
+        const key = box ? [box.x, box.y, box.width, box.height].map(Math.round).join(',') : '';
+        stableCount = key && key === previous ? stableCount + 1 : 0;
+        previous = key;
+        return stableCount >= 3;
+    }, { intervals: [100], timeout: 10_000 }).toBe(true);
+}
+
 test('ריחוף על כרטיס סרטון מנגן אותו מושתק, ויציאה עוצרת וחוזרת לפוסטר', async ({ page, worker }) => {
     worker.seedFolders().seedImages([videoRecord(), imageRecord(2)]);
     await stubPlayback(page);
@@ -40,6 +56,8 @@ test('ריחוף על כרטיס סרטון מנגן אותו מושתק, ויצ
     await expect(video).toHaveAttribute('preload', 'none');
     await expect(video).toHaveAttribute('poster', variantUrl('img_e2e_1', 'thumb'));
 
+    await page.waitForLoadState('networkidle');
+    await waitForStableBox(card);
     await card.locator('.gallery-media').hover();
     await expect(card).toHaveClass(/is-previewing/);
     await expect.poll(() => page.evaluate(() => window.__videoCalls.play)).toBe(1);

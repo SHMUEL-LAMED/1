@@ -160,7 +160,9 @@ jobs:
           writeFileSync("worker-metadata.json", JSON.stringify({
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
-            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: inheritFrom })),
+            // שמות ה-Bindings נלקחים מהגרסה הפעילה; Cloudflare מקבל בירושה רק את הערך
+            // "latest" (שגיאה 10057 על מזהה גרסה), ולכן version_id אינו נשלח.
+            bindings: bindingNames.map(name => ({ type: "inherit", name })),
             annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
           console.log(`Preserving ${bindingNames.length} bindings of ${workerName} (inherited from ${inheritFrom}).`);
