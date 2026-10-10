@@ -2,10 +2,24 @@
 // חיפוש נרשם עם הסינון שלו, כוכב שומר אותו (גם במסמך userPreferences בענן),
 // לחיצה מחזירה את הטקסט ואת כל הסינונים, והמקלדת עובדת לפי תבנית ARIA.
 // הרשימה נפרדת לכל משתמש, ואחסון פגום או חסום אינו מפיל את הדף.
-import { test, expect, seedSession, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, signInViaGoogle, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
+import { IDLE_COMMIT_MS } from '../search-history-ui.js';
 
 const USER_KEY = storageKeyFor(DEFAULT_USER.uid);
+
+// החיפושים האחרונים שבמפתח, כ"טקסט·תיקייה".
+function storedRecent(page, key = USER_KEY) {
+    return page.evaluate(storageKey => (JSON.parse(localStorage.getItem(storageKey) || 'null')?.recent || [])
+        .map(entry => `${entry.query}·${entry.filters?.folderId || ''}`), key);
+}
+
+// ממתין עד שטיימר הרישום שנקבע עד עכשיו כבר רץ: טיימר שנקבע בדף אחריו, עם
+// אותו זמן המתנה, רץ רק אחריו (סדר הטיימרים ב-HTML). כך בדיקה שדבר *לא* נרשם
+// אינה תלויה בניחוש של זמן.
+function idleCommitPassed(page) {
+    return page.evaluate(ms => new Promise(resolve => window.setTimeout(resolve, ms)), IDLE_COMMIT_MS);
+}
 
 function seedSearchGallery(worker) {
     worker.seedFolders().seedImages([
@@ -263,6 +277,115 @@ test('כל משתמש רואה רק את שלו, חיפושים שמורים מ�
     expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).recent[0].query, storageKeyFor('google-user-2'))).toBe('של משתמש אחר');
     // המיזוג לא נגע בשדות האחרים של המסמך.
     expect(worker.collection('userPreferences').get(DEFAULT_USER.uid).followedFolderIds).toEqual(['1']);
+});
+
+test('שלב הקלדה שנרשם מעצמו מוחלף כשההקלדה נמשכת, וחיפוש שנרשם ב-Enter נשאר', async ({ page, worker }) => {
+    seedSearchGallery(worker);
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const search = page.locator('#searchInput');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+
+    // הפסקה בהקלדה רושמת את "ריקוד", וההמשך שלו מחליף אותו.
+    await search.fill('ריקוד');
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקוד·']);
+    await search.fill('ריקודים');
+    await search.press('Enter');
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקודים·']);
+
+    // "ריקודים" נרשם ב-Enter, ולכן ההמשך שלו נרשם לצידו ואינו מוחק אותו.
+    await search.fill('ריקודים בחצר');
+    await search.press('Enter');
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקודים בחצר·', 'ריקודים·']);
+});
+
+test('אותו טקסט בתיקייה אחרת הוא חיפוש נפרד, והפעלת חיפוש ישן מהתפריט אינה מוחקת את החדש', async ({ page, worker }) => {
+    seedSearchGallery(worker);
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const search = page.locator('#searchInput');
+    const folder = name => page.locator('#folderList .collection-card-main', { hasText: name });
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+
+    await folder('טיולים וסיורים').click();
+    await search.fill('ריקודים');
+    await search.press('Enter');
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקודים·2']);
+
+    // מעבר לתיקייה אחרת כשהטקסט בשדה רושם (אחרי שתי שניות) חיפוש נוסף — לצד
+    // הקודם ולא במקומו, אף שהטקסט זהה והקודם נרשם לפני פחות מדקה.
+    await folder('אירועים ופעילויות').click();
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקודים·1', 'ריקודים·2']);
+
+    // הפעלת החיפוש הישן מהתפריט מעלה אותו לראש, והחדש נשאר ברשימה.
+    await search.click();
+    await groupRows(page, 'recent').filter({ hasText: 'טיולים וסיורים' }).locator('[data-action="apply"]').click();
+    await expect(page.locator('#folderList .collection-card.is-active')).toContainText('טיולים וסיורים');
+    await expect.poll(() => storedRecent(page)).toEqual(['ריקודים·2', 'ריקודים·1']);
+    await search.click();
+    await expect(groupRows(page, 'recent').locator('.search-history-meta'))
+        .toHaveText(['תיקייה: טיולים וסיורים', 'תיקייה: אירועים ופעילויות']);
+});
+
+test('התנתקות והחלפת חשבון באותה לשונית: החיפוש של הקודם אינו נרשם אצל מי שבא אחריו', async ({ page, worker }) => {
+    seedSearchGallery(worker);
+    await seedSession(page, { worker });
+    const second = { uid: 'google-user-2', email: 'second@example.com', name: 'משה לוי' };
+    worker.seedUser({ ...second, status: 'approved' });
+    await page.goto('/');
+
+    const cards = page.locator('#photosGrid .gallery-card');
+    const search = page.locator('#searchInput');
+    const mediaType = page.locator('#galleryMediaTypeFilter');
+    const queries = async key => (await storedRecent(page, key)).map(item => item.split('·')[0]);
+    await expect(cards).toHaveCount(4);
+
+    // המשתמש הראשון מחפש, מקליד עוד טקסט ומתנתק לפני שהטיימר רשם אותו.
+    await search.fill('שם פרטי של ילד');
+    await search.press('Enter');
+    expect(await queries(USER_KEY)).toEqual(['שם פרטי של ילד']);
+    await search.fill('שם נוסף');
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    // השדה והסינון מתאפסים: מי שבא אחריו מתחיל ריק.
+    await expect(search).toHaveValue('');
+
+    // שינוי סינון אחרי ההתנתקות (סרגל הכלים מוסתר מאחורי שער הכניסה, אבל
+    // שום מסלול לא ירשום) אינו כותב דבר למפתח האנונימי.
+    await page.evaluate(() => window.setGalleryMediaType('video'));
+    await idleCommitPassed(page);
+    expect(await queries(storageKeyFor(''))).toEqual([]);
+
+    // משתמש אחר נכנס באותה לשונית ומשנה סינון: הרשימה שלו נשארת ריקה.
+    await signInViaGoogle(page, second);
+    await expect(page.locator('#floatingUserPanelName')).toHaveText(second.name);
+    await expect(cards).toHaveCount(1);
+    await mediaType.selectOption('');
+    await expect(cards).toHaveCount(4);
+    await idleCommitPassed(page);
+    expect(await queries(storageKeyFor(second.uid))).toEqual([]);
+    await search.click();
+    await expect(search).toHaveAttribute('aria-expanded', 'false');
+
+    // החיפוש שהוא עצמו מקליד נרשם אצלו.
+    await search.fill('סעודת');
+    await search.press('Enter');
+    expect(await queries(storageKeyFor(second.uid))).toEqual(['סעודת']);
+
+    // החלפת חשבון ישירה, בלי התנתקות באמצע: הטקסט מתאפס שוב, ושינוי סינון
+    // אצל הראשון אינו מכניס לרשימה שלו את החיפוש של השני.
+    await signInViaGoogle(page, DEFAULT_USER);
+    await expect(page.locator('#floatingUserPanelName')).toHaveText(DEFAULT_USER.name);
+    await expect(search).toHaveValue('');
+    await expect(cards).toHaveCount(4);
+    await mediaType.selectOption('image');
+    await expect(cards).toHaveCount(3);
+    await idleCommitPassed(page);
+    expect(await queries(USER_KEY)).toEqual(['שם פרטי של ילד']);
+    expect(await queries(storageKeyFor(''))).toEqual([]);
+    expect(await queries(storageKeyFor(second.uid))).toEqual(['סעודת']);
 });
 
 test('אחסון חסום: הרשימה עובדת עד רענון, והתפריט מודיע שאינה נשמרת', async ({ page, worker }) => {

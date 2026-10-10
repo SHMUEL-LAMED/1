@@ -70,6 +70,21 @@ test("אותו טקסט עם סינון אחר הוא חיפוש אחר; אות�
   store.addRecent({ query: "ברכה", filters: { folderId: "3", mediaType: "video" } });
   assert.equal(store.getRecent().length, 2);
 
+  // גם בתוך חלון הזמן של המשך הקלדה, וגם כשהקודם היה שלב הקלדה: סינון אחר
+  // אינו מחליף את החיפוש הקודם.
+  const quick = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now });
+  quick.addRecent({ query: "ריקודים", filters: { folderId: "2" } });
+  now.advance(2_000);
+  quick.addRecent({ query: "ריקודים", filters: { folderId: "1" } });
+  const step = quick.getRecent()[0];
+  now.advance(2_000);
+  quick.addRecent({ query: "ריקודים בחצר", filters: { folderId: "1", mediaType: "video" } }, { typingStepId: step.id });
+  assert.deepEqual(quick.getRecent().map(entry => [entry.query, entry.filters]), [
+    ["ריקודים בחצר", { folderId: "1", mediaType: "video" }],
+    ["ריקודים", { folderId: "1" }],
+    ["ריקודים", { folderId: "2" }]
+  ]);
+
   assert.equal(
     searchId({ query: "ברכה", filters: { tags: ["ב", "א"], mediaType: "video" } }),
     searchId({ query: "ברכה ", filters: { mediaType: "video", tags: ["א", "ב", "א"] } })
@@ -90,21 +105,52 @@ test("תקרה של עשרה חיפושים אחרונים: הישן ביותר 
   assert.equal(recent.at(-1).query, "חיפוש 4");
 });
 
-test("המשך הקלדה תוך דקה מחליף את החיפוש הקודם במקום להוסיף שלב", () => {
+test("המשך הקלדה תוך דקה מחליף את שלב ההקלדה הקודם במקום להוסיף שלב", () => {
   const now = clock();
   const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now });
-  store.addRecent({ query: "בר" });
+  const step = store.addRecent({ query: "בר" });
   now.advance(5_000);
-  store.addRecent({ query: "בר מצווה" });
+  const next = store.addRecent({ query: "בר מצווה" }, { typingStepId: step.id });
   assert.deepEqual(store.getRecent().map(entry => entry.query), ["בר מצווה"]);
   // אחרי חלון הזמן — חיפוש חדש נשמר לצד הקודם.
   now.advance(RECENT_COLLAPSE_MS + 1);
-  store.addRecent({ query: "בר מצווה של יוסי" });
+  const late = store.addRecent({ query: "בר מצווה של יוסי" }, { typingStepId: next.id });
   assert.deepEqual(store.getRecent().map(entry => entry.query), ["בר מצווה של יוסי", "בר מצווה"]);
   // חיפוש שאינו המשך — לא מחליף.
   now.advance(1_000);
-  store.addRecent({ query: "סיום" });
+  store.addRecent({ query: "סיום" }, { typingStepId: late.id });
   assert.equal(store.getRecent().length, 3);
+});
+
+test("בלי typingStepId תואם שום חיפוש אינו נמחק, גם כשהטקסט החדש ממשיך את הקודם", () => {
+  const now = clock();
+  const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now });
+  // רישום מפורש (Enter, הפעלה מהתפריט, שינוי סינון) אינו מעביר שלב הקלדה.
+  store.addRecent({ query: "בר" });
+  now.advance(1_000);
+  store.addRecent({ query: "בר מצווה" });
+  assert.deepEqual(store.getRecent().map(entry => entry.query), ["בר מצווה", "בר"]);
+  // שלב שאינו עוד בראש הרשימה (חיפוש אחר נרשם אחריו) אינו מוחלף.
+  const step = store.addRecent({ query: "סיום" });
+  now.advance(1_000);
+  store.addRecent({ query: "שבע ברכות" });
+  now.advance(1_000);
+  store.addRecent({ query: "סיום מסכת" }, { typingStepId: step.id });
+  assert.deepEqual(store.getRecent().map(entry => entry.query), ["סיום מסכת", "שבע ברכות", "סיום", "בר מצווה", "בר"]);
+});
+
+test("הפעלת חיפוש ישן מהרשימה מעלה אותו לראש בלי למחוק את החדשים ממנו", () => {
+  const now = clock();
+  const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now });
+  store.addRecent({ query: "ריקודים", filters: { folderId: "2" } });
+  now.advance(3_000);
+  store.addRecent({ query: "אחר", filters: { folderId: "2" } });
+  now.advance(3_000);
+  store.addRecent({ query: "ריקודים", filters: { folderId: "1" } });
+  now.advance(3_000);
+  const older = store.getRecent().at(-1);
+  store.addRecent(older);
+  assert.deepEqual(store.getRecent().map(entry => `${entry.query}·${entry.filters.folderId}`), ["ריקודים·2", "ריקודים·1", "אחר·2"]);
 });
 
 test("כל משתמש מקבל מפתח נפרד, ומי שאינו מחובר — מפתח אנונימי", () => {

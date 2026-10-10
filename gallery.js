@@ -618,6 +618,22 @@ window.getGallerySearchSnapshot = function() {
     };
 };
 
+// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג המדיה ותגיות). נקרא
+// בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
+// הקודם באותה לשונית לא יירש את החיפוש שלו.
+window.clearGallerySearch = function() {
+    const state = window.state;
+    state.searchQuery = '';
+    state.hebrewYearFilter = '';
+    state.hebrewMonthFilter = '';
+    state.mediaTypeFilter = '';
+    syncMediaTypeSelect();
+    if (typeof window.setGalleryTagFilters === 'function') window.setGalleryTagFilters([]);
+    const input = document.getElementById('searchInput');
+    if (input) input.value = '';
+    window.renderImages();
+};
+
 // מחזיר חיפוש שמור: הטקסט וכל הסינונים, ומריץ אותו. תיקייה שכבר אינה קיימת
 // מוחלפת ב"כל התמונות" ({ folderMissing: true }).
 window.applyGallerySearch = async function(search = {}) {

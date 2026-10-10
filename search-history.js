@@ -26,8 +26,8 @@ export const MAX_QUERY_LENGTH = 120;
 export const MAX_TAGS = 10;
 export const MAX_TAG_LENGTH = 40;
 export const MEDIA_TYPES = Object.freeze(['image', 'video']);
-// חיפוש שמתחדד בהקלדה ("בר" ואז "בר מצווה") תוך דקה מחליף את הקודם, כדי
-// שהרשימה לא תתמלא בשלבי ההקלדה של אותו חיפוש.
+// שלב הקלדה שנרשם מעצמו ("בר", אחרי הפסקה בהקלדה) מוחלף בהמשך של אותה הקלדה
+// ("בר מצווה") תוך דקה, כדי שהרשימה לא תתמלא בשלבי ההקלדה. ראו addRecent.
 export const RECENT_COLLAPSE_MS = 60 * 1000;
 
 const SAFE_ID_PATTERN = /[^a-zA-Z0-9_-]/g;
@@ -92,15 +92,20 @@ export function normalizeSearch(raw) {
     return { query, filters };
 }
 
+// הסינונים (המנורמלים) בסדר קבוע.
+function filtersKey(f) {
+    return [f.folderId || '', f.hebrewYear || 0, f.hebrewMonth || '', f.mediaType || '', (f.tags || []).map(lower)];
+}
+
+function sameFilters(first, second) {
+    return JSON.stringify(filtersKey(first)) === JSON.stringify(filtersKey(second));
+}
+
 // חתימה קנונית לזיהוי כפילויות: הטקסט באותיות קטנות וכל הסינונים בסדר קבוע.
 export function searchSignature(raw) {
     const search = normalizeSearch(raw);
     if (!search) return '';
-    const f = search.filters;
-    return JSON.stringify([
-        lower(search.query), f.folderId || '', f.hebrewYear || 0, f.hebrewMonth || '',
-        f.mediaType || '', (f.tags || []).map(lower)
-    ]);
+    return JSON.stringify([lower(search.query), ...filtersKey(search.filters)]);
 }
 
 // FNV-1a בשני זרעים — 64 ביט בסך הכול, יותר ממספיק לכמה עשרות חיפושים.
@@ -260,9 +265,15 @@ export function createSearchHistoryStore({
         return Boolean(id) && load().saved.some(entry => entry.id === id);
     }
 
-    // מוסיף חיפוש לראש הרשימה. כפילות עולה לראש עם זמן חדש; חיפוש שמרחיב את
-    // האחרון (המשך הקלדה) תוך collapseMs מחליף אותו.
-    function addRecent(raw) {
+    // מוסיף חיפוש לראש הרשימה. כפילות עולה לראש עם זמן חדש, ושום רשומה אחרת
+    // אינה נמחקת — אותו טקסט עם סינון אחר, או חיפוש ישן שהופעל שוב, הם חיפושים
+    // נפרדים.
+    //
+    // typingStepId: מזהה הרשומה שנרשמה מעצמה באמצע הקלדה (search-history-ui.js
+    // מעביר אותו רק כשהחיפוש החדש הוא המשך של אותה הקלדה). היא מוחלפת בחדש רק
+    // כשהיא עדיין בראש הרשימה, נרשמה לפני collapseMs לכל היותר, הסינון שלה זהה
+    // והטקסט החדש ממשיך את הטקסט שלה ("בר" ← "בר מצווה").
+    function addRecent(raw, { typingStepId = '' } = {}) {
         const search = normalizeSearch(raw);
         if (!search) return null;
         const state = load();
@@ -270,8 +281,10 @@ export function createSearchHistoryStore({
         const entry = { id: searchId(search), query: search.query, filters: search.filters, at: time };
         let recent = state.recent;
         const head = recent[0];
-        if (head && head.id !== entry.id && head.query && entry.query
+        if (typingStepId && head && head.id === typingStepId && head.id !== entry.id
+            && head.query && entry.query
             && time - head.at >= 0 && time - head.at <= collapseMs
+            && sameFilters(head.filters, entry.filters)
             && lower(entry.query).startsWith(lower(head.query))) {
             recent = recent.slice(1);
         }

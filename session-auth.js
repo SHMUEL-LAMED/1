@@ -331,6 +331,8 @@ async function initFirebase() {
 
                 window.state.currentUser = user;
                 window.state.isGoogleUser = isGoogleUser;
+                // החלפת חשבון מאפסת את החיפוש של הקודם (search-history-ui.js).
+                window.noteGalleryUserChange?.();
                 const isInitialAdmin = isGoogleUser && await isInitialSuperAdmin(user);
                 window.state.isInitialSuperAdminAccount = isInitialAdmin;
                 window.state.isAdminLoggedIn = isInitialAdmin;
@@ -394,6 +396,8 @@ async function initFirebase() {
                 window.state.favorites = new Set();
                 window.state.selectedMediaIds = new Set();
                 window.state.bulkSelectionMode = false;
+                // מי שבא אחרי המתנתק אינו יורש את החיפוש שלו (search-history-ui.js).
+                window.noteGalleryUserChange?.();
                 window.updateAdminUI();
                 window.renderFolders();
                 window.renderImages();

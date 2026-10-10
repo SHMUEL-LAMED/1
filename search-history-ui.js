@@ -15,12 +15,19 @@
 //
 // חיפוש נרשם לרשימת האחרונים ב-Enter, אחרי שתי שניות בלי הקלדה, ביציאה
 // מהשדה ובהפעלה מהתפריט — רק כשיש בו טקסט (לפחות שני תווים, חוץ מ-Enter).
+// רישום שהטיימר עשה באמצע הקלדה הוא "שלב הקלדה": אם ההקלדה נמשכת ("בר" ←
+// "בר מצווה"), הרישום הבא שלה מחליף אותו. רישום מ-Enter, מהתפריט או משינוי
+// סינון אינו שלב ואינו מחליף דבר.
+//
+// חיפוש נרשם רק אצל מי שכתב אותו. בהתנתקות או בהחלפת חשבון באותה לשונית
+// (הדף אינו נטען מחדש) הטקסט והסינון מתאפסים, ורישום שעוד ממתין מתבטל — כך
+// החיפוש של אדם אחד אינו נשמר ברשימה של מי שבא אחריו במחשב משותף.
 import {
     createSearchHistoryStore, describeSearch, normalizeQuery, searchId,
     SAVED_SEARCH_LIMIT
 } from './search-history.js';
 
-const IDLE_COMMIT_MS = 2000;
+export const IDLE_COMMIT_MS = 2000;
 const MIN_AUTO_QUERY_LENGTH = 2;
 const PUSH_DELAY_MS = 600;
 
@@ -44,6 +51,13 @@ let pushTimer = 0;
 let announceTimer = 0;
 let pendingPushUid = '';
 let lastCommittedId = '';
+// מזהה הרשומה שהטיימר רשם באמצע הקלדה, כל עוד היא שלב שההמשך רשאי להחליף.
+let typingStepId = '';
+// המשתמש שכתב את הטקסט שבשדה (בהקלדה, ב-Enter או בהפעלה מהתפריט), ו'' למי
+// שאינו מחובר.
+let authorUid = '';
+// המשתמש שהמודול מכיר; כשהוא מתחלף, החיפוש מתאפס (handleUserChange).
+let knownUid = '';
 const stores = new Map();
 
 // --- המשתמש והמאגר ---
@@ -284,25 +298,54 @@ function currentSnapshot() {
     return { query: input?.value || '', filters: {} };
 }
 
-function commitCurrentSearch({ explicit = false } = {}) {
+// source: 'typing' — הטיימר אחרי הקלדה; 'filter' — הטיימר אחרי שינוי סינון;
+// 'blur' — יציאה מהשדה; 'enter' — רישום מפורש.
+function commitCurrentSearch(source) {
     window.clearTimeout(idleTimer);
     idleTimer = 0;
+    const explicit = source === 'enter';
+    const uid = currentUserId();
+    if (explicit) authorUid = uid;
+    // הטקסט נכתב בידי משתמש אחר, שהתנתק או הוחלף מאז באותה לשונית.
+    if (uid !== authorUid) return null;
     const snapshot = currentSnapshot();
     const query = normalizeQuery(snapshot.query);
     if (!query || (!explicit && query.length < MIN_AUTO_QUERY_LENGTH)) return null;
     const id = searchId(snapshot);
     if (!explicit && id === lastCommittedId) return null;
     lastCommittedId = id;
-    return currentStore().addRecent(snapshot);
+    // רק המשך של אותה הקלדה מחליף את שלב ההקלדה; שינוי סינון הוא חיפוש חדש.
+    const entry = currentStore().addRecent(snapshot, { typingStepId: source === 'filter' ? '' : typingStepId });
+    typingStepId = source === 'typing' && entry ? entry.id : '';
+    return entry;
 }
 
-function scheduleIdleCommit() {
+function scheduleIdleCommit(source) {
     window.clearTimeout(idleTimer);
     if (!normalizeQuery(input?.value || '')) {
         idleTimer = 0;
         return;
     }
-    idleTimer = window.setTimeout(() => commitCurrentSearch(), IDLE_COMMIT_MS);
+    idleTimer = window.setTimeout(() => commitCurrentSearch(source), IDLE_COMMIT_MS);
+}
+
+// נקרא מ-session-auth.js בכל שינוי בהתחברות. כניסה של מי שלא היה מחובר אינה
+// מאפסת דבר; התנתקות או החלפת חשבון מבטלות רישום ממתין ומאפסות את הטקסט
+// והסינון (gallery.js), כדי שהבא אחריו יתחיל ריק.
+function handleUserChange() {
+    const uid = currentUserId();
+    if (uid === knownUid) return;
+    const previous = knownUid;
+    knownUid = uid;
+    window.clearTimeout(idleTimer);
+    idleTimer = 0;
+    lastCommittedId = '';
+    typingStepId = '';
+    closePopup();
+    if (previous) {
+        authorUid = uid;
+        window.clearGallerySearch?.();
+    }
 }
 
 // --- סנכרון השמורים לענן (userPreferences) ---
@@ -362,6 +405,8 @@ async function applyEntry(entry) {
     closePopup();
     window.clearTimeout(idleTimer);
     idleTimer = 0;
+    authorUid = currentUserId();
+    typingStepId = '';
     let result = null;
     try {
         result = typeof window.applyGallerySearch === 'function'
@@ -421,6 +466,7 @@ function performAction(rowIndex, colIndex, forcedAction = '') {
     if (action === 'clear') {
         store.clearRecent();
         lastCommittedId = '';
+        typingStepId = '';
         announce('החיפושים האחרונים נוקו.');
         refreshKeepingPosition(null);
     }
@@ -471,7 +517,7 @@ function handleKeyDown(event) {
                 performAction(active.row, active.col);
                 return;
             }
-            commitCurrentSearch({ explicit: true });
+            commitCurrentSearch('enter');
             closePopup();
             return;
         case 'Delete':
@@ -499,7 +545,8 @@ function handleKeyDown(event) {
 }
 
 function handleInput() {
-    scheduleIdleCommit();
+    authorUid = currentUserId();
+    scheduleIdleCommit('typing');
     if (document.activeElement !== input) return;
     if (isOpen) {
         if (!render()) closePopup();
@@ -531,7 +578,7 @@ function handleFocusOut() {
     window.setTimeout(() => {
         if (box && box.contains(document.activeElement)) return;
         closePopup();
-        commitCurrentSearch();
+        commitCurrentSearch('blur');
     }, 0);
 }
 
@@ -548,6 +595,8 @@ export function initSearchHistory() {
         box = null;
         return;
     }
+    knownUid = currentUserId();
+    authorUid = knownUid;
 
     input.addEventListener('focus', () => openPopup());
     input.addEventListener('click', () => { if (!isOpen) openPopup(); });
@@ -563,6 +612,7 @@ export function initSearchHistory() {
     });
 
     window.syncSavedSearchesFromPreferences = syncFromPreferences;
+    window.noteGalleryUserChange = handleUserChange;
     // שינוי סינון (תיקייה, שנה, חודש, סוג) כשיש טקסט בשדה מחדש את הרישום.
-    window.noteGallerySearchChange = scheduleIdleCommit;
+    window.noteGallerySearchChange = () => scheduleIdleCommit('filter');
 }
