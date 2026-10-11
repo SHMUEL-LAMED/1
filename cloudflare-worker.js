@@ -2782,7 +2782,7 @@ async function serveImage(request, env, pathname) {
     variantPublic = metadata.state === "approved" || await hasActiveImageDocument(env, key.split("/")[1] || "");
     if (!variantPublic) {
       const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
-      if (user.uid !== metadata.ownerUid && !["admin", "super_admin"].includes(user.role)) {
+      if (user.uid !== (metadata.ownerUid || metadata.owneruid) && !["admin", "super_admin"].includes(user.role)) {
         throw apiError("אין הרשאה לצפות בתצוגה של פריט ממתין.", 403, "permission_denied");
       }
     }
@@ -2793,8 +2793,8 @@ async function serveImage(request, env, pathname) {
   headers.set("ETag", object.httpEtag);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Accept-Ranges", "bytes");
-  if (metadata.mediaType === "file") {
-    const downloadName = String(metadata.originalName || metadata.title || "file")
+  if ((metadata.mediaType || metadata.mediatype) === "file") {
+    const downloadName = String(metadata.originalName || metadata.originalname || metadata.title || "file")
       .replace(/[\r\n"\\/]+/g, "-")
       .slice(0, 180);
     headers.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(downloadName)}`);
@@ -2849,7 +2849,7 @@ async function approveImage(request, env) {
   await ensureDatabaseSchema(env);
   await bumpDataVersions(env, ["images", "pendingImages"]);
   // סרטון שאושר נשלח עכשיו ל-Stream (כשהוא מוגדר) — לא לפני כן, כשהיה פרטי.
-  const stream = source.customMetadata?.mediaType === "video"
+  const stream = (source.customMetadata?.mediaType || source.customMetadata?.mediatype) === "video"
     ? await sendVideoToStream(request, env, {
       imageId: faceImageIdFromObjectKey(approvedKey),
       key: approvedKey,
@@ -3659,7 +3659,7 @@ async function aiImageSearch(request, env) {
     if (
       !object ||
       (object.customMetadata?.state && object.customMetadata.state !== "approved") ||
-      (object.customMetadata?.mediaType && object.customMetadata.mediaType !== "image")
+      ((object.customMetadata?.mediaType || object.customMetadata?.mediatype) && (object.customMetadata.mediaType || object.customMetadata.mediatype) !== "image")
     ) {
       throw apiError("אחת התמונות אינה קיימת בגלריה המאושרת.", 400, "unapproved_image");
     }
