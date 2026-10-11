@@ -415,7 +415,9 @@ test("המודולים החדשים במעטפת, בבדיקת התחביר, ו�
   }
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /import \{ initSearchHistory \} from '\.\/search-history-ui\.js'/);
-  assert.match(sw, /const CACHE_VERSION = "v65";/);
+  // הגרסה עלתה מאז החיפושים האחרונים (v65 ומעלה); בדיקה מדויקת הייתה נשברת בכל עדכון.
+  const version = Number(/const CACHE_VERSION = "v(\d+)";/.exec(sw)?.[1]);
+  assert.ok(version >= 65, `CACHE_VERSION צריכה להיות v65 ומעלה, נמצא v${version}`);
   // הסנכרון נשען על המאזין הקיים של userPreferences.
   const sessionAuth = readFileSync(new URL("./session-auth.js", import.meta.url), "utf8");
   assert.match(sessionAuth, /window\.syncSavedSearchesFromPreferences\?\.\(snapshot\.exists\(\) \? snapshot\.data\(\) : null\)/);
