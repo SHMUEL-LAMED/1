@@ -4,9 +4,11 @@
 // שנפתח מתחת לשדה החיפוש — ב-search-history-ui.js.
 //
 // "חיפוש" הוא טקסט החיפוש יחד עם הסינון הפעיל: תיקייה, שנה וחודש עבריים, סוג
-// המדיה ותגיות (כשיש). שני חיפושים זהים כשהטקסט (בלי הבדלי רישיות ורווחים)
-// וכל הסינונים זהים, ולכן מזהה החיפוש נגזר מהתוכן שלו: אותו חיפוש מקבל את
-// אותו מזהה ברשימת האחרונים וברשימת השמורים.
+// המדיה ותגיות (כשיש). שבב "סוג הרגע" של הגלריה (תגית סצנה, scene-tags.js)
+// נשמר ברשימת התגיות לפי המזהה הקבוע שלו, ומוצג בתווית העברית שלו. שני
+// חיפושים זהים כשהטקסט (בלי הבדלי רישיות ורווחים) וכל הסינונים זהים, ולכן
+// מזהה החיפוש נגזר מהתוכן שלו: אותו חיפוש מקבל את אותו מזהה ברשימת האחרונים
+// וברשימת השמורים.
 //
 // האחסון הוא localStorage, במפתח נפרד לכל משתמש מחובר (ומפתח "anonymous" למי
 // שאינו מחובר). אחסון חסום, מלא או פגום לעולם אינו זורק: הרשימה ממשיכה לעבוד
@@ -16,6 +18,7 @@
 // (השדות savedSearches ו-savedSearchesUpdatedAt). החיפושים האחרונים נשארים
 // בדפדפן בלבד. ראו mergeRemoteSaved.
 import { HEBREW_MONTH_ORDER, hebrewMonthName, formatHebrewYear } from './hebrew-date.js';
+import { isSceneTagId, sceneTagLabel } from './scene-tags.js';
 
 export const SEARCH_HISTORY_STORAGE_PREFIX = 'simchas_gallery_searches_v1';
 export const ANONYMOUS_USER_KEY = 'anonymous';
@@ -204,7 +207,13 @@ export function describeSearch(raw, { folderName = () => '' } = {}) {
     if (f.hebrewYear) details.push(`שנת ${formatHebrewYear(f.hebrewYear)}`);
     if (f.hebrewMonth) details.push(`חודש ${hebrewMonthName(f.hebrewMonth)}`);
     if (f.mediaType) details.push(MEDIA_TYPE_LABELS[f.mediaType]);
-    if (f.tags?.length) details.push(`תגיות: ${f.tags.join(', ')}`);
+    if (f.tags?.length) {
+        // תגיות סצנה מוצגות כ"סוג הרגע" בתווית העברית; תגית חופשית — כמו שהיא.
+        const sceneTags = f.tags.filter(isSceneTagId);
+        const freeTags = f.tags.filter(tag => !isSceneTagId(tag));
+        if (sceneTags.length) details.push(`סוג הרגע: ${sceneTags.map(sceneTagLabel).join(', ')}`);
+        if (freeTags.length) details.push(`תגיות: ${freeTags.join(', ')}`);
+    }
     return { query: search.query, details };
 }
 

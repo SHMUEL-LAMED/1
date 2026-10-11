@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS image_face_descriptors (
   face_index INTEGER NOT NULL,
   descriptor_json TEXT NOT NULL,
   model_version TEXT NOT NULL,
+  -- מיקום הפרצוף בתמונה (יחסי, JSON) לחיתוך התצוגה של האדם. ריק באינדוקס ישן.
+  box_json TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (image_id, face_index)
@@ -48,15 +50,62 @@ CREATE TABLE IF NOT EXISTS image_face_index_state (
 
 CREATE INDEX IF NOT EXISTS idx_image_face_index_state_model
   ON image_face_index_state (model_version, status);
+-- שיוך פרצוף לאדם: source הוא 'manual' (מנהל) או 'auto' (הקיבוץ האוטומטי).
+-- שיוך תקף רק כל עוד descriptor_json זהה לטביעה הנוכחית של הפרצוף.
 CREATE TABLE IF NOT EXISTS face_people (
   image_id TEXT NOT NULL,
   face_index INTEGER NOT NULL,
   model_version TEXT NOT NULL,
   descriptor_json TEXT NOT NULL,
   person_id TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  assigned_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (image_id, face_index)
 );
 CREATE INDEX IF NOT EXISTS idx_face_people_person ON face_people(person_id);
+
+-- אנשים בגלריה (גרסת סכימה 8): קבוצת פרצופים, שם, אישור מנהל והסתרה.
+-- centroid_json הוא ממוצע הטביעות, לשימוש ה-Worker בלבד.
+CREATE TABLE IF NOT EXISTS face_persons (
+  person_id TEXT PRIMARY KEY,
+  model_version TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'suggested',
+  hidden INTEGER NOT NULL DEFAULT 0,
+  centroid_json TEXT NOT NULL DEFAULT '',
+  face_count INTEGER NOT NULL DEFAULT 0,
+  image_count INTEGER NOT NULL DEFAULT 0,
+  cover_image_id TEXT NOT NULL DEFAULT '',
+  cover_face_index INTEGER NOT NULL DEFAULT -1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_face_persons_status ON face_persons (model_version, status, hidden);
+
+-- פרצוף שעבר קיבוץ ולא שויך: 'seed' (בודד), 'review' (לבדיקה, עם האדם המוצע)
+-- או 'ignored' (מנהל הסיר אותו, והקיבוץ האוטומטי לא יחזיר אותו).
+CREATE TABLE IF NOT EXISTS face_cluster_marks (
+  image_id TEXT NOT NULL,
+  face_index INTEGER NOT NULL,
+  model_version TEXT NOT NULL,
+  descriptor_json TEXT NOT NULL,
+  mark TEXT NOT NULL,
+  candidate_person_id TEXT NOT NULL DEFAULT '',
+  distance REAL NOT NULL DEFAULT 0,
+  margin REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (image_id, face_index)
+);
+CREATE INDEX IF NOT EXISTS idx_face_cluster_marks_mark ON face_cluster_marks (model_version, mark);
+
+-- "זכור אותי" של "התמונות שלי": נשמר רק אחרי הסכמה מפורשת, ונמחק ב"שכח אותי".
+CREATE TABLE IF NOT EXISTS face_user_descriptors (
+  uid TEXT PRIMARY KEY,
+  model_version TEXT NOT NULL,
+  descriptor_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
 -- שגיאות מהאתר ומה-Worker, מקובצות לפי טביעת אצבע: שורה אחת לכל סוג
 -- תקלה עם מונה מופעים. resolved_at ריק = השגיאה עדיין פתוחה.

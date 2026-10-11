@@ -564,7 +564,27 @@
             </section>
 
             <!-- ============ מסך: אינדוקס פנים ============ -->
-            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אינדוקס פנים">
+            <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אנשים, פרצופים ואינדוקס">
+                <div class="admin-panel" id="peopleManagerPanel">
+                    <div class="admin-panel-head"><h3><i data-lucide="users-round"></i> אנשים בגלריה — קיבוץ אוטומטי ושמות</h3></div>
+                    <div class="admin-panel-body">
+                        <p>פרצופים דומים מקובצים לאנשים מעצמם, אחרי כל אינדוקס. כל קבוצה חדשה ממתינה כאן לאישור ולשם; רק אנשים מאושרים עם שם מוצגים למשתמשי הגלריה, עם אלבום שמתעדכן בכל תמונה חדשה. פרצוף שאינו ודאי מגיע ללשונית „לבדיקה” ואינו משויך עד שתחליט.</p>
+                        <div class="people-admin-run">
+                            <p id="peopleClusterStatus" class="field-hint" role="status" aria-live="polite">בודק אם יש פרצופים חדשים לקיבוץ…</p>
+                            <button type="button" id="peopleClusterRunBtn" class="btn-secondary-dark">קבץ פרצופים חדשים</button>
+                        </div>
+                        <div class="admin-filter-chips people-admin-tabs" role="group" aria-label="תצוגת האנשים">
+                            <button type="button" class="admin-filter-chip is-active" data-people-view="suggested" aria-pressed="true" aria-controls="peopleAdminList">הצעות <span data-people-count="suggested">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="review" aria-pressed="false" aria-controls="peopleAdminList">לבדיקה <span data-people-count="review">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="singles" aria-pressed="false" aria-controls="peopleAdminList">בודדים <span data-people-count="singles">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="approved" aria-pressed="false" aria-controls="peopleAdminList">אנשים מאושרים <span data-people-count="approved">0</span></button>
+                            <button type="button" class="admin-filter-chip" data-people-view="hidden" aria-pressed="false" aria-controls="peopleAdminList">מוסתרים <span data-people-count="hidden">0</span></button>
+                        </div>
+                        <p id="peopleAdminStatus" class="field-hint" role="status" aria-live="polite">הרשימה נטענת בפתיחת המסך.</p>
+                        <div id="peopleAdminList" class="people-admin-list"></div>
+                        <div id="peopleAdminPages" class="people-admin-pages"></div>
+                    </div>
+                </div>
                 <div class="admin-panel">
                     <div class="admin-panel-head"><h3>ניהול פרצופים — זה אותו אדם</h3></div>
                     <div class="admin-panel-body">
@@ -628,12 +648,13 @@
                 </div>
             </section>
 
-            <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות לתמונות עם AI">
+            <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות, כיתובים ותגיות עם AI">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות לתמונות עם AI</h3></div>
+                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות, כיתובים ותגיות עם AI</h3></div>
                     <div class="admin-panel-body">
-                        <p>כל תמונה מקבלת שם קצר בעברית לפי מה שרואים בה. תמונות חדשות מקבלות שם אוטומטית ברקע; כאן אפשר להשלים שמות לתמונות הקיימות. השמות נשמרים בענן ואפשר לערוך אותם אחר כך. העיבוד משתמש בחשבון OpenAI API הקיים.</p>
+                        <p>כל תמונה מקבלת, בקריאה אחת ל־AI, שם קצר, כיתוב של משפט או שניים ותגיות של סוג הרגע (ריקוד, הקפות, שיעור או דרשה, סעודה…). כך החיפוש בגלריה מוצא תמונות לפי מה שקורה בהן, מיד ובלי AI בזמן החיפוש. תמונות חדשות מקבלות את כל אלה אוטומטית ברקע; כאן משלימים לתמונות הקיימות. את הכיתוב והתגיות אפשר לערוך מהתצוגה המלאה בגלריה, ועריכה ידנית לא תוחלף. העיבוד משתמש במפתח ה־AI שכבר מוגדר בשרת, בקריאה אחת לכל תמונה.</p>
                         <p id="aiTitlesSummary" class="field-hint"></p>
+                        <div id="aiTitlesProgress" class="progress-track" role="progressbar" aria-label="התקדמות ההשלמה" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="aiTitlesProgressBar" class="progress-bar"></div></div>
                         <p id="aiTitlesStatus" role="status" aria-live="polite">טוען…</p>
                         <div class="flex gap-2">
                             <button id="aiTitlesStart" type="button" class="btn-primary-gold flex-1 py-2.5 text-xs">התחל או המשך</button>

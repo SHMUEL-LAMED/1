@@ -331,6 +331,29 @@ test("תיאור החיפוש בעברית: תיקייה, שנה, חודש, סו
   assert.deepEqual(describeSearch({ query: "x", filters: { folderId: "favorites" } }).details, ["המועדפים"]);
 });
 
+test("שבב סוג הרגע: נשמר כמזהה תגית הסצנה, מוצג בתווית העברית, ומבדיל בין חיפושים", () => {
+  // הגלריה מוסרת את השבב הפעיל כמזהה (getGallerySearchSnapshot ב-gallery.js).
+  const dance = { query: "שמחת תורה", filters: { folderId: "all", tags: ["dance"] } };
+  assert.deepEqual(normalizeSearch(dance), { query: "שמחת תורה", filters: { tags: ["dance"] } });
+  assert.deepEqual(describeSearch(dance).details, ["סוג הרגע: ריקוד"]);
+  // תגית סצנה לצד תגית חופשית: כל אחת בשורת פרטים משלה.
+  assert.deepEqual(describeSearch({ query: "x", filters: { tags: ["meal", "שמחה"] } }).details, ["סוג הרגע: סעודה", "תגיות: שמחה"]);
+  // אותו טקסט עם סוג רגע אחר, או בלי סוג רגע, הוא חיפוש נפרד.
+  const meal = { query: "שמחת תורה", filters: { tags: ["meal"] } };
+  const plain = { query: "שמחת תורה", filters: {} };
+  assert.notEqual(searchId(dance), searchId(meal));
+  assert.notEqual(searchId(dance), searchId(plain));
+  assert.equal(searchId(dance), searchId({ query: " שמחת  תורה ", filters: { tags: ["dance"] } }));
+
+  // השבב נשמר עם החיפוש בכוכב, ונכתב לענן כמו שהוא.
+  const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now: clock() });
+  store.addRecent(dance);
+  store.addRecent(plain);
+  assert.deepEqual(store.getRecent().map(entry => entry.filters), [{}, { tags: ["dance"] }]);
+  assert.equal(store.saveSearch(dance).ok, true);
+  assert.deepEqual(store.exportSaved().savedSearches.map(({ query, filters }) => ({ query, filters })), [{ query: "שמחת תורה", filters: { tags: ["dance"] } }]);
+});
+
 test("סנכרון עם הענן: איחוד בפעם הראשונה, ואחר כך המאוחר גובר", () => {
   const now = clock();
   const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now });
@@ -392,7 +415,7 @@ test("המודולים החדשים במעטפת, בבדיקת התחביר, ו�
   }
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /import \{ initSearchHistory \} from '\.\/search-history-ui\.js'/);
-  assert.match(sw, /const CACHE_VERSION = "v64";/);
+  assert.match(sw, /const CACHE_VERSION = "v65";/);
   // הסנכרון נשען על המאזין הקיים של userPreferences.
   const sessionAuth = readFileSync(new URL("./session-auth.js", import.meta.url), "utf8");
   assert.match(sessionAuth, /window\.syncSavedSearchesFromPreferences\?\.\(snapshot\.exists\(\) \? snapshot\.data\(\) : null\)/);

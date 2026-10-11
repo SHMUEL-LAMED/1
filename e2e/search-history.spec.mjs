@@ -153,6 +153,63 @@ test('חיפוש נרשם עם הסינון, כוכב שומר אותו בענן
     await expect(groupRows(page, 'saved')).toHaveCount(1);
 });
 
+test('שבב סוג הרגע (תגית סצנה) נשמר עם החיפוש, מוצג בתפריט, חוזר בהפעלה ומתאפס בהתנתקות', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([
+        imageRecord(1, { title: 'ריקודים בחצר', caption: 'מעגל ריקודים בחצר הישיבה.', sceneTags: ['dance'], captionSource: 'ai', aiCaptionVersion: 1 }),
+        imageRecord(2, { title: 'ריקודים בסעודה', caption: 'שולחנות ערוכים ושירה.', sceneTags: ['meal'], captionSource: 'ai', aiCaptionVersion: 1 }),
+        imageRecord(3, { title: 'ריקודים בהקפות', caption: 'הקפות עם ספרי התורה.', sceneTags: ['hakafot', 'dance'], captionSource: 'ai', aiCaptionVersion: 1 }),
+        imageRecord(4, { title: 'סעודת הודיה', sceneTags: ['meal'], captionSource: 'ai', aiCaptionVersion: 1 })
+    ]);
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const cards = page.locator('#photosGrid .gallery-card');
+    const search = page.locator('#searchInput');
+    const chip = id => page.locator(`#gallerySceneFilter .scene-chip[data-scene-tag="${id}"]`);
+    await expect(cards).toHaveCount(4);
+
+    // שבב "ריקוד" וטקסט, ו-Enter: החיפוש נרשם עם מזהה התגית.
+    await chip('dance').click();
+    await expect(chip('dance')).toHaveAttribute('aria-pressed', 'true');
+    await search.fill('ריקודים');
+    await search.press('Enter');
+    await expect(cards.locator('.gallery-title')).toHaveText(['ריקודים בהקפות', 'ריקודים בחצר']);
+    expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).recent.map(entry => entry.filters), USER_KEY))
+        .toEqual([{ tags: ['dance'] }]);
+
+    // ניקוי הטקסט ואז ביטול השבב: בלי טקסט בשדה, שינוי הסינון אינו רושם דבר.
+    await search.fill('');
+    await chip('').click();
+    await expect(chip('')).toHaveAttribute('aria-pressed', 'true');
+    await expect(cards).toHaveCount(4);
+    await idleCommitPassed(page);
+    expect(await storedRecent(page)).toEqual(['ריקודים·']);
+
+    // בתפריט, מתחת לטקסט: סוג הרגע בתווית העברית. כוכב שומר אותו גם בענן.
+    await search.click();
+    await expect(groupRows(page, 'recent').locator('.search-history-meta')).toHaveText('סוג הרגע: ריקוד');
+    await groupRows(page, 'recent').locator('[data-action="star"]').click();
+    await expect(groupRows(page, 'saved').locator('.search-history-query')).toHaveText(['ריקודים']);
+    await expect.poll(() => worker.collection('userPreferences').get(DEFAULT_USER.uid)?.savedSearches)
+        .toEqual([{ query: 'ריקודים', filters: { tags: ['dance'] }, savedAt: expect.any(Number) }]);
+    await search.press('Escape');
+
+    // הפעלת החיפוש השמור מחזירה את הטקסט ואת השבב הפעיל, ומסננת לפיהם.
+    await search.click();
+    await groupRows(page, 'saved').locator('[data-action="apply"]').click();
+    await expect(search).toHaveValue('ריקודים');
+    await expect(chip('dance')).toHaveAttribute('aria-pressed', 'true');
+    await expect(chip('')).toHaveAttribute('aria-pressed', 'false');
+    await expect(cards.locator('.gallery-title')).toHaveText(['ריקודים בהקפות', 'ריקודים בחצר']);
+    await expect(page.locator('#searchHistoryStatus')).toHaveText('החיפוש „ריקודים” הופעל.');
+
+    // התנתקות מאפסת גם את סוג הרגע, לא רק את הטקסט.
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    await expect(search).toHaveValue('');
+    expect(await page.evaluate(() => window.state.sceneTagFilter)).toBe('');
+});
+
 test('ניווט במקלדת: חצים בין שורות ותאים (מימין לשמאל), Enter, Delete וניקוי', async ({ page, worker }) => {
     seedSearchGallery(worker);
     await seedSession(page, { worker });

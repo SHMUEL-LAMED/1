@@ -613,6 +613,6 @@ export function initSearchHistory() {
 
     window.syncSavedSearchesFromPreferences = syncFromPreferences;
     window.noteGalleryUserChange = handleUserChange;
-    // שינוי סינון (תיקייה, שנה, חודש, סוג) כשיש טקסט בשדה מחדש את הרישום.
+    // שינוי סינון (תיקייה, שנה, חודש, סוג הרגע, סוג המדיה) כשיש טקסט בשדה מחדש את הרישום.
     window.noteGallerySearchChange = () => scheduleIdleCommit('filter');
 }

@@ -89,6 +89,21 @@ test.describe('החלקה במגע', () => {
         await cdp.detach();
     }
 
+    // הקשה כפולה: ארבעת אירועי המגע נשלחים יחד, בלי סבב הלוך-חזור לבדיקה בין
+    // ההקשות, כך ששתיהן נקלטות בתוך חלון ההקשה הכפולה (300ms) גם כשהמכונה
+    // עמוסה. שתי קריאות נפרדות ל-touchscreen.tap עלולות לחרוג ממנו.
+    async function doubleTap(page, point) {
+        const cdp = await page.context().newCDPSession(page);
+        const touchPoints = [{ x: point.x, y: point.y }];
+        await Promise.all([
+            cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints }),
+            cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }),
+            cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints }),
+            cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        ]);
+        await cdp.detach();
+    }
+
     test('גרירה ימינה עוברת לבא, שמאלה חוזרת, בקצה יש גומייה, ומשיכה למטה סוגרת', async ({ page, worker }) => {
         const cards = await openFirstCard(page, worker, [imageRecord(1), imageRecord(2), imageRecord(3)]);
         await cards.first().locator('.gallery-media').click();
@@ -128,14 +143,12 @@ test.describe('החלקה במגע', () => {
         await expect(counter).toHaveText('1 מתוך 3');
 
         // הקשה כפולה מגדילה; בזמן זום גרירה מזיזה ואינה מדפדפת.
-        await page.touchscreen.tap(200, y);
-        await page.touchscreen.tap(200, y);
+        await doubleTap(page, { x: 200, y });
         await expect(stage).toHaveAttribute('data-zoom', '2.50');
         await touchDrag(page, left, right);
         await page.waitForTimeout(400);
         await expect(counter).toHaveText('1 מתוך 3');
-        await page.touchscreen.tap(200, y);
-        await page.touchscreen.tap(200, y);
+        await doubleTap(page, { x: 200, y });
         await expect(stage).toHaveAttribute('data-zoom', '1');
 
         // משיכה למטה סוגרת.

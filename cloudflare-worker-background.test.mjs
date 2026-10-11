@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import worker from "./cloudflare-worker.js";
 
+let failWrites = false;
 const ORIGIN = "https://shmuel-lamed.github.io";
 const API = "https://simchas-gallery-api.example";
 
@@ -23,6 +24,7 @@ class SqliteD1Statement {
     return this;
   }
   async first() {
+    if (failWrites && /^(INSERT|UPDATE|DELETE|ALTER)/i.test(this.sql.trim())) throw new Error("Your account has exceeded D1 free tier daily row write limit");
     const row = this.database.prepare(this.sql).get(...this.bindings);
     return row === undefined ? null : row;
   }
@@ -30,6 +32,7 @@ class SqliteD1Statement {
     return { success: true, results: this.database.prepare(this.sql).all(...this.bindings) };
   }
   async run() {
+    if (failWrites && /^(INSERT|UPDATE|DELETE|ALTER)/i.test(this.sql.trim())) throw new Error("Your account has exceeded D1 free tier daily row write limit");
     const statement = this.database.prepare(this.sql);
     if (/RETURNING/i.test(this.sql)) statement.get(...this.bindings);
     else statement.run(...this.bindings);
@@ -157,6 +160,7 @@ test.before(async () => {
 test.after(() => { globalThis.fetch = originalFetch; });
 
 test.beforeEach(() => {
+  failWrites = false;
   aiCalls = 0; aiResponse = "בחורים רוקדים במעגל"; aiStatus = 200; onAiCall = null;
   bucket.objects.clear();
   for (const table of ["gallery_documents", "request_rate_limits", "user_email_index", "face_people", "image_face_descriptors", "image_face_index_state", "media_variant_files"]) {
@@ -251,7 +255,7 @@ test('large continuation fails cleanly without truncating JSON', async () => {
 });
 
 test('replaced Drive media resets old derived data so every job processes the new file', async () => {
-  putDocument('images','driveimage_abc12345678',{id:'driveimage_abc12345678',driveFileId:'abc12345678',driveModifiedTime:'old',title:'old AI title',originalTitle:'old.jpg',aiTitleVersion:1,variants:{thumb:{url:API+'/media/variants/old.webp'}},variantsVersion:1,takenAt:123456789,takenAtSource:'exif'});
+  putDocument('images','driveimage_abc12345678',{id:'driveimage_abc12345678',driveFileId:'abc12345678',driveModifiedTime:'old',title:'old AI title',originalTitle:'old.jpg',aiTitleVersion:1,variants:{thumb:{url:API+'/media/variants/old.webp'}},variantsVersion:1,takenAt:123456789,takenAtSource:'exif',caption:'כיתוב של הקובץ הקודם',sceneTags:['dance'],captionSource:'ai',aiCaptionVersion:1,aiCaptionGeneratedAt:123});
   const response = await worker.fetch(jsonRequest('/data/images/driveimage_abc12345678','PUT',{data:{driveFileId:'abc12345678',driveModifiedTime:'new',originalTitle:'new.jpg',title:'new',takenAt:null,takenAtSource:null},merge:true},await session()),environment);
   assert.equal(response.status,200,await response.clone().text());
   const saved = readDocument('images','driveimage_abc12345678');
@@ -259,4 +263,32 @@ test('replaced Drive media resets old derived data so every job processes the ne
   assert.equal(saved.variantsVersion,0);
   assert.equal(saved.title,'new');
   assert.equal(saved.takenAt,null);
+  for (const field of ['caption','sceneTags','captionSource','aiCaptionVersion','aiCaptionGeneratedAt']) assert.equal(saved[field],undefined,field);
+});
+
+test('replaced Drive media keeps a caption an admin edited by hand', async () => {
+  putDocument('images','driveimage_def12345678',{id:'driveimage_def12345678',driveFileId:'def12345678',driveModifiedTime:'old',title:'old',originalTitle:'old.jpg',aiTitleVersion:1,caption:'כיתוב שהמנהל כתב',sceneTags:['lesson'],captionSource:'manual',captionEditedAt:456});
+  const response = await worker.fetch(jsonRequest('/data/images/driveimage_def12345678','PUT',{data:{driveFileId:'def12345678',driveModifiedTime:'new',originalTitle:'new.jpg',title:'new'},merge:true},await session()),environment);
+  assert.equal(response.status,200,await response.clone().text());
+  const saved = readDocument('images','driveimage_def12345678');
+  assert.equal(saved.aiTitleVersion,0);
+  assert.equal(saved.caption,'כיתוב שהמנהל כתב');
+  assert.deepEqual(saved.sceneTags,['lesson']);
+  assert.equal(saved.captionSource,'manual');
+});
+
+test('cold Worker can serve health without writes when schema already matches', async () => {
+  failWrites=true;
+  const fresh=(await import('./cloudflare-worker.js?cold-readonly')).default;
+  const response=await fresh.fetch(jsonRequest('/health','GET',undefined,''),environment);
+  assert.equal(response.status,200,await response.clone().text());
+});
+test('exhausted D1 write quota grants only a scoped read capability for diagnostics', async () => {
+  failWrites=true;
+  const response=await worker.fetch(jsonRequest('/background/session','POST',undefined,await oidc()),environment);
+  assert.equal(response.status,200,await response.clone().text());
+  const {token,writeQuotaExhausted}=await response.json();
+  assert.equal(writeQuotaExhausted,true);
+  assert.equal((await worker.fetch(jsonRequest('/background/status','GET',undefined,token),environment)).status,200);
+  assert.equal((await worker.fetch(jsonRequest('/upload','POST',{},token),environment)).status,403);
 });
