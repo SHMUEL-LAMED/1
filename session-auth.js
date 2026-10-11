@@ -334,6 +334,8 @@ async function initFirebase() {
 
                 window.state.currentUser = user;
                 window.state.isGoogleUser = isGoogleUser;
+                // החלפת חשבון מאפסת את החיפוש של הקודם (search-history-ui.js).
+                window.noteGalleryUserChange?.();
                 const isInitialAdmin = isGoogleUser && await isInitialSuperAdmin(user);
                 window.state.isInitialSuperAdminAccount = isInitialAdmin;
                 window.state.isAdminLoggedIn = isInitialAdmin;
@@ -398,6 +400,8 @@ async function initFirebase() {
                 window.state.selectedMediaIds = new Set();
                 window.state.bulkSelectionMode = false;
                 clearPrivateGalleryViews();
+                // מי שבא אחרי המתנתק אינו יורש את החיפוש שלו (search-history-ui.js).
+                window.noteGalleryUserChange?.();
                 window.updateAdminUI();
                 window.renderFolders();
                 window.renderImages();
@@ -603,6 +607,8 @@ function setupFirestoreListeners(user) {
                 ? snapshot.data().followedFolderIds.map(safeRecordId).filter(Boolean)
                 : [];
             window.state.followedFolders = new Set(ids);
+            // החיפושים השמורים (בכוכב) נשמרים באותו מסמך; ראו search-history-ui.js.
+            window.syncSavedSearchesFromPreferences?.(snapshot.exists() ? snapshot.data() : null);
         }, handleFsError));
     }
 

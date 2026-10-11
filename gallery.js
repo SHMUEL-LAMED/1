@@ -450,8 +450,9 @@ function setActiveFolder(folderId) {
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) searchBanner.classList.add('hidden');
     window.state.activeFolderId = safeFolderId; window.renderFolders(); window.renderImages();
+    window.noteGallerySearchChange?.();
     // התיקייה שנבחרה נטענת לבדה: מהמטמון של הביקור, או העמוד הראשון מהענן.
-    window.loadFolderImages?.(safeFolderId);
+    return window.loadFolderImages?.(safeFolderId);
 }
 
 window.openFavoritesFromProfile = function() {
@@ -559,7 +560,7 @@ function renderHebrewDateFilters(scoped) {
 }
 
 function autoloadForDateFilter() {
-    if (window.hasActiveDateFilter() && window.state.imagesHasMore) {
+    if (window.hasActiveGalleryFilters() && window.state.imagesHasMore) {
         window.loadAllImagesForSearch?.()?.catch(error => console.warn('Date filter autoload failed:', error));
     }
 }
@@ -569,12 +570,110 @@ window.setGalleryHebrewYear = function(value) {
     window.state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
     window.renderImages();
     autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
 };
 
 window.setGalleryHebrewMonth = function(value) {
     window.state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(value) ? value : '';
     window.renderImages();
     autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+// --- סינון לפי סוג המדיה ---
+const MEDIA_TYPE_FILTERS = ['image', 'video'];
+
+function activeMediaTypeFilter() {
+    return MEDIA_TYPE_FILTERS.includes(window.state.mediaTypeFilter) ? window.state.mediaTypeFilter : '';
+}
+
+function syncMediaTypeSelect() {
+    const select = document.getElementById('galleryMediaTypeFilter');
+    if (select) select.value = activeMediaTypeFilter();
+}
+
+// סינון כלשהו פעיל (תאריך עברי, סוג הרגע או סוג מדיה): בתיקייה שלא נטענה
+// כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
+window.hasActiveGalleryFilters = function() {
+    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter());
+};
+
+window.setGalleryMediaType = function(value) {
+    window.state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(value) ? value : '';
+    syncMediaTypeSelect();
+    window.renderImages();
+    autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+// --- חיפושים אחרונים ושמורים (search-history-ui.js) ---
+// החיפוש הנוכחי: הטקסט והסינון הפעיל. שבב "סוג הרגע" הפעיל (תגית סצנה אחת,
+// ראו setGallerySceneTag) נשמר ברשימת התגיות של החיפוש, לפי המזהה שלו.
+window.getGallerySearchSnapshot = function() {
+    const state = window.state;
+    const sceneTag = activeSceneTag();
+    return {
+        query: String(state.searchQuery || ''),
+        filters: {
+            folderId: window.safeRecordId(state.activeFolderId) || 'all',
+            hebrewYear: Number(state.hebrewYearFilter) || 0,
+            hebrewMonth: state.hebrewMonthFilter || '',
+            mediaType: activeMediaTypeFilter(),
+            tags: sceneTag ? [sceneTag] : []
+        }
+    };
+};
+
+// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע וסוג המדיה). נקרא
+// בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
+// הקודם באותה לשונית לא יירש את החיפוש שלו.
+window.clearGallerySearch = function() {
+    const state = window.state;
+    state.searchQuery = '';
+    state.hebrewYearFilter = '';
+    state.hebrewMonthFilter = '';
+    state.sceneTagFilter = '';
+    state.mediaTypeFilter = '';
+    syncMediaTypeSelect();
+    const input = document.getElementById('searchInput');
+    if (input) input.value = '';
+    window.renderImages();
+};
+
+// מחזיר חיפוש שמור: הטקסט וכל הסינונים, ומריץ אותו. תיקייה שכבר אינה קיימת
+// מוחלפת ב"כל התמונות" ({ folderMissing: true }).
+window.applyGallerySearch = async function(search = {}) {
+    const state = window.state;
+    const filters = search && typeof search.filters === 'object' && search.filters ? search.filters : {};
+    let folderId = window.safeRecordId(filters.folderId) || 'all';
+    let folderMissing = false;
+    if (folderId !== 'favorites' && !state.folders.some(folder => window.safeRecordId(folder.id) === folderId)) {
+        folderMissing = folderId !== 'all';
+        folderId = 'all';
+    }
+    const year = Number(filters.hebrewYear) || 0;
+    state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
+    state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(filters.hebrewMonth) ? filters.hebrewMonth : '';
+    state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(filters.mediaType) ? filters.mediaType : '';
+    syncMediaTypeSelect();
+    // הגלריה מסננת לפי תגית סצנה אחת; תגית שאינה בטקסונומיה אינה מסננת.
+    state.sceneTagFilter = (Array.isArray(filters.tags) ? filters.tags : []).find(isSceneTagId) || '';
+    const query = String(search?.query || '');
+    state.searchQuery = query;
+    const input = document.getElementById('searchInput');
+    if (input) input.value = query;
+    state.tempSearchResults = null;
+    document.getElementById('tempSearchBanner')?.classList.add('hidden');
+    if (window.safeRecordId(state.activeFolderId) !== folderId) {
+        await setActiveFolder(folderId);
+    } else {
+        window.renderFolders();
+        window.renderImages();
+    }
+    if ((query || window.hasActiveGalleryFilters()) && state.imagesHasMore) {
+        window.loadAllImagesForSearch?.()?.catch(error => console.warn('Saved search autoload failed:', error));
+    }
+    return { folderMissing };
 };
 
 // --- סינון לפי סוג הרגע (תגיות הסצנה) ---
@@ -595,6 +694,7 @@ window.setGallerySceneTag = function(value) {
     if (next && window.state.imagesHasMore) {
         window.loadAllImagesForSearch?.()?.catch(error => console.warn('Scene filter autoload failed:', error));
     }
+    window.noteGallerySearchChange?.();
 };
 
 // ההכרזה לקוראי מסך נכתבת רק כשהסינון השתנה, לא בכל ציור.
@@ -614,6 +714,10 @@ function getFilteredSortedImages() {
     const hebrewFilters = activeHebrewFilters();
     if (hebrewFilters.year || hebrewFilters.month) {
         filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
+    }
+    const mediaType = activeMediaTypeFilter();
+    if (mediaType) {
+        filtered = filtered.filter(img => (mediaType === 'video') === Boolean(window.isVideoRecord(img)));
     }
     const sceneTag = activeSceneTag();
     if (sceneTag) filtered = filtered.filter(img => recordHasSceneTag(img, sceneTag));
@@ -844,7 +948,7 @@ let galleryRenderPending = false;
 // שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
 function currentViewSignature() {
     return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
-        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag()];
+        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || ''];
 }
 
 function sameViewSignature(first, second) {
@@ -913,7 +1017,7 @@ function galleryCounterLabel(shownCount) {
     const state = window.state;
     if (state.imagesLoading && shownCount === 0) return 'טוען…';
     if (state.tempSearchResults !== null || !state.imagesHasMore) return `${shownCount} פריטים`;
-    if (state.searchQuery || window.hasActiveDateFilter?.() || window.hasActiveSceneFilter?.()) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
+    if (state.searchQuery || window.hasActiveGalleryFilters?.()) return `${shownCount} פריטים · מחפש גם בפריטים ישנים…`;
     const total = galleryFolderTotal();
     return total > shownCount ? `${shownCount} מתוך ${total} פריטים` : `${shownCount} פריטים`;
 }
