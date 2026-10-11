@@ -153,7 +153,7 @@ test.before(async () => {
       aiCalls += 1;
       lastAiBody = JSON.parse(init.body || "{}");
       if (onAiCall) onAiCall();
-      if (aiStatus !== 200) return Response.json({ error: { code: aiErrorCode || "rate_limit_exceeded" } }, { status: aiStatus });
+      if (aiStatus !== 200) return Response.json({ error: { code: aiErrorCode || "rate_limit_exceeded", message: "private provider details must not escape" } }, { status: aiStatus });
       const text = typeof aiResponse === "string" ? aiResponse : JSON.stringify(aiResponse);
       return Response.json({ output: [{ content: [{ type: "output_text", text }] }] });
     }
@@ -516,4 +516,13 @@ test("the background task for a new image stores the caption and tags too, and s
   const videoTasks = [];
   await worker.fetch(jsonRequest("/data/images/video1", "PUT", { data: { ...imageFields("video1"), mediaType: "video" } }), environment, { waitUntil(task) { videoTasks.push(task); } });
   assert.equal(videoTasks.length, 0);
+});
+
+test("AI failure exposes only provider status and code for maintenance diagnosis", async () => {
+  await seedImage(); aiStatus = 404; aiErrorCode = "model_not_found";
+  const response = await titleCall();
+  const body = await response.json();
+  assert.equal(body.providerCode,"model_not_found");
+  assert.equal(body.providerStatus,404);
+  assert.equal(JSON.stringify(body).includes("private provider details"),false);
 });

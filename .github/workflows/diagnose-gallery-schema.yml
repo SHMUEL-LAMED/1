@@ -1,0 +1,22 @@
+name: Diagnose gallery database schema
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/diagnose-gallery-schema.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read bounded schema startup error
+        run: |
+          node --input-type=module <<'NODE'
+          for(let i=0;i<30;i++) {
+            const r=await fetch('https://simchas-gallery-api.0534169095.workers.dev/health');
+            const body=await r.json();
+            if(body.schemaCause||body.success) { console.log(JSON.stringify(body)); break; }
+            await new Promise(resolve=>setTimeout(resolve,3000));
+          }
+          NODE

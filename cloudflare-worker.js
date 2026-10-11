@@ -694,6 +694,11 @@ let databaseSchemaReady = false;
 async function ensureDatabaseSchema(env) {
   if (!env.GALLERY_DB) throw apiError("החיבור למסד D1 אינו מוגדר.", 500, "database_binding_missing");
   if (databaseSchemaReady) return;
+  // בסיס שכבר הושלם אינו דורש DDL או כתיבת חותמת בכל פתיחת Worker.
+  try {
+    const version = await env.GALLERY_DB.prepare("SELECT schema_version FROM gallery_schema_meta WHERE schema_key = 'gallery'").first();
+    if (Number(version?.schema_version) >= DATABASE_SCHEMA_VERSION) { databaseSchemaReady = true; return; }
+  } catch { /* מסד חדש ממשיך למיגרציה */ }
   try {
     const schema = await env.GALLERY_DB.prepare("PRAGMA table_info(gallery_documents)").all();
     const existingColumns = new Set((schema.results || []).map(column => String(column.name)));
@@ -976,7 +981,9 @@ async function ensureDatabaseSchema(env) {
     databaseSchemaReady = true;
   } catch (error) {
     console.error("D1 schema initialization failed", error);
-    throw apiError("מסד הנתונים מחובר, אך טבלת הנתונים אינה זמינה.", 500, "database_schema_unavailable");
+    const failure = apiError("מסד הנתונים מחובר, אך טבלת הנתונים אינה זמינה.", 500, "database_schema_unavailable");
+    failure.schemaCause = String(error?.cause?.message || error?.message || "unknown").split("\n")[0].replace(/https?:\/\/\S+/g, "[url]").slice(0,180);
+    throw failure;
   }
 }
 
@@ -3577,8 +3584,13 @@ async function generateImageDescription(request, env, imageId) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    console.warn("AI description request failed", response.status, String(result?.error?.code || "unknown"));
-    throw aiDescriptionFailure(response.status, result);
+    // רק הסטטוס והקוד של הספק יוצאים לאבחון התחזוקה; ההודעה המלאה שלו נשארת בפנים.
+    const providerCode = String(result?.error?.code || result?.error?.type || `http_${response.status}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+    console.warn("AI description request failed", response.status, providerCode);
+    const failure = aiDescriptionFailure(response.status, result);
+    failure.providerCode = providerCode;
+    failure.providerStatus = response.status;
+    throw failure;
   }
   let parsed;
   try {
@@ -5869,7 +5881,6 @@ async function saveBackgroundDocument(env, id, value) {
   await env.GALLERY_DB.prepare(
     "INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at) VALUES ('systemMeta', ?, ?, 'background-worker', ?, ?) ON CONFLICT(collection_name, document_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at"
   ).bind(id, JSON.stringify(value), now, now).run();
-  await bumpDataVersion(env, "systemMeta");
 }
 
 async function verifyGithubBackgroundToken(request, env) {
@@ -5911,12 +5922,18 @@ async function verifyGithubBackgroundToken(request, env) {
 
 async function backgroundSession(request, env) {
   const claims = await verifyGithubBackgroundToken(request, env);
-  await consumeRateLimit(env, "background-session", 20, 3600000, "יותר מדי ריצות רקע.", "background_session_rate_limit");
-  const payload = { scope: "gallery-maintenance", runId: String(claims.run_id || ""), exp: Math.floor(Date.now() / 1000) + 1800 };
+  let writeQuotaExhausted = false;
+  try { await consumeRateLimit(env, "background-session", 20, 3600000, "יותר מדי ריצות רקע.", "background_session_rate_limit"); }
+  catch (error) {
+    if (!/row write limit/i.test(String(error?.cause?.message || error?.message || ""))) throw error;
+    // OIDC כבר אומת. הרשאת קריאה קצרה מאפשרת אבחון בזמן שמכסת הכתיבה חסומה.
+    writeQuotaExhausted = true;
+  }
+  const payload = { scope: "gallery-maintenance", readOnly: writeQuotaExhausted, runId: String(claims.run_id || ""), exp: Math.floor(Date.now() / 1000) + 1800 };
   const encoded = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   // הפרדת חתימה מאסימוני משתמש: שינוי bg1 ל-v1 אינו מעניק כניסה לחשבון.
   const signature = await signSessionPayload(env, `background:${encoded}`);
-  const response = json(request, { success: true, token: `bg1.${encoded}.${signature}`, expiresAt: payload.exp * 1000 });
+  const response = json(request, { success: true, token: `bg1.${encoded}.${signature}`, expiresAt: payload.exp * 1000, writeQuotaExhausted });
   response.headers.set("Cache-Control", "no-store");
   return response;
 }
@@ -5925,7 +5942,7 @@ function backgroundAllowedPath(method, path) {
   if (method === "GET") return /^\/data\/(images|pendingImages|folders)(\/[^/]+)?$/.test(path) ||
     ["/background/config", "/background/status", "/face/index/summary", "/media/variants/stats"].includes(path) || path.startsWith("/face-assets/") ||
     /^\/media\/(probe\/[^/]+|(approved|pending|variants)\/)/.test(path);
-  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort"].includes(path);
+  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/background/ai-check", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort"].includes(path);
   if (method === "PUT") return path === "/upload/multipart/part" || /^\/data\/(images\/driveimage|folders\/drivefolder)_[A-Za-z0-9_-]+$/.test(path);
   return false;
 }
@@ -5940,6 +5957,7 @@ async function authorizeBackgroundRequest(request, env, path) {
       !constantTimeHexEqual(parts[2] || "", await signSessionPayload(env, `background:${parts[1]}`))) {
     throw apiError("הרשאת תהליך הרקע פגה.", 401, "background_session_expired");
   }
+  if (payload.readOnly && request.method !== "GET" && path !== "/background/ai-check") throw apiError("מכסת הכתיבה תתחדש אוטומטית.",403,"background_write_quota_paused");
   if (!backgroundAllowedPath(request.method, path)) throw apiError("פעולה זו אינה מורשית לתהליך הרקע.", 403, "background_scope_denied");
   const actor = { uid: "background-worker", email: "background@internal.invalid", role: "admin", status: "approved", initialAdmin: false, idToken: token,
     account: { localId: "background-worker", email: "background@internal.invalid", displayName: "תהליך רקע בענן" } };
@@ -5983,6 +6001,19 @@ async function backgroundStatus(request, env) {
   };
   await saveBackgroundDocument(env, "backgroundState", state);
   return json(request, { success: true });
+}
+
+async function backgroundAiCheck(request, env) {
+  if (!backgroundActors.has(request)) throw apiError("פעולה זו מיועדת לתהליך הרקע.",403,"background_scope_denied");
+  if (!env.OPENAI_API_KEY) return json(request,{success:true,available:false,status:503,providerCode:"openai_key_missing"});
+  const response = await fetch(OPENAI_RESPONSES_URL, {
+    method:"POST", headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},
+    body:JSON.stringify({model:OPENAI_VISION_MODEL,store:false,max_output_tokens:32,input:"החזר את המילה שלום בלבד"}),
+    signal:AbortSignal.timeout(25000)
+  });
+  const data=await response.json().catch(()=>({}));
+  const providerCode=response.ok ? "ok" : String(data.error?.code||data.error?.type||`http_${response.status}`).replace(/[^a-zA-Z0-9_-]/g,"").slice(0,80);
+  return json(request,{success:true,available:response.ok,status:response.status,providerCode});
 }
 
 async function backgroundDriveToken(request, env) {
@@ -6031,6 +6062,7 @@ export default {
       await authorizeBackgroundRequest(request, env, url.pathname);
       if (["GET", "PUT"].includes(request.method) && url.pathname === "/background/config") return await backgroundConfig(request, env);
       if (["GET", "POST"].includes(request.method) && url.pathname === "/background/status") return await backgroundStatus(request, env);
+      if (request.method === "POST" && url.pathname === "/background/ai-check") return await backgroundAiCheck(request, env);
       if (request.method === "POST" && url.pathname === "/background/drive-token") return await backgroundDriveToken(request, env);
       if (url.pathname.startsWith("/data/")) {
         return await handleDataRequest(request, env, url, ctx);
@@ -6195,7 +6227,10 @@ export default {
       return json(request, {
         success: false,
         code: error?.code || "internal_error",
-        message: error?.message || "אירעה שגיאה פנימית."
+        message: error?.message || "אירעה שגיאה פנימית.",
+        // כשל של מנוע ה־AI (כל קודי השגיאה של התיאור) חושף רק סטטוס וקוד של הספק.
+        ...(typeof error?.providerCode === "string" ? { providerCode: error.providerCode, providerStatus: error.providerStatus } : {}),
+        ...(error?.code === "database_schema_unavailable" ? { schemaCause: error.schemaCause } : {})
       }, status);
     }
   }

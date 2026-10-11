@@ -15,15 +15,24 @@ export function noteRetry(retries, job, id, now = Date.now()) {
     return [...retries.filter(item => item.job !== job || item.id !== id), { job, id, attempts, after: now + Math.min(86400000, 900000 * 2 ** (attempts - 1)) }].slice(-500);
 }
 
-export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_ORIGIN, budgetMs = 12 * 60 * 1000, maxItems = 40, authenticate, launchBrowser, report = console.log } = {}) {
+export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_ORIGIN, budgetMs = 12 * 60 * 1000, maxItems = Number(process.env.BACKGROUND_MAX_ITEMS) || 40, authenticate, launchBrowser, report = console.log } = {}) {
+    if (process.env.GALLERY_WRITE_QUOTA_EXHAUSTED === "true") { report(JSON.stringify({paused:"d1_daily_write_quota"})); return; }
     const startedAt = Date.now();
     const deadline = startedAt + budgetMs;
     let token = await authenticate(apiOrigin);
+    if (process.env.GALLERY_WRITE_QUOTA_EXHAUSTED === "true") { report(JSON.stringify({paused:"d1_daily_write_quota"})); return; }
     let browser, page, server;
     let config, state;
     const jobs = Object.fromEntries(JOB_NAMES.map(name => [name, { processed: 0, failed: 0, message: '' }]));
     let retry = [];
     let cursor = {};
+    const diagnostics = new Map();
+    const noteFailure = (job, error) => {
+        const code = String(error.code || error.name || "Error").replace(/[^a-zA-Z0-9_-]/g, "").slice(0,80);
+        const detail = String(error.message || "").split("\n")[0].replace(/https?:\/\/\S+/g, "[url]").replace(/(?:Bearer |sk-)[A-Za-z0-9_.-]+/g, "[redacted]").slice(0,180);
+        diagnostics.set(`${job}:${code}:${detail}`, { job, code, status: error.status || 0, detail });
+        report(JSON.stringify({ diagnostic: { job, code, status: error.status || 0, detail } }));
+    };
     const api = async (path, options = {}) => {
         const response = await fetch(`${apiOrigin}${path}`, {
             ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
@@ -34,12 +43,20 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             return response;
         }
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw Object.assign(new Error(data.code || 'request_failed'), { status: response.status });
+        if (!response.ok) throw Object.assign(new Error(data.code || 'request_failed'), { status: response.status, code: data.providerCode || data.code });
         return data;
     };
     const post = (path, data) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const put = (collection, id, data) => api(`/data/${collection}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, merge: true }) });
-    const progress = async phase => post('/background/status', { runId: process.env.GITHUB_RUN_ID || '', startedAt, phase, jobs, retry, cursor });
+    let lastCheckpoint = 0;
+    const progress = async (phase, force = false) => {
+        if (!force && Date.now() - lastCheckpoint < 15000) return;
+        await post('/background/status', { runId: process.env.GITHUB_RUN_ID || '', startedAt, phase, jobs, retry, cursor });
+        lastCheckpoint = Date.now();
+    };
+    const remainingBudget = () => 30000 - (cursor.dailyBudget?.used || 0);
+    const charge = amount => { cursor.dailyBudget.used += amount; };
+    const costs = { titles: 12, variants: 32, dates: 20, faces: 480 };
     const refreshConfig = async () => { config = (await api('/background/config')).config; return config; };
     const list = async collection => {
         const all = [];
@@ -72,7 +89,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 const outHeaders = Object.fromEntries(response.headers);
                 outHeaders['access-control-allow-origin'] = '*';
                 // Node fetch מפענח דחיסה בעצמו.
-                delete outHeaders['content-encoding']; delete outHeaders['content-length'];
+                for (const name of ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete outHeaders[name];
                 await route.fulfill({ status: response.status, headers: outHeaders, body: Buffer.from(await response.arrayBuffer()) });
             } catch { await route.abort(); }
         });
@@ -114,7 +131,8 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         if (!response.ok) throw new Error(`drive_${response.status}`);
         return response;
     };
-    const syncDrive = async records => {
+    const syncDrive = async (records, folders) => {
+        const foldersById = new Map(folders.map(folder => [folder.id, folder]));
         if (!config.enabled.drive) return;
         const interval = config.intervalMinutes * 60000;
         if (!cursor.drive && cursor.lastDriveAt && Date.now() - cursor.lastDriveAt < interval) return;
@@ -134,7 +152,13 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             if (!config.enabled.drive) break;
             const folder = pending[0];
             const folderId = `drivefolder_${folder.id}`;
-            await put('folders', folderId, { id: folderId, name: folder.name, icon: 'folder-sync', isDefault: false, driveFolderId: folder.id, driveParentFolderId: folder.parent, parentFolderId: folder.parent ? `drivefolder_${folder.parent}` : null, driveRootFolderId: folder.root, driveDepth: folder.depth, syncedFromDrive: true });
+            const folderRecord = { id: folderId, name: folder.name, icon: 'folder-sync', isDefault: false, driveFolderId: folder.id, driveParentFolderId: folder.parent, parentFolderId: folder.parent ? `drivefolder_${folder.parent}` : null, driveRootFolderId: folder.root, driveDepth: folder.depth, syncedFromDrive: true };
+            const previous = foldersById.get(folderId);
+            if (!previous || Object.entries(folderRecord).some(([key,value]) => previous[key] !== value)) {
+                if (remainingBudget() < 20) break;
+                await put('folders', folderId, folderRecord);
+                charge(20); foldersById.set(folderId, folderRecord);
+            }
             const params = new URLSearchParams({ q: `'${folder.id}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,size,imageMediaMetadata(time))', pageSize: '100', orderBy: 'folder,name', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' });
             if (folder.pageToken) params.set('pageToken', folder.pageToken);
             const batch = await (await driveRequest(`files?${params}`)).json();
@@ -149,7 +173,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                     } else if (/^(image|video)\//.test(file.mimeType || '')) {
                         const existing = byId.get(id);
                         if (!existing || existing.driveModifiedTime !== file.modifiedTime) {
-                            if (canRetry(retry, 'drive', id)) {
+                            if (canRetry(retry, 'drive', id) && remainingBudget() >= 60) {
                                 const isVideoFile = String(file.mimeType).startsWith("video/");
                                 if (Number(file.size) > (isVideoFile ? 1024 : 50) * 1024 * 1024) throw new Error("media_too_large");
                                 const media = await driveRequest(`files/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`);
@@ -172,15 +196,15 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                                 }
                                 const modified = Date.parse(file.modifiedTime) || Date.now();
                                 const record = { ...(existing || {}), id, folderId, title: String(file.name).replace(/\.[^.]+$/, ''), originalTitle: file.name, variants: {}, variantsVersion: 0, aiTitleVersion: 0, takenAt: null, takenAtDate: null, takenAtSource: null, url: uploaded.url, r2Key: uploaded.key, r2Stored: true, mediaType: isVideo ? 'video' : 'image', mimeType: type, createdAt: existing?.createdAt || modified, date: new Date(modified).toISOString().slice(0,10), driveFileId: file.id, driveFolderId: folder.id, driveRootFolderId: folder.root, driveModifiedTime: file.modifiedTime, syncedFromDrive: true, ...(captureFromDriveMetadata(file) ? captureFields(captureFromDriveMetadata(file)) : {}) };
-                                await put('images', id, record);
+                                await put('images', id, record); charge(60);
                                 byId.set(id, record); if (existing) records[records.findIndex(item => item.id === id)] = record; else records.push(record); added += 1; jobs.drive.processed += 1;
                                 retry = retry.filter(item => item.job !== 'drive' || item.id !== id);
                             }
                         } else if (existing.folderId !== folderId) {
-                            await put('images', id, { ...existing, folderId, driveFolderId: folder.id });
+                            if (remainingBudget() >= 20) { await put('images', id, { ...existing, folderId, driveFolderId: folder.id }); charge(20); }
                         }
                     }
-                } catch { jobs.drive.failed += 1; retry = noteRetry(retry, 'drive', id); }
+                } catch (error) { noteFailure("drive", error); jobs.drive.failed += 1; retry = noteRetry(retry, 'drive', id); }
                 folder.offset = i + 1;
                 cursor.drive = { pending };
                 await progress('drive');
@@ -202,14 +226,18 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         if (!config.enabled[name]) { jobs[name].message = 'מושהה'; return; }
         for (const record of records) {
             if (Date.now() >= jobDeadline || done >= maxItems) break;
+            if (remainingBudget() < costs[name]) { jobs[name].message = 'המשך העיבוד לאחר חידוש התקציב היומי'; break; }
             if (!canRetry(retry, name, record.id)) continue;
             await refreshConfig();
             if (!config.enabled[name]) break;
             try {
-                await processItem(record);
+                const result = await processItem(record);
+                charge(Math.max(1, Math.min(costs[name], result?.estimatedWrites || costs[name])));
                 jobs[name].processed += 1;
                 retry = retry.filter(item => item.job !== name || item.id !== record.id);
             } catch (error) {
+                charge(costs[name]);
+                noteFailure(name, error);
                 jobs[name].failed += 1;
                 retry = noteRetry(retry, name, record.id);
                 if (name === 'titles' && [429, 502, 503].includes(error.status)) { jobs[name].message = 'מנוע AI אינו זמין כרגע; ינסה שוב בריצה הבאה'; break; }
@@ -223,10 +251,13 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         state = (await api('/background/status')).state;
         retry = state.retry || [];
         cursor = state.cursor || {};
+        const day = new Date().toISOString().slice(0,10);
+        if (cursor.dailyBudget?.day !== day) cursor.dailyBudget = { day, used: 0 };
+        if (remainingBudget() < 12) { report(JSON.stringify({ paused: 'daily_write_budget', day })); return; }
         const images = await list('images');
         const pending = await list('pendingImages');
         await progress('starting');
-        try { await syncDrive(images); } catch { jobs.drive.message = 'סנכרון Drive נכשל; ינסה שוב בריצה הבאה'; jobs.drive.failed += 1; }
+        try { await syncDrive(images, config.enabled.drive ? await list('folders') : []); } catch (error) { noteFailure('drive', error); jobs.drive.message = 'סנכרון Drive נכשל; ינסה שוב בריצה הבאה'; jobs.drive.failed += 1; }
         const media = [...new Map([...pending, ...images].filter(stored).map(record => [record.id, record])).values()];
         const variantCandidates = selectVariantCandidates(media, { sanitize: value => value, isSupported: item => String(item.url).startsWith(`${apiOrigin}/media/`) }).candidates;
         await runJob('variants', variantCandidates.map(item => media.find(record => record.id === item.imageId)), createVariants);
@@ -278,10 +309,10 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 if (result.busy || !result.processed || !result.remaining) break;
             }
         }
-        await progress('idle');
-        report(JSON.stringify({ processed: jobs, runId: process.env.GITHUB_RUN_ID || '' }));
+        await progress('idle', true);
+        report(JSON.stringify({ processed: jobs, diagnostics: [...diagnostics.values()], runId: process.env.GITHUB_RUN_ID || '' }));
     } catch (error) {
-        await progress('failed').catch(() => {});
+        await progress('failed', true).catch(() => {});
         throw error;
     } finally {
         await browser?.close();
@@ -300,8 +331,16 @@ async function authenticate(apiOrigin) {
     for (let attempt = 0; attempt < 30; attempt++) {
         const response = await fetch(`${apiOrigin}/background/session`, { method: 'POST', headers: { Authorization: `Bearer ${oidc.value}` }, signal: AbortSignal.timeout(20000) });
         const result = await response.json().catch(() => ({}));
-        if (response.ok && result.token) return result.token;
-        if (![404, 405, 502, 503].includes(response.status)) throw new Error(`Background authentication failed (${response.status}, ${result.code || 'unknown'})`);
+        if (response.ok && result.token) {
+            if (result.writeQuotaExhausted || process.env.GITHUB_EVENT_NAME === 'push') {
+                const check = await fetch(`${apiOrigin}/background/ai-check`, {method:'POST',headers:{Authorization:`Bearer ${result.token}`},signal:AbortSignal.timeout(30000)});
+                const diagnostic=await check.json().catch(()=>({}));
+                console.log(JSON.stringify({aiCheck:{available:diagnostic.available,providerCode:diagnostic.providerCode,status:diagnostic.status}}));
+            }
+            if (result.writeQuotaExhausted) process.env.GALLERY_WRITE_QUOTA_EXHAUSTED='true';
+            return result.token;
+        }
+        if (![404, 405, 502, 503].includes(response.status) && !(response.status === 500 && result.code === "database_schema_unavailable")) throw new Error(`Background authentication failed (${response.status}, ${result.code || 'unknown'})`);
         await new Promise(resolve => setTimeout(resolve, 5000));
     }
     throw new Error('Background endpoint unavailable');

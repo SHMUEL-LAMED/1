@@ -13,7 +13,7 @@ test('background title job persists work without opening a browser; paused jobs 
         const path = new URL(url).pathname;
         if (path === '/background/config') return Response.json({ config: { enabled, driveFolders: [], intervalMinutes:15 } });
         if (path === '/background/status' && !options.method) return Response.json({ state: {} });
-        if (path === '/data/images') return Response.json({ documents: [{ id:image.id,data:image }] });
+        if (path === '/data/images') return Response.json({ documents: Array.from({length:5},(_,i)=>({id:'photo'+i,data:{...image,id:'photo'+i}})) });
         if (path === '/data/pendingImages') return Response.json({ documents: [] });
         if (path === '/face/index/pending') return Response.json({ pending: [] });
         if (path === '/ai-title') { image.aiTitleVersion=1; return Response.json({title:'תמונה בעברית'}); }
@@ -23,7 +23,8 @@ test('background title job persists work without opening a browser; paused jobs 
     await runBackgroundJobs({apiOrigin:API,authenticate:async()=> 'scoped-test-token',launchBrowser:()=>{throw new Error('user browser must not be needed');},report:()=>{}});
     assert.equal(image.aiTitleVersion,1);
     assert.equal(posts.at(-1).phase,'idle');
-    assert.equal(posts.at(-1).jobs.titles.processed,1);
+    assert.ok(posts.length <= 3,'checkpoints must be throttled instead of writing for every item');
+    assert.equal(posts.at(-1).jobs.titles.processed,5);
     assert.equal(posts.at(-1).jobs.variants.processed,0);
 });
 test('background title job also sends titled images that still lack a caption, but never a hand-edited caption or a video', async () => {
