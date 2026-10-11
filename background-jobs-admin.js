@@ -1,4 +1,4 @@
-const labels = { titles: 'שמות AI', faces: 'אינדוקס פנים', variants: 'תצוגות מקדימות', dates: 'תאריכי צילום', drive: 'סנכרון Drive' };
+const labels = { titles: 'שמות, כיתובים ותגיות AI', faces: 'אינדוקס פנים', variants: 'תצוגות מקדימות', dates: 'תאריכי צילום', drive: 'סנכרון Drive' };
 const controls = {
     titles: ['aiTitlesStart', 'aiTitlesStop', 'aiTitlesStatus'],
     faces: ['faceIndexStartBtn', 'faceIndexStopBtn', 'faceIndexStatusText'],
@@ -26,9 +26,12 @@ export async function refreshCloudBackgroundJobs() {
             const start = document.getElementById(ids[0]);
             const stop = ids[1] && document.getElementById(ids[1]);
             const status = document.getElementById(ids[2]);
-            if (start) { start.disabled = false; start.textContent = enabled ? 'המשך אוטומטי בענן' : 'הפעל בענן'; }
+            // בלי מפתח AI בשרת (ai-titles-admin.js קורא זאת מ־/health) אין להפעיל
+            // שמות וכיתובים בענן, וההסבר שבמסך נשאר במקומו.
+            const unavailable = name === 'titles' && window.aiDescriptionsUnavailable === true;
+            if (start) { start.disabled = unavailable; start.textContent = enabled ? 'המשך אוטומטי בענן' : 'הפעל בענן'; }
             if (stop) stop.disabled = !enabled;
-            if (status) status.textContent = `${message}. אפשר לסגור את הדפדפן. עדכון אחרון: ${last}`;
+            if (status && !unavailable) status.textContent = `${message}. אפשר לסגור את הדפדפן. עדכון אחרון: ${last}`;
             if (summary) {
                 const line = document.createElement('p');
                 line.textContent = `${labels[name]}: ${message}`;

@@ -158,12 +158,14 @@ function loadMoreImages() {
     return loadMorePromise;
 }
 
-// חיפוש (או סינון לפי שנה/חודש עבריים) בתיקייה שטרם נטענה כולה: העמודים הבאים נטענים מעצמם, כל עוד
-// החיפוש פעיל ובאותה תיקייה, כדי שהתוצאות יכסו גם פריטים ישנים.
+// חיפוש (או סינון לפי שנה/חודש עבריים או לפי סוג הרגע) בתיקייה שטרם נטענה כולה: העמודים הבאים
+// נטענים מעצמם, כל עוד אחד מהם פעיל ובאותה תיקייה, כדי שהתוצאות יכסו גם פריטים ישנים.
 async function loadAllImagesForSearch() {
     const id = activeFolderId();
     for (let page = 0; page < SEARCH_AUTOLOAD_MAX_PAGES; page += 1) {
-        const filtering = Boolean(window.state.searchQuery) || Boolean(window.hasActiveDateFilter?.());
+        const filtering = Boolean(window.state.searchQuery)
+            || Boolean(window.hasActiveDateFilter?.())
+            || Boolean(window.hasActiveSceneFilter?.());
         if (!filtering || activeFolderId() !== id || !window.state.imagesHasMore) return;
         const result = await loadMoreImages();
         if (result.done || result.error) return;

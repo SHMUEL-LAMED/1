@@ -2483,6 +2483,153 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 
 /* ==========================================================================
+   13א. כיתובים ותגיות סצנה (scene-tags.js, media-description.js)
+   ========================================================================== */
+
+/* שבבי "סוג הרגע" בסרגל הכלים: שורה מלאה משלהם, גלילה אופקית בתוך השורה
+   בלבד — הדף עצמו לעולם אינו נגלל לרוחב, גם ב-390px. position: relative
+   הכרחי: בלעדיו טקסט ה-sr-only שבשבבים (position: absolute) נמדד מול אב
+   רחוק, יוצא מגבולות הגלילה ומרחיב את הדף כולו. */
+.scene-filter {
+    position: relative;
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding: 2px;
+}
+.scene-filter[hidden] { display: none; }
+.scene-chip {
+    position: relative;
+    flex: 0 0 auto;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+}
+.scene-chip:hover { color: var(--ink); border-color: var(--line-strong); }
+.scene-chip[aria-pressed="true"] { background: var(--gold-tint); border-color: var(--gold-line); color: var(--gold); }
+.scene-chip:focus-visible { border-radius: var(--r-full); }
+.scene-chip-count {
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: var(--r-full);
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+/* התיאור בתצוגה המלאה: זכוכית כהה כמו שאר האולם, ואותם צבעים בשני המצבים. */
+.lightbox-description {
+    align-self: center;
+    width: min(720px, 100%);
+    max-width: 100%;
+    margin-top: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border-radius: var(--r-xl);
+    background: var(--cinema-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--cinema-line);
+    box-shadow: var(--cinema-shadow);
+    color: var(--cinema-ink);
+}
+.lightbox-description[hidden],
+.lightbox-caption[hidden],
+.lightbox-caption-empty[hidden],
+.lightbox-tags[hidden],
+.lightbox-edit[hidden] { display: none; }
+.lightbox-description-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 8px; }
+.lightbox-caption {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--cinema-ink);
+    overflow-wrap: anywhere;
+}
+.lightbox-caption-empty { font-size: 13px; line-height: 1.6; color: var(--cinema-ink-soft); }
+/* עריכה (מנהל): בקצה הקופסה, כדי שסרגל העליון לא יצטופף בטלפון. */
+.lightbox-edit {
+    flex: 0 0 auto;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-radius: var(--r-full);
+    background: var(--cinema-button);
+    border: 1px solid var(--cinema-line-strong);
+    color: var(--cinema-ink);
+    font-size: 13px;
+    font-weight: 700;
+    transition: background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease);
+}
+.lightbox-edit:hover { background: var(--cinema-button-hover); border-color: var(--cinema-accent-line); color: var(--cinema-accent); }
+#lightboxModal .lightbox-edit:focus-visible { border-radius: var(--r-full); }
+.lightbox-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.lightbox-tag {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 14px;
+    border-radius: var(--r-full);
+    background: var(--cinema-button);
+    border: 1px solid var(--cinema-line-strong);
+    color: var(--cinema-accent);
+    font-size: 13px;
+    font-weight: 700;
+    transition: background .2s var(--ease), border-color .2s var(--ease);
+}
+.lightbox-tag:hover { background: var(--cinema-accent-tint); border-color: var(--cinema-accent-line); }
+#lightboxModal .lightbox-tag:focus-visible { border-radius: var(--r-full); }
+/* במצגת התמונה לבדה על המסך. */
+#lightboxModal.is-slideshow .lightbox-description { display: none; }
+
+/* חלון העריכה: תגיות כתיבות סימון בצורת שבב, 40px לפחות למגע. */
+.scene-tag-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.scene-tag-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.scene-tag-option {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+}
+.scene-tag-option:hover { color: var(--ink); border-color: var(--line-strong); }
+.scene-tag-option:has(input:checked) { background: var(--gold-tint); border-color: var(--gold-line); color: var(--gold); }
+.scene-tag-option:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.scene-tag-option:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.scene-tag-option input { width: 16px; height: 16px; accent-color: var(--gold); }
+.scene-tag-option input:focus-visible { box-shadow: none; }
+.scene-caption-count { text-align: end; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
    14. חלונות (modal) — מעטפת אחידה לכל החלונות באתר
    ========================================================================== */
 
