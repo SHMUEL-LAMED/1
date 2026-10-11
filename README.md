@@ -1085,11 +1085,14 @@ npx playwright test e2e/admin.spec.mjs   # קובץ בודד
 `cloudflare-worker.js`: ענף `main` אל Worker הייצור, וענף `staging` אל
 `simchas-gallery-api-staging` של סביבת הניסוי (ראה "סביבת ניסוי" להלן).
 לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
-תחת **Settings → Secrets and variables → Actions**, סוד אחד בלבד:
+תחת **Settings → Secrets and variables → Actions**, את הסודות הבאים לפי סביבת היעד:
 
 | סוד | ערך |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | אסימון Cloudflare בעל הרשאת Workers Scripts:Edit |
+| `CLOUDFLARE_PRODUCTION_API_TOKEN` | אסימון Workers Scripts:Edit בחשבון הייצור בתשלום (`7c5ecc8cc6dc99838cfbf1b3a1086b74`) |
+| `CLOUDFLARE_API_TOKEN` | אסימון Workers Scripts:Edit בחשבון הניסוי הקיים |
+
+כתובת ה־API הקיימת נשארת שער לשרת שבחשבון בתשלום, כדי לשמר את חיבור Google Drive ואת כתובות המדיה. פרטי החיבור, הסודות והגיבויים מפורטים ב־[CLOUDFLARE-ACCOUNT-MIGRATION.md](./CLOUDFLARE-ACCOUNT-MIGRATION.md).
 
 הפריסה קוראת את שמות כל ה־Bindings מהגרסה הפעילה ומורישה אותם לגרסה החדשה.
 לפני העלאה היא מוודאת ש־`GALLERY_DB` ו־`GALLERY_BUCKET` קיימים, ולכן אינה
