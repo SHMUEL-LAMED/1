@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CLOUDFLARE_ACCOUNT_ID: 3298021f3289a8f22f48693678cc6e73
+      CLOUDFLARE_ACCOUNT_ID: ${{ (inputs.target == 'staging' || github.ref_name == 'staging' || github.event.pull_request.base.ref == 'staging') && '3298021f3289a8f22f48693678cc6e73' || '7c5ecc8cc6dc99838cfbf1b3a1086b74' }}
       DEPLOY_TARGET: ${{ inputs.target || ((github.ref_name == 'staging' || github.event.pull_request.base.ref == 'staging') && 'staging' || 'production') }}
     steps:
       - name: Resolve target Worker
@@ -55,7 +55,7 @@ jobs:
           case "$DEPLOY_TARGET" in
             production)
               worker_name="simchas-gallery-api"
-              health_url="https://simchas-gallery-api.0534169095.workers.dev/health"
+              health_url="https://simchas-gallery-api.smwlyqswkwt232.workers.dev/health"
               ;;
             staging)
               worker_name="simchas-gallery-api-staging"
@@ -95,16 +95,16 @@ jobs:
 
       - name: Validate Cloudflare token
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ env.DEPLOY_TARGET == 'production' && secrets.CLOUDFLARE_PRODUCTION_API_TOKEN || (env.DEPLOY_TARGET == 'staging' && secrets.CLOUDFLARE_API_TOKEN) || '' }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::Missing GitHub Actions secret: CLOUDFLARE_API_TOKEN"
+            echo "::error::Missing Cloudflare token for $DEPLOY_TARGET. Production requires CLOUDFLARE_PRODUCTION_API_TOKEN; staging uses CLOUDFLARE_API_TOKEN."
             exit 1
           fi
 
       - name: Inherit all bindings of the target Worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ env.DEPLOY_TARGET == 'production' && secrets.CLOUDFLARE_PRODUCTION_API_TOKEN || (env.DEPLOY_TARGET == 'staging' && secrets.CLOUDFLARE_API_TOKEN) || '' }}
         run: |
           node --input-type=module <<'NODE'
           import { writeFileSync } from "node:fs";
@@ -164,7 +164,7 @@ jobs:
 
       - name: Deploy Worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ env.DEPLOY_TARGET == 'production' && secrets.CLOUDFLARE_PRODUCTION_API_TOKEN || (env.DEPLOY_TARGET == 'staging' && secrets.CLOUDFLARE_API_TOKEN) || '' }}
         # ה-API החדש workers/workers מקבל JSON עם modules וירושה ממזהה גרסה.
         # scripts/versions מקבל בירושה רק latest, ולכן אינו מתאים אחרי Rollback.
         # מעלים גרסה, בודקים שחיבורי השרת נשמרו ורק אז פורסים אותה ב-100%.
