@@ -6058,6 +6058,8 @@ export function unwrapGalleryProxy(request, env) {
       if (typeof credentials[name] === "string" && credentials[name].length <= 8192) forwarded[name] = credentials[name];
     }
     const headers = new Headers(request.headers);
+    const clientIp = request.headers.get("x-gallery-proxy-client-ip") || "";
+    if (clientIp && /^[0-9a-fA-F:.]{3,64}$/.test(clientIp)) headers.set("CF-Connecting-IP", clientIp);
     for (const name of headerNames) headers.delete(name);
     return { request: new Request(original.href, { method: request.method, headers,
       body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,

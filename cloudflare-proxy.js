@@ -10,6 +10,7 @@ export default {
     for (const name of [...headers.keys()]) if (name.startsWith('x-gallery-proxy-')) headers.delete(name);
     headers.set('x-gallery-proxy-auth', env.GALLERY_PROXY_SECRET);
     headers.set('x-gallery-proxy-url', original.href);
+    headers.set('x-gallery-proxy-client-ip', request.headers.get('CF-Connecting-IP') || '');
     const credentials = {};
     for (const name of ['GOOGLE_DRIVE_CLIENT_ID', 'GOOGLE_DRIVE_CLIENT_SECRET', 'OPENAI_API_KEY']) {
       if (typeof env[name] === 'string' && env[name]) credentials[name] = env[name];

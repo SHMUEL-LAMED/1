@@ -5,6 +5,7 @@ const target = 'https://simchas-gallery-api.smwlyqswkwt232.workers.dev/health';
 const original = 'https://simchas-gallery-api.0534169095.workers.dev/health';
 const valid = overrides => new Request(target, { headers: {
   'x-gallery-proxy-auth': 'test-private-secret', 'x-gallery-proxy-url': original,
+  'x-gallery-proxy-client-ip': '192.0.2.9',
   'x-gallery-proxy-credentials': btoa(JSON.stringify({ OPENAI_API_KEY: 'private-api-key', GALLERY_DB: 'untrusted', SESSION_SIGNING_SECRET: 'untrusted' })), ...overrides
 } });
 test('proxy rejects credentials without the shared secret', () => {
@@ -13,7 +14,7 @@ test('proxy rejects credentials without the shared secret', () => {
 });
 test('proxy forwards only provider credentials and preserves origin and database bindings', () => {
   const db = {}; const result = unwrapGalleryProxy(valid(), { GALLERY_PROXY_SECRET: 'test-private-secret', PUBLIC_API_ORIGIN: 'https://simchas-gallery-api.0534169095.workers.dev', GALLERY_DB: db });
-  assert.equal(result.request.url, original); assert.equal(result.env.OPENAI_API_KEY, 'private-api-key');
+  assert.equal(result.request.url, original); assert.equal(result.request.headers.get('CF-Connecting-IP'), '192.0.2.9'); assert.equal(result.env.OPENAI_API_KEY, 'private-api-key');
   assert.equal(result.env.GALLERY_DB, db); assert.equal(result.env.SESSION_SIGNING_SECRET, undefined);
   assert.equal([...result.request.headers.keys()].some(x => x.startsWith('x-gallery-proxy-')), false);
 });
@@ -34,12 +35,13 @@ test('gateway keeps session authorization and streams uploads while replacing sp
   globalThis.fetch = async request => { forwarded = request; return new Response('ok'); };
   try {
     const request = new Request('https://simchas-gallery-api.0534169095.workers.dev/upload?file=1', {
-      method: 'POST', headers: { Authorization: 'Bearer user-session', 'x-gallery-proxy-auth': 'spoofed', 'x-gallery-proxy-credentials': 'spoofed' }, body: 'image-body', duplex: 'half'
+      method: 'POST', headers: { Authorization: 'Bearer user-session', 'CF-Connecting-IP': '192.0.2.9', 'x-gallery-proxy-client-ip': 'spoofed', 'x-gallery-proxy-auth': 'spoofed', 'x-gallery-proxy-credentials': 'spoofed' }, body: 'image-body', duplex: 'half'
     });
     const response = await gateway.fetch(request, { GALLERY_PROXY_SECRET: 'real-secret', OPENAI_API_KEY: 'provider-secret' });
     assert.equal(await response.text(), 'ok');
     assert.equal(new URL(forwarded.url).origin, PAID_GALLERY_API_ORIGIN);
     assert.equal(forwarded.headers.get('Authorization'), 'Bearer user-session');
+    assert.equal(forwarded.headers.get('x-gallery-proxy-client-ip'), '192.0.2.9');
     assert.equal(forwarded.headers.get('x-gallery-proxy-auth'), 'real-secret');
     assert.deepEqual(JSON.parse(atob(forwarded.headers.get('x-gallery-proxy-credentials'))), { OPENAI_API_KEY: 'provider-secret' });
     assert.equal(await forwarded.text(), 'image-body');
