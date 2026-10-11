@@ -61,3 +61,31 @@ test('retry continuation backs off repeatedly and eventually becomes eligible', 
     assert.equal(retry[0].after,1802000);
     assert.equal(canRetry(retry,'titles','photo1',1802000),true);
 });
+
+test('Drive restores a missing original even when modifiedTime did not change, preserving its title', async () => {
+    const enabled = { titles: false, faces: false, variants: false, dates: false, drive: true };
+    const id = 'driveimage_file123';
+    const image = { id, title: 'שם שערך המנהל', originalTitle: 'original.jpg', url: API+'/media/approved/missing.jpg', r2Key: 'approved/missing.jpg', mediaType: 'image', driveFileId:'file123', driveModifiedTime:'2026-10-10T00:00:00Z', folderId:'drivefolder_root1234567' };
+    let uploaded=false,saved;
+    globalThis.fetch = async (url, options={}) => {
+        const parsed = new URL(url); const path=parsed.pathname;
+        if(parsed.hostname==='www.googleapis.com') {
+            if(parsed.searchParams.has('alt'))return new Response(new Blob(['image-original'],{type:'image/jpeg'}));
+            return Response.json({files:[{id:'file123',name:'original.jpg',mimeType:'image/jpeg',modifiedTime:image.driveModifiedTime,size:14}]});
+        }
+        if(path==='/background/config')return Response.json({config:{enabled,driveFolders:[{id:'root1234567',label:'Drive'}],intervalMinutes:15}});
+        if(path==='/background/status'&&!options.method)return Response.json({state:{retry:[{job:'variants',id,attempts:1,after:0}]}});
+        if(path==='/background/status')return Response.json({success:true});
+        if(path==='/background/drive-token')return Response.json({connected:true,accessToken:'private-drive-token'});
+        if(path==='/data/images')return Response.json({documents:[{id,data:image}]});
+        if(path==='/data/pendingImages'||path==='/data/folders')return Response.json({documents:[]});
+        if(path.startsWith('/data/folders/'))return Response.json({success:true});
+        if(path===`/media/probe/${id}`)return Response.json({code:'media_not_found'},{status:404});
+        if(path==='/upload'){uploaded=true;return Response.json({url:API+'/media/approved/restored.jpg',key:'approved/restored.jpg'});}
+        if(path===`/data/images/${id}`){saved=JSON.parse(options.body).data;return Response.json({success:true});}
+        if(path==='/face/index/pending')return Response.json({pending:[]});
+        throw new Error('Unexpected endpoint '+path);
+    };
+    await runBackgroundJobs({apiOrigin:API,authenticate:async()=> 'scoped-test-token',report:()=>{}});
+    assert.equal(uploaded,true);assert.equal(saved.r2Key,'approved/restored.jpg');assert.equal(saved.title,'שם שערך המנהל');
+});

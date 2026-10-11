@@ -1,7 +1,7 @@
 import { chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { readCaptureDate, captureFields, captureFromDriveMetadata, needsCaptureDate, CAPTURE_HEAD_BYTES } from '../capture-date.js';
-import { selectVariantCandidates } from '../media-variants.js';
+import { selectVariantCandidates, isVideoLikeRecord } from '../media-variants.js';
 import { needsAiDescription } from '../scene-tags.js';
 import { pathToFileURL } from 'node:url';
 
@@ -96,6 +96,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
         await page.route('**/background-runner.html*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta charset="UTF-8"></head><body></body></html>' }));
         await page.goto('http://127.0.0.1:8081/background-runner.html?api=production');
         await page.evaluate(async () => {
+            window.FACE_FORCE_CPU = true;
             window.backgroundVariants = await import('/media-variants-generate.js');
         });
         return page;
@@ -103,8 +104,14 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
     const createVariants = async record => {
         const view = await ensurePage();
         const encoded = await view.evaluate(async record => {
-            const source = record.mediaType === "video" ? record.url : await (await fetch(record.url)).blob();
-            const generated = await window.backgroundVariants.generateMediaVariants(source, { isVideo: record.mediaType === 'video' });
+            const isVideo = record.backgroundIsVideo;
+            let source = record.url;
+            if (!isVideo) {
+                const response = await fetch(record.url);
+                if (!response.ok) throw new Error(`Source media unavailable (${response.status})`);
+                source = await response.blob();
+            }
+            const generated = await window.backgroundVariants.generateMediaVariants(source, { isVideo });
             const parts = [];
             for (const [name, part] of Object.entries(generated.parts || {})) {
                 const bytes = new Uint8Array(await part.blob.arrayBuffer());
@@ -113,7 +120,7 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 parts.push({ name, width: part.width, height: part.height, type: part.blob.type, extension: part.extension, base64: btoa(text) });
             }
             return parts;
-        }, record);
+        }, { ...record, backgroundIsVideo: isVideoLikeRecord(record) });
         const form = new FormData();
         form.append('imageId', record.id);
         const meta = {};
@@ -172,7 +179,14 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                         if (folder.depth < 20 && pending.length < 500 && !pending.some(item => item.id === file.id)) pending.push({ id: file.id, name: file.name, root: folder.root, parent: folder.id, depth: folder.depth + 1, pageToken: '', offset: 0 });
                     } else if (/^(image|video)\//.test(file.mimeType || '')) {
                         const existing = byId.get(id);
-                        if (!existing || existing.driveModifiedTime !== file.modifiedTime) {
+                        // A successful Drive scan is not proof the R2 original still exists.
+                        // Check only files already failing another job; avoid a full-bucket scan.
+                        let missingOriginal = false;
+                        if (existing && retry.some(item => item.id === id && ['variants', 'faces', 'dates', 'titles'].includes(item.job))) {
+                            try { await api(`/media/probe/${encodeURIComponent(id)}?length=32`, { binary: true }); }
+                            catch (error) { if (error.status === 404) missingOriginal = true; else throw error; }
+                        }
+                        if (!existing || existing.driveModifiedTime !== file.modifiedTime || missingOriginal) {
                             if (canRetry(retry, 'drive', id) && remainingBudget() >= 60) {
                                 const isVideoFile = String(file.mimeType).startsWith("video/");
                                 if (Number(file.size) > (isVideoFile ? 1024 : 50) * 1024 * 1024) throw new Error("media_too_large");
@@ -195,10 +209,10 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                                     uploaded = await api('/upload', { method: 'POST', body: form });
                                 }
                                 const modified = Date.parse(file.modifiedTime) || Date.now();
-                                const record = { ...(existing || {}), id, folderId, title: String(file.name).replace(/\.[^.]+$/, ''), originalTitle: file.name, variants: {}, variantsVersion: 0, aiTitleVersion: 0, takenAt: null, takenAtDate: null, takenAtSource: null, url: uploaded.url, r2Key: uploaded.key, r2Stored: true, mediaType: isVideo ? 'video' : 'image', mimeType: type, createdAt: existing?.createdAt || modified, date: new Date(modified).toISOString().slice(0,10), driveFileId: file.id, driveFolderId: folder.id, driveRootFolderId: folder.root, driveModifiedTime: file.modifiedTime, syncedFromDrive: true, ...(captureFromDriveMetadata(file) ? captureFields(captureFromDriveMetadata(file)) : {}) };
+                                const record = { ...(existing || {}), id, folderId, title: missingOriginal && existing?.title ? existing.title : String(file.name).replace(/\.[^.]+$/, ''), originalTitle: missingOriginal && existing?.originalTitle ? existing.originalTitle : file.name, variants: {}, variantsVersion: 0, aiTitleVersion: 0, takenAt: null, takenAtDate: null, takenAtSource: null, url: uploaded.url, r2Key: uploaded.key, r2Stored: true, mediaType: isVideo ? 'video' : 'image', mimeType: type, createdAt: existing?.createdAt || modified, date: new Date(modified).toISOString().slice(0,10), driveFileId: file.id, driveFolderId: folder.id, driveRootFolderId: folder.root, driveModifiedTime: file.modifiedTime, syncedFromDrive: true, ...(captureFromDriveMetadata(file) ? captureFields(captureFromDriveMetadata(file)) : {}) };
                                 await put('images', id, record); charge(60);
                                 byId.set(id, record); if (existing) records[records.findIndex(item => item.id === id)] = record; else records.push(record); added += 1; jobs.drive.processed += 1;
-                                retry = retry.filter(item => item.job !== 'drive' || item.id !== id);
+                                retry = retry.filter(item => item.id !== id);
                             }
                         } else if (existing.folderId !== folderId) {
                             if (remainingBudget() >= 20) { await put('images', id, { ...existing, folderId, driveFolderId: folder.id }); charge(20); }

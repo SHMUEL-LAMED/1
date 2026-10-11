@@ -6039,8 +6039,38 @@ async function backgroundDriveToken(request, env) {
   return response;
 }
 
+export function unwrapGalleryProxy(request, env) {
+  const headerNames = [...request.headers.keys()].filter(name => name.startsWith("x-gallery-proxy-"));
+  if (!headerNames.length) return { request, env };
+  const reject = () => ({ response: new Response("Forbidden", { status: 403 }) });
+  const secret = String(env.GALLERY_PROXY_SECRET || "");
+  if (!secret || request.headers.get("x-gallery-proxy-auth") !== secret) return reject();
+  try {
+    const original = new URL(request.headers.get("x-gallery-proxy-url"));
+    if (!env.PUBLIC_API_ORIGIN || original.origin !== new URL(env.PUBLIC_API_ORIGIN).origin) return reject();
+    const current = new URL(request.url);
+    if (original.pathname !== current.pathname || original.search !== current.search) return reject();
+    const encoded = request.headers.get("x-gallery-proxy-credentials") || "";
+    if (encoded.length > 16384) return reject();
+    const credentials = JSON.parse(atob(encoded));
+    const forwarded = { ...env };
+    for (const name of ["GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET", "OPENAI_API_KEY"]) {
+      if (typeof credentials[name] === "string" && credentials[name].length <= 8192) forwarded[name] = credentials[name];
+    }
+    const headers = new Headers(request.headers);
+    for (const name of headerNames) headers.delete(name);
+    return { request: new Request(original.href, { method: request.method, headers,
+      body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+      ...(request.body ? { duplex: "half" } : {}) }), env: forwarded };
+  } catch { return reject(); }
+}
+
 export default {
   async fetch(request, env, ctx) {
+    const proxy = unwrapGalleryProxy(request, env);
+    if (proxy.response) return proxy.response;
+    request = proxy.request;
+    env = proxy.env;
     runtimeEnv = env;
     if (request.method === "OPTIONS") {
       const origin = request.headers.get("Origin");

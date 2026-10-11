@@ -90,6 +90,11 @@ function loadFaceApi() {
 
     faceEnginePromise = (async () => {
         const api = await ensureFaceApiLibrary();
+        // Cloud runners have no GPU and do not serve the optional WASM binaries.
+        if (window.FACE_FORCE_CPU && api.tf?.setBackend) {
+            await api.tf.setBackend('cpu');
+            await api.tf.ready();
+        }
         await loadFaceModelWithRetry(api.nets.ssdMobilenetv1, FACE_MODEL_BASE_URLS, 'איתור פנים');
         await loadFaceModelWithRetry(api.nets.faceLandmark68Net, FACE_MODEL_BASE_URLS, 'נקודות פנים');
         await loadFaceModelWithRetry(api.nets.faceRecognitionNet, FACE_MODEL_BASE_URLS, 'השוואת פנים');
