@@ -191,10 +191,16 @@
                 </div>
 
                 <div class="gallery-tools">
-                    <div class="density-toggle" role="group" aria-label="צפיפות התצוגה">
-                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="תצוגה צפופה" aria-label="תצוגה צפופה"><i data-lucide="grid-3x3"></i></button>
-                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="תצוגה רגילה" aria-label="תצוגה רגילה"><i data-lucide="layout-grid"></i></button>
-                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="תצוגה גדולה" aria-label="תצוגה גדולה"><i data-lucide="rectangle-horizontal"></i></button>
+                    <!-- גודל הכרטיסים ופריסת הרשת: שני מתגים קטנים, נשמרים לכל צופה
+                         בדפדפן (app.js, gallery-layout.js). "פסיפס" שומר על יחס כל תמונה. -->
+                    <div class="density-toggle" role="group" aria-label="גודל הכרטיסים">
+                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
+                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
+                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
+                    </div>
+                    <div class="density-toggle layout-toggle" role="group" aria-label="פריסת הגלריה">
+                        <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
+                        <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
                     </div>
                     <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="w-auto text-xs py-2">
                         <option value="newest">החדש ביותר</option>
@@ -258,7 +264,7 @@
 
             <div id="tempSearchBanner" class="hidden flex p-4 justify-between items-center gap-3"></div>
 
-            <div id="photosGrid" class="grid"></div>
+            <div id="photosGrid" class="grid" data-density="comfortable" data-layout="grid"></div>
 
             <!-- זקיף העימוד: כשהוא מתקרב למסך מצוירת המנה הבאה מהזיכרון. כשכל מה
                  שנטען כבר מוצג ובענן נותרו עמודים ישנים יותר, העמוד הבא מתבקש

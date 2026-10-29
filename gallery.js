@@ -5,6 +5,8 @@
 import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
+// פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
+import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
 import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
@@ -1244,8 +1246,11 @@ function buildGalleryCard(img, isEditBlocked) {
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
         : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
+    // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
+    // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
+    const mediaRatio = mediaAspectRatio(img);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
-    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
+    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
             <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
                 ${mediaHtml}
                 <span class="gallery-number">01</span>
@@ -1280,13 +1285,27 @@ function buildCardDate(img) {
 // תמונת הכרטיס: <img> עם srcset של thumb ו-medium כשיש שתיהן, ועטופה
 // ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
 // ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
-// is-loaded נקבע על .gallery-media ולא על ההורה הישיר, שעשוי להיות <picture>.
+// כשהתמונה נטענת — handleCardImageLoad (עצירת השלד והיחס של הכרטיס).
 function buildCardPicture(source, title) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.closest('.gallery-media')?.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
+
+// התמונה שבכרטיס נטענה: הברק של השלד נעצר (is-loaded נקבע על .gallery-media
+// ולא על ההורה הישיר, שעשוי להיות <picture>), והיחס שלה נכתב על הכרטיס כשהרשומה
+// לא ידעה אותו או טעתה בו — לפיו הפסיפס מסדר את השורה. הכתיבה היא על האלמנט
+// ולא במרקאפ שמושווה, ולכן רינדור מחדש אינו בונה את הכרטיס שוב בגללה.
+window.handleCardImageLoad = function(image) {
+    image.closest('.gallery-media')?.classList.add('is-loaded');
+    const card = image.closest('.gallery-card');
+    if (!card) return;
+    const measured = aspectRatioFrom(image.naturalWidth, image.naturalHeight);
+    if (ratioNeedsUpdate(card.style.getPropertyValue('--media-ratio'), measured)) {
+        card.style.setProperty('--media-ratio', String(measured));
+    }
+};
 
 // מוסיפה את המנה הבאה בלבד. כשכל מה שהורד כבר מוצג ובענן נותרו עוד תמונות,
 // הן מתבקשות מהענף שמטפל בעימוד בשרת. manual=true מגיע מכפתור „הצג עוד”.

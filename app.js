@@ -17,6 +17,11 @@ import { installSiteUpdateWatcher } from './auto-update.js';
 import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './capture-date.js';
 // חיפושים אחרונים ושמורים: התפריט שמתחת לשדה החיפוש של הגלריה.
 import { initSearchHistory } from './search-history-ui.js';
+// גודל הכרטיסים ופריסת הרשת (רשת / פסיפס): נרמול והעדפה שמורה לכל צופה.
+import {
+    GALLERY_DENSITY_KEY, GALLERY_LAYOUT_KEY, normalizeGalleryDensity, normalizeGalleryLayout,
+    readGalleryPreference, writeGalleryPreference
+} from './gallery-layout.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -1414,8 +1419,6 @@ function initAmbientArchiveBackground() {
 const REDUCED_MOTION_QUERY = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : { matches: false };
-const GALLERY_DENSITY_KEY = 'simchat-gallery-density';
-const GALLERY_DENSITIES = ['compact', 'comfortable', 'large'];
 
 // מונה שעולה בהדרגה אל הערך החדש. הפורמט מגיע מהקורא (למשל toLocaleString)
 // כדי שהמונה יציג בדיוק את מה שהיה מוצג בלעדיו.
@@ -1440,17 +1443,29 @@ window.animateCounter = function(element, value, format = String) {
     requestAnimationFrame(step);
 };
 
-// צפיפות רשת הגלריה: צפוף / רגיל / גדול. הבחירה נשמרת בדפדפן.
+// גודל הכרטיסים ברשת הגלריה: קטן / בינוני / גדול (בקוד compact / comfortable /
+// large, כמו כשהמתג נקרא "צפיפות", כדי שבחירה שכבר נשמרה תישאר). נשמר בדפדפן.
 window.setGalleryDensity = function(density, persist = true) {
-    const next = GALLERY_DENSITIES.includes(density) ? density : 'comfortable';
+    const next = normalizeGalleryDensity(density);
     const grid = document.getElementById('photosGrid');
     if (grid) grid.dataset.density = next;
     document.querySelectorAll('.density-toggle [data-density]').forEach(button => {
         button.setAttribute('aria-pressed', String(button.dataset.density === next));
     });
-    if (persist) {
-        try { localStorage.setItem(GALLERY_DENSITY_KEY, next); } catch (error) { /* מצב פרטי: אין שמירה */ }
-    }
+    if (persist) writeGalleryPreference(GALLERY_DENSITY_KEY, next);
+};
+
+// פריסת הרשת: "רשת" (משבצות אחידות, התמונה נחתכת) או "פסיפס" (כל תמונה ביחס
+// שלה, בלי חיתוך). הפריסה היא CSS בלבד על אותם כרטיסים ובאותו סדר, ולכן אין
+// כאן רינדור מחדש: הגלילה, המנות, הבחירה המרובה והמיקוד נשארים כפי שהם.
+window.setGalleryLayout = function(layout, persist = true) {
+    const next = normalizeGalleryLayout(layout);
+    const grid = document.getElementById('photosGrid');
+    if (grid) grid.dataset.layout = next;
+    document.querySelectorAll('.layout-toggle [data-layout]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.layout === next));
+    });
+    if (persist) writeGalleryPreference(GALLERY_LAYOUT_KEY, next);
 };
 
 window.scrollToPageTop = function() {
@@ -1458,10 +1473,9 @@ window.scrollToPageTop = function() {
 };
 
 function initArchiveExperience() {
-    // צפיפות שמורה
-    let savedDensity = null;
-    try { savedDensity = localStorage.getItem(GALLERY_DENSITY_KEY); } catch (error) { savedDensity = null; }
-    window.setGalleryDensity(savedDensity, false);
+    // גודל הכרטיסים והפריסה שהצופה בחר בביקור קודם.
+    window.setGalleryDensity(readGalleryPreference(GALLERY_DENSITY_KEY, normalizeGalleryDensity), false);
+    window.setGalleryLayout(readGalleryPreference(GALLERY_LAYOUT_KEY, normalizeGalleryLayout), false);
 
     // פס התקדמות הגלילה וכפתור החזרה למעלה — מאזין אחד, מסונכרן לפריים.
     const root = document.documentElement;

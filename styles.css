@@ -2188,6 +2188,58 @@ body textarea { resize: vertical; min-height: 84px; }
 #photosGrid[data-density="compact"] .gallery-title { font-size: 12px; }
 #photosGrid[data-density="compact"] .gallery-meta { display: none; }
 
+/* פריסת "פסיפס" (data-layout="masonry", app.js): שורות מוצדקות שבהן כל תמונה
+   שומרת על היחס שלה ואינה נחתכת. לכל כרטיס flex-grow ו-flex-basis ביחס לרוחב
+   התמונה (--media-ratio, gallery.js), ולכן כל הכרטיסים בשורה מקבלים אותו גובה
+   והשורה ממלאת את הרוחב. הסדר נשאר סדר הקריאה — אותו סדר של הכרטיסים, המספור
+   והמיקוד במקלדת — ומנה שנוספת בגלילה רק ממשיכה את השורה האחרונה.
+   גודל הכרטיסים (data-density) קובע את גובה השורה: קטן = שורות נמוכות ויותר
+   תמונות בכל שורה. ה-display כאן ולא מ-utility: :not(.hidden) שומר על הסתרת
+   הרשת כשאין פריטים, ובגלריה נעולה הכלל שבסעיף 20 גובר. */
+/* גובה השורה לפני המתיחה. בערכים האלה תמונה של 3:2 מקבלת בערך אותו מספר
+   כרטיסים בשורה כמו העמודות של הרשת באותו גודל (במחשב 4 / 3 / 2, בטלפון
+   3 / 2 / 1), ותמונות לאורך — יותר. */
+#photosGrid[data-layout="masonry"] { --masonry-row: 180px; }
+#photosGrid[data-layout="masonry"][data-density="compact"] { --masonry-row: 120px; }
+#photosGrid[data-layout="masonry"][data-density="large"] { --masonry-row: 280px; }
+#photosGrid[data-layout="masonry"]:not(.hidden) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    align-content: flex-start;
+}
+/* השורה האחרונה אינה נמתחת: האלמנט הריק בסוף בולע את כל הרווח שנשאר בה,
+   והכרטיסים שבה נשארים בגובה השורה. אינו ילד ב-DOM, ולכן אינו נספר כרטיס. */
+#photosGrid[data-layout="masonry"]:not(.hidden)::after {
+    content: "";
+    flex: 1000 1 0;
+}
+/* ה-2px הם מסגרת הכרטיס: בלעדיהם כרטיס צר היה מקבל תמונה נמוכה בפיקסלים
+   ספורים משכנו הרחב, כי המסגרת גוזלת מרוחבו חלק גדול יותר. */
+#photosGrid[data-layout="masonry"] .gallery-card {
+    flex: var(--media-ratio, 1.333) 1 calc(var(--media-ratio, 1.333) * var(--masonry-row) + 2px);
+    min-width: 0;
+    max-width: 100%;
+}
+#photosGrid[data-layout="masonry"] .gallery-card .gallery-media { aspect-ratio: var(--media-ratio, 1.333); }
+/* יחס שנעצר בגבול (פנורמה, תמונת מסך צרה) או שעוד לא ידוע: התמונה כולה בתוך
+   המסגרת. ביחס מדויק contain זהה ל-cover, רק בלי לחתוך פיקסל. */
+#photosGrid[data-layout="masonry"] .gallery-card-img { object-fit: contain; }
+/* בכרטיס קטן וצר אין מקום לתווית "תצוגה מלאה" ולמספר הפריים לצד הלב; הכרטיס
+   כולו הוא כפתור הפתיחה ממילא, עם aria-label משלו. */
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-view,
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-number { display: none; }
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-fav { top: 8px; inset-inline-end: 8px; width: 32px; height: 32px; }
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-fav.is-stacked { top: 48px; }
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-badge { top: 8px; inset-inline-start: 8px; }
+@media (max-width: 767px) {
+    #photosGrid[data-layout="masonry"] { --masonry-row: 110px; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] { --masonry-row: 72px; }
+    #photosGrid[data-layout="masonry"][data-density="large"] { --masonry-row: 200px; }
+    /* במגע התווית "תצוגה מלאה" גלויה תמיד, וכרטיס לאורך בגודל בינוני צר ממנה. */
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-view { display: none; }
+}
+
 .gallery-actions {
     display: flex;
     align-items: center;
@@ -4684,6 +4736,7 @@ body textarea { resize: vertical; min-height: 84px; }
 /* גלריה נעולה: המשתמש רואה את שער הגישה בלבד. */
 body.gallery-locked .gallery-toolbar,
 body.gallery-locked #photosGrid,
+body.gallery-locked #photosGrid[data-layout="masonry"],
 body.gallery-locked #galleryLoadMore,
 body.gallery-locked .folder-rail,
 body.gallery-locked #bulkSelectionBar,
@@ -5039,7 +5092,9 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .admin-main-head { padding: 13px; }
     .conversation-bubble { max-width: 88%; }
     .back-to-top { bottom: 16px; inset-inline-end: 16px; width: 44px; height: 44px; }
-    .density-toggle { display: none; }
+    /* מתגי הגודל והפריסה נשארים גם בטלפון (קטן = יותר כרטיסים בשורה), בכפתורים
+       מעט קטנים יותר כדי שסרגל הכלים לא יתארך. */
+    .density-toggle button { width: 36px; height: 34px; }
     .gallery-toolbar .admin-menu-search kbd { display: none; }
     /* בטלפון הרקע החי רזה יותר: שני כתמים בלבד ובלי שכבת גרעין. */
     .bg-grain, .aurora-orb:nth-child(3), .aurora-orb:nth-child(4) { display: none; }
