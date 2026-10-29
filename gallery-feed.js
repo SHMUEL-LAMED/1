@@ -16,6 +16,7 @@
 //   state.imagesHasMore         — האם יש עוד עמודים לתיקייה הפעילה
 //   state.folderCounts / state.imagesTotal — מוני התיקיות מהשרת
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
+//   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
 
@@ -346,6 +347,21 @@ async function prefetchFolderImages(folderId) {
     return [...page.items];
 }
 
+// פריט אחד לפי מזהה, לקישור ישיר (#media/<id>, ראו media-link.js) לפריט שעוד
+// לא נטען. אותה שאילתה ואותן הרשאות כמו הגלריה: פריט שנמחק, שממתין לאישור
+// או שאינו קיים מחזיר null. לפני אישור הצפייה אין פנייה לרשת.
+async function fetchImageById(imageId) {
+    const id = safeId(imageId);
+    if (!id || feedStopped) return null;
+    const snapshot = await getDocsByIds(imagesCollection(), [id]);
+    return snapshot.docs.map(item => item.data()).find(item => safeId(item?.id) === id) || null;
+}
+
+// האם הגלריה פתוחה לצופה הזה (ההזנה פועלת רק אחרי אישור הצפייה).
+function isGalleryFeedActive() {
+    return !feedStopped;
+}
+
 window.loadFolderImages = loadFolderImages;
 window.loadMoreImages = loadMoreImages;
 window.loadAllImagesForSearch = loadAllImagesForSearch;
@@ -357,3 +373,5 @@ window.noteGalleryImageRemoved = noteImageRemoved;
 window.getLoadedFolderImages = getLoadedFolderImages;
 window.isFolderFullyLoaded = isFolderFullyLoaded;
 window.prefetchFolderImages = prefetchFolderImages;
+window.fetchGalleryImageById = fetchImageById;
+window.isGalleryFeedActive = isGalleryFeedActive;

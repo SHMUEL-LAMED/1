@@ -36,6 +36,7 @@ const APP_SHELL = [
   "./lightbox-math.js",
   "./lightbox-gestures.js",
   "./lightbox-slideshow.js",
+  "./media-link.js",
   "./session-auth.js",
   "./popup-announcement.js",
   "./face-search.js",

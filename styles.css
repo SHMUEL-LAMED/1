@@ -2491,6 +2491,24 @@ body textarea { resize: vertical; min-height: 84px; }
 @media (min-width: 640px) {
     .slideshow-toggle-text { display: inline; }
 }
+
+/* "שתף" (media-link.js): כמו כפתור המצגת — בטלפון אייקון עגול בלבד, כדי
+   שסרגל התצוגה המלאה ייכנס ברוחב 360px, ובמסך רחב גם המילה. */
+#lightboxModal .lightbox-share {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    padding-inline: 12px;
+    font-size: 13px;
+    font-weight: 700;
+}
+#lightboxModal .lightbox-share:focus-visible { border-radius: var(--r-full); }
+.lightbox-share-text { display: none; }
+@media (min-width: 640px) {
+    .lightbox-share-text { display: inline; }
+}
 #lightboxModal.is-slideshow #lightboxImage { cursor: default; }
 .slideshow-controls {
     display: flex;

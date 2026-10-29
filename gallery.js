@@ -20,6 +20,11 @@ import {
     renderSceneFilterChips, installSceneFilterChips, renderLightboxDescription,
     installLightboxDescription, openDescriptionEditor
 } from './media-description.js';
+// קישור ישיר לפריט (#media/<id>) וכפתור "שתף" שבתצוגה המלאה.
+import {
+    parseMediaRoute, mediaHash, mediaShareUrl, mediaShareData, canUseNativeShare,
+    isShareCancel, hashToRestore, findRecordById, withRecord
+} from './media-link.js';
 
 let currentFilteredImages = [];
 
@@ -808,16 +813,20 @@ function getFilteredSortedImages() {
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
-    // המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
-    // לפי זמן ההעלאה.
+    return sortGalleryItems(filtered);
+}
+
+// המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
+// לפי זמן ההעלאה. משמש גם את רשימת הדפדוף של קישור ישיר לפריט.
+function sortGalleryItems(items) {
     if (window.state.gallerySort === 'oldest') {
-        filtered.sort(compareCaptureAsc);
+        items.sort(compareCaptureAsc);
     } else if (window.state.gallerySort === 'name') {
-        filtered.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
+        items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
     } else {
-        filtered.sort(compareCaptureDesc);
+        items.sort(compareCaptureDesc);
     }
-    return filtered;
+    return items;
 }
 
 // „עודכן” ברצועת הכניסה נועד לומר שהארכיון חי, ולכן ימים אחרונים מוצגים
@@ -2365,15 +2374,25 @@ function ensureLightboxInteractions() {
     });
 }
 
-function openLightbox(imageId) {
+// items: רשימת דפדוף מפורשת, לקישור ישיר לפריט שאינו בתצוגה הנוכחית;
+// בלעדיה — מה שהגלריה מציגה עכשיו, כמו בלחיצה על כרטיס. מחזיר האם נפתח.
+function openLightbox(imageId, items = null) {
     imageId = window.safeRecordId(imageId);
-    currentFilteredImages = getFilteredSortedImages();
+    currentFilteredImages = Array.isArray(items) ? items : getFilteredSortedImages();
     window.state.currentLightboxIndex = currentFilteredImages.findIndex(img => window.safeRecordId(img.id) === imageId);
-    if (window.state.currentLightboxIndex === -1) return;
+    if (window.state.currentLightboxIndex === -1) return false;
     ensureLightboxInteractions();
+    // ה-hash שלפני הפתיחה (#person/<id> של אלבום, למשל) חוזר בסגירה.
+    if (!isLightboxOpen()) hashBeforeLightbox = hashToRestore(window.location?.hash);
     window.recordMediaView(imageId);
     // בפתיחה אין תמונה קודמת שכדאי להשאיר על המסך: הפריט מוצג מיד.
     updateLightbox(true); window.openModal('lightboxModal');
+    return true;
+}
+
+function isLightboxOpen() {
+    const lightbox = document.getElementById('lightboxModal');
+    return Boolean(lightbox && !lightbox.classList.contains('hidden'));
 }
 
 function showLightboxIndex(index) {
@@ -2452,7 +2471,159 @@ function filterBySceneTagFromLightbox(tagId) {
 window.onLightboxClosed = function() {
     stopSlideshow({ silent: true });
     resetLightboxZoom();
+    restoreHashAfterLightbox();
 };
+
+// --- קישור ישיר לפריט ושיתוף (media-link.js) ---
+// בזמן שהתצוגה המלאה פתוחה הכתובת היא #media/<id> של הפריט המוצג, כך שאפשר
+// להעתיק אותה מהדפדפן כמו מכפתור "שתף". כל השינויים ב-hash כאן הם
+// replaceState: פתיחה, דפדוף וסגירה אינם מוסיפים רשומות להיסטוריה, וכפתור
+// "חזור" אינו עובר תמונה־תמונה. replaceState גם אינו מפעיל hashchange,
+// ולכן אינו חוזר אל הנתב שב-app.js.
+let hashBeforeLightbox = '';
+let lightboxOwnsHash = false;
+// מתקדם בכל פתיחה מקישור ובכל איפוס (התנתקות, החלפת חשבון): קישור שהתחיל
+// להיטען לפני כן אינו נפתח כשהתשובה חוזרת.
+let mediaLinkGeneration = 0;
+
+function replaceLocationHash(hash) {
+    try {
+        window.history.replaceState(window.history.state, document.title, `${window.location.pathname}${window.location.search}${hash}`);
+    } catch (error) {
+        // היסטוריה חסומה (למשל בתוך מסגרת): הכתובת פשוט אינה מתעדכנת.
+    }
+}
+
+function syncLightboxHash(img) {
+    const hash = mediaHash(window.safeRecordId(img?.id));
+    // בלי כתובת (בדיקות Node של הגלריה) אין מה לעדכן.
+    if (!hash || !window.location) return;
+    lightboxOwnsHash = true;
+    if (window.location.hash !== hash) replaceLocationHash(hash);
+}
+
+// הסגירה מחזירה את מה שהיה לפני הפתיחה — רק אם התצוגה היא שכתבה את ה-hash.
+// סגירה כללית (closeModal) של תצוגה שלא נפתחה אינה מוחקת קישור שעוד ממתין
+// לאישור הצפייה.
+function restoreHashAfterLightbox() {
+    if (!lightboxOwnsHash) return;
+    lightboxOwnsHash = false;
+    if (parseMediaRoute(window.location.hash)) replaceLocationHash(hashBeforeLightbox);
+    hashBeforeLightbox = '';
+}
+
+// הגלריה פתוחה לצופה הזה: ההזנה של gallery-feed.js פועלת רק אחרי אישור הצפייה.
+function canViewGallery() {
+    return typeof window.isGalleryFeedActive === 'function' && window.isGalleryFeedActive();
+}
+
+// נקרא מ-app.js בכל שינוי של ה-hash, וגם אחרי שהגלריה נפתחה למשתמש מאושר
+// (session-auth.js). לפני אישור הצפייה אין מה לפתוח: שער הגישה מוצג, והקישור
+// נשאר בכתובת עד שהצפייה תאושר. פריט שבתצוגה הנוכחית נפתח בה; אחרת הרשומה
+// נטענת לפי מזהה, והדפדוף הוא בתיקייה שלה (העמוד הראשון, מהמטמון של
+// gallery-feed.js כשכבר נטען), עם הפריט עצמו גם כשהוא ישן יותר מהעמוד.
+async function openMediaFromLink(hash = window.location.hash) {
+    const route = parseMediaRoute(hash);
+    if (!route) {
+        // כפתור "חזור" מקישור שהודבק בלשונית פתוחה: התצוגה נסגרת איתו.
+        if (lightboxOwnsHash && isLightboxOpen()) window.closeLightbox();
+        return;
+    }
+    if (!canViewGallery()) return;
+    const mediaId = route.mediaId;
+    const shown = currentFilteredImages[window.state.currentLightboxIndex];
+    if (isLightboxOpen() && window.safeRecordId(shown?.id) === mediaId) return;
+    const generation = ++mediaLinkGeneration;
+    // בדיקה לפני הפתיחה, כדי שתצוגה פתוחה לא תאבד את רשימת הדפדוף שלה
+    // כשהפריט אינו ברשימה הנוכחית.
+    const visible = getFilteredSortedImages();
+    if (visible.some(img => window.safeRecordId(img.id) === mediaId)) {
+        openLightbox(mediaId, visible);
+        return;
+    }
+    try {
+        const loaded = findRecordById([window.state.images, window.state.tempSearchResults, window.state.latestImages], mediaId, window.safeRecordId);
+        const record = loaded || await window.fetchGalleryImageById(mediaId);
+        if (generation !== mediaLinkGeneration || !canViewGallery()) return;
+        if (!record) {
+            if (parseMediaRoute(window.location.hash)?.mediaId === mediaId) replaceLocationHash('');
+            window.showNotification('הפריט שבקישור לא נמצא. ייתכן שהוא נמחק, או שהקישור שגוי.', false);
+            return;
+        }
+        const folderItems = await window.prefetchFolderImages(record.folderId).catch(error => {
+            console.warn('Media link folder failed to load:', error);
+            return [];
+        });
+        if (generation !== mediaLinkGeneration || !canViewGallery()) return;
+        openLightbox(mediaId, sortGalleryItems(withRecord(folderItems, record, window.safeRecordId)));
+    } catch (error) {
+        if (generation !== mediaLinkGeneration) return;
+        console.warn('Media link failed to open:', error);
+        window.showNotification('פתיחת הקישור נכשלה. נסה שוב בעוד רגע.', false);
+    }
+}
+
+// התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js):
+// פריט פרטי אינו נשאר על המסך, וקישור שכבר נפתח אינו נפתח מחדש למשתמש הבא
+// (הסגירה מנקה את ה-hash). קישור שמבקר הגיע איתו ועוד לא נפתח נשאר בכתובת,
+// כדי שייפתח אחרי הכניסה.
+function resetMediaLinkState() {
+    mediaLinkGeneration += 1;
+    if (isLightboxOpen()) window.closeLightbox();
+}
+
+// העתקה ללוח: Clipboard API, ובלעדיו (דף שאינו מאובטח, דפדפן ישן, הרשאה
+// שנדחתה) העתקה משדה זמני. מחזיר האם הועתק.
+async function copyTextToClipboard(text) {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (error) {
+        // ננסה את הדרך הישנה.
+    }
+    const field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', '');
+    field.setAttribute('aria-hidden', 'true');
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    document.body.append(field);
+    field.select();
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {
+        copied = false;
+    }
+    field.remove();
+    return copied;
+}
+
+// כפתור "שתף" בתצוגה המלאה: חלון השיתוף של המערכת כשיש (טלפונים), אחרת
+// העתקת הקישור. סגירת חלון השיתוף בלי יעד אינה כישלון; שיתוף שנכשל עובר להעתקה.
+async function shareLightboxItem() {
+    const img = currentFilteredImages[window.state.currentLightboxIndex];
+    const url = mediaShareUrl(window.location, window.safeRecordId(img?.id));
+    if (!img || !url) return;
+    const data = mediaShareData({ title: img.title, isVideo: window.isVideoRecord(img) }, url);
+    if (canUseNativeShare(navigator, data)) {
+        try {
+            await navigator.share(data);
+            return;
+        } catch (error) {
+            if (isShareCancel(error)) return;
+            console.warn('Native share failed, copying instead:', error);
+        }
+    }
+    if (await copyTextToClipboard(url)) {
+        window.showNotification('הקישור הועתק');
+        return;
+    }
+    // אין דרך להעתיק מכאן: הקישור מוצג לסימון והעתקה ידנית.
+    window.prompt('העתק את הקישור לפריט:', url);
+}
 
 window.closeLightbox = function() {
     window.onLightboxClosed();
@@ -2767,6 +2938,8 @@ function updateLightbox(immediate = false) {
 
     const lbCounter = document.getElementById('lightboxCounter');
     if(lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    // הכתובת עוקבת אחרי הפריט המוצג: בפתיחה, בדפדוף ובמצגת.
+    syncLightboxHash(img);
     preloadLightboxNeighbours();
 }
 document.addEventListener('keydown', e => {
@@ -3018,6 +3191,9 @@ window.handleDeleteImage = handleDeleteImage;
 window.changeImageFolder = changeImageFolder;
 window.openLightbox = openLightbox;
 window.navigateLightbox = navigateLightbox;
+window.openMediaFromLink = openMediaFromLink;
+window.resetMediaLinkState = resetMediaLinkState;
+window.shareLightboxItem = shareLightboxItem;
 window.getFilteredSortedImages = getFilteredSortedImages;
 window.saveMediaDescription = saveMediaDescription;
 

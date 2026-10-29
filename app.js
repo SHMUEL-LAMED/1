@@ -1553,6 +1553,17 @@ function routePeopleHash() {
 window.routePeopleHash = routePeopleHash;
 window.addEventListener('hashchange', routePeopleHash);
 
+// קישור ישיר לפריט אחד (#media/<id>, מכפתור "שתף" שבתצוגה המלאה). כמו נתיבי
+// האנשים: נבדק בכל שינוי של ה-hash, ו-session-auth.js קורא לכאן שוב אחרי
+// שהגלריה נפתחה למשתמש מאושר, כדי שקישור שהגיע לפני הכניסה ייפתח אחריה.
+// gallery.js מטפל גם ב-hash אחר: חזרה מקישור שנפתח סוגרת את התצוגה המלאה.
+function routeMediaHash() {
+    if (PAGE_MODE !== 'gallery') return;
+    window.openMediaFromLink?.(window.location.hash);
+}
+window.routeMediaHash = routeMediaHash;
+window.addEventListener('hashchange', routeMediaHash);
+
 // אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחילה
 // שכבת ההתחברות. סנכרון Drive עצמו נטען רק בדף הניהול.
 initSession();
