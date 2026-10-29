@@ -267,7 +267,7 @@ function withDownloadExtension(name, mimeType) {
     return `${name}.${extension}`;
 }
 
-async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
+async function fetchGalleryMediaBlob(item) {
     const url = window.safeImageUrl(item?.url);
     if (!url) throw new Error('כתובת הקובץ אינה תקינה.');
 
@@ -283,11 +283,14 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
 
     const response = await fetch(url, { headers });
     if (!response.ok) throw new Error(`הורדת הקובץ נכשלה (${response.status}).`);
-    const blob = await response.blob();
+    return response.blob();
+}
+
+function saveBlobAs(blob, fileName) {
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
+    link.download = fileName;
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
@@ -295,6 +298,15 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
         link.remove();
         URL.revokeObjectURL(objectUrl);
     }, 100);
+}
+
+function galleryDownloadName(item, blob, fallbackName = 'תמונה') {
+    return withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
+}
+
+async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
+    const blob = await fetchGalleryMediaBlob(item);
+    saveBlobAs(blob, galleryDownloadName(item, blob, fallbackName));
 }
 
 window.downloadGalleryMedia = async function(item) {
@@ -307,27 +319,85 @@ window.downloadGalleryMedia = async function(item) {
     }
 };
 
-window.downloadSelectedMedia = async function() {
+// כמה פריטים יורדים במקביל לקובץ ה־ZIP: מספיק כדי שיהיה מהיר, ומעט מספיק
+// כדי לא להעמיס על חיבור סלולרי.
+const ZIP_DOWNLOAD_CONCURRENCY = 3;
+
+// הורדת הנבחרים: פריט יחיד יורד כפי שהוא, וכמה פריטים נארזים לקובץ ZIP אחד
+// (במקום עשרות הורדות נפרדות שהדפדפן, ובעיקר הטלפון, חוסם). הכפתור מציג
+// את ההתקדמות ואינו לחיץ עד הסיום.
+window.downloadSelectedMedia = async function(button) {
     const selected = window.state.images.filter(item => window.state.selectedMediaIds.has(window.safeRecordId(item.id)));
     if (!selected.length) {
         window.showNotification('לא נבחרו פריטים להורדה.', false);
         return;
     }
-    let downloaded = 0;
-    for (let index = 0; index < selected.length; index += 1) {
-        try {
-            await downloadGalleryMedia(selected[index], `media-${index + 1}`);
-            downloaded += 1;
-        } catch (error) {
-            console.error('Bulk media download failed:', error);
+    if (selected.length === 1) {
+        await window.downloadGalleryMedia(selected[0]);
+        return;
+    }
+    if (button?.disabled) return;
+
+    const originalLabel = button?.innerHTML;
+    const setProgress = done => {
+        if (button) button.textContent = `מכין ZIP… ${done}/${selected.length}`;
+    };
+    if (button) button.disabled = true;
+    setProgress(0);
+
+    try {
+        const { buildZipParts, uniqueZipName } = await import('./zip-writer.js');
+        const files = new Array(selected.length);
+        let next = 0;
+        let done = 0;
+        const worker = async () => {
+            while (next < selected.length) {
+                const index = next++;
+                const item = selected[index];
+                try {
+                    const blob = await fetchGalleryMediaBlob(item);
+                    files[index] = { item, blob, data: new Uint8Array(await blob.arrayBuffer()) };
+                } catch (error) {
+                    console.error('Bulk media download failed:', error);
+                }
+                setProgress(++done);
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(ZIP_DOWNLOAD_CONCURRENCY, selected.length) }, worker));
+
+        const used = new Set();
+        const entries = files.filter(Boolean).map((file, index) => ({
+            name: uniqueZipName(galleryDownloadName(file.item, file.blob, `media-${index + 1}`), used),
+            data: file.data,
+            date: file.item.takenAt ? new Date(file.item.takenAt) : undefined
+        }));
+        if (!entries.length) {
+            window.showNotification('הורדת הפריטים נכשלה.', false);
+            return;
+        }
+
+        const folderIds = new Set(selected.map(item => window.safeRecordId(item.folderId)));
+        const folder = folderIds.size === 1
+            ? window.state.folders.find(item => window.safeRecordId(item.id) === [...folderIds][0])
+            : null;
+        const zipName = `${safeDownloadFileName(folder?.name, 'גלריה')}.zip`;
+        saveBlobAs(new Blob(buildZipParts(entries), { type: 'application/zip' }), zipName);
+
+        window.showNotification(
+            entries.length === selected.length
+                ? `${entries.length} פריטים הורדו בקובץ ZIP אחד.`
+                : `הורדו ${entries.length} מתוך ${selected.length} פריטים בקובץ ZIP.`,
+            true
+        );
+    } catch (error) {
+        console.error('Bulk ZIP download failed:', error);
+        window.showNotification(error.message || 'יצירת קובץ ה־ZIP נכשלה.', false);
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalLabel;
         }
     }
-    window.showNotification(
-        downloaded === selected.length
-            ? `${downloaded} פריטים הורדו למחשב.`
-            : `הורדו ${downloaded} מתוך ${selected.length} פריטים.`,
-        downloaded > 0
-    );
 };
 
 window.openEventPage = function(event, folderId) {
