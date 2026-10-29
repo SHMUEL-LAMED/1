@@ -314,6 +314,8 @@ html[data-theme="light"] {
     --cinema-accent-tint: rgba(245, 196, 81, .28);
     --cinema-accent-line: rgba(245, 196, 81, .55);
     --cinema-shadow: 0 40px 100px -30px rgba(0, 0, 0, .9);
+    /* המועדף בתצוגה המלאה: ורוד בהיר, כי האולם כהה תמיד — גם במצב הבהיר. */
+    --cinema-danger: #fb7185;
 
     /* שלד טעינה: הברק שחולף על משטח שעוד לא קיבל תוכן. */
     --skeleton-shine: rgba(255, 255, 255, .07);
@@ -405,6 +407,8 @@ html[data-theme="light"] {
     --cinema-accent-tint: rgba(245, 196, 81, .28);
     --cinema-accent-line: rgba(245, 196, 81, .55);
     --cinema-shadow: 0 40px 100px -30px rgba(0, 0, 0, .9);
+    /* המועדף בתצוגה המלאה: ורוד בהיר, כי האולם כהה תמיד — גם במצב הבהיר. */
+    --cinema-danger: #fb7185;
 
     --skeleton-shine: rgba(255, 255, 255, .7);
 
@@ -1878,6 +1882,53 @@ body textarea { resize: vertical; min-height: 84px; }
 .density-toggle button[aria-pressed="true"] { background: var(--gold-foil); color: var(--ink-on-accent); box-shadow: var(--shadow-gold); }
 .density-toggle svg { width: 15px; height: 15px; }
 
+/* כפתור "קיצורי מקלדת" שליד מתג הצפיפות — באותו גובה ובאותה גלולה. */
+.shortcuts-help-button {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-4);
+    transition: color .2s var(--ease), border-color .2s var(--ease);
+}
+.shortcuts-help-button:hover { color: var(--ink); border-color: var(--gold-line); }
+.shortcuts-help-button svg { width: 16px; height: 16px; }
+
+/* חלון קיצורי המקלדת: קבוצה לכל הקשר, ובכל שורה המקשים ומה שהם עושים. */
+.shortcuts-help { gap: 18px; }
+.shortcuts-group h4 { margin-bottom: 6px; font-size: 12px; font-weight: 800; color: var(--gold); }
+.shortcuts-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+}
+.shortcuts-row:last-child { border-bottom: 0; }
+.shortcuts-row dt { flex: none; min-width: 56px; display: flex; gap: 4px; }
+.shortcuts-row dd { color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.shortcuts-help kbd {
+    min-width: 30px;
+    padding: 3px 8px;
+    border-radius: 7px;
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    background: var(--panel-soft);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+    text-align: center;
+    /* החצים מוצגים כפי שהם על המקלדת, לא מתהפכים בכיוון הכתיבה. */
+    direction: ltr;
+    unicode-bidi: isolate;
+}
+
 #imageCounter {
     display: inline-flex;
     align-items: center;
@@ -2478,6 +2529,8 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--cinema-ink);
 }
 #lightboxModal .btn-secondary-dark:hover { background: var(--cinema-button-hover); border-color: var(--cinema-accent-line); color: var(--cinema-accent); }
+#lightboxModal .lightbox-fav.is-favorite { color: var(--cinema-danger); border-color: var(--cinema-danger); }
+#lightboxModal .lightbox-fav.is-favorite svg { fill: currentColor; }
 /* המונה הוא גלולת זכוכית קטנה — "פריים 3 מתוך 12" — ולא שורת טקסט חשופה. */
 #lightboxCounter {
     display: inline-flex;
@@ -5095,6 +5148,7 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     /* מתגי הגודל והפריסה נשארים גם בטלפון (קטן = יותר כרטיסים בשורה), בכפתורים
        מעט קטנים יותר כדי שסרגל הכלים לא יתארך. */
     .density-toggle button { width: 36px; height: 34px; }
+    .shortcuts-help-button { display: none; }
     .gallery-toolbar .admin-menu-search kbd { display: none; }
     /* בטלפון הרקע החי רזה יותר: שני כתמים בלבד ובלי שכבת גרעין. */
     .bg-grain, .aurora-orb:nth-child(3), .aurora-orb:nth-child(4) { display: none; }

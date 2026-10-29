@@ -1,0 +1,240 @@
+// קיצורי המקלדת, "חזרה למעלה" וזיכרון הגלילה (gallery-navigation-ui.js) בדפדפן
+// אמיתי: חלון "?" ומתי הוא שותק, D ו-F בתצוגה המלאה לצד החצים (מימין לשמאל),
+// חזרה לאותו מקום ולאותו כרטיס אחרי התצוגה המלאה, עמוד האירוע ואלבום של אדם
+// ב"חזור" של הדפדפן, והכפתור שמופיע אחרי כשני מסכים.
+import { test, expect, seedSession, imageRecord, DEFAULT_USER } from './fixtures.mjs';
+
+const cards = page => page.locator('#photosGrid .gallery-card');
+const card = (page, index) => page.locator(`#photosGrid .gallery-card[data-media-id="img_e2e_${index}"]`);
+const scrollY = page => page.evaluate(() => Math.round(window.scrollY));
+const topOf = locator => locator.evaluate(node => Math.round(node.getBoundingClientRect().top));
+const helpDialog = page => page.getByRole('dialog', { name: 'קיצורי מקלדת' });
+
+// n תמונות; התמונה n היא החדשה ביותר ולכן הכרטיס הראשון.
+async function openGallery(page, worker, total) {
+    worker.seedFolders().seedImages(Array.from({ length: total }, (_, i) => imageRecord(i + 1)));
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(cards(page).first()).toBeVisible();
+}
+
+// גלילה עד שהכרטיס נבנה (מנה אחר מנה), ואז הכרטיס לאמצע המסך.
+async function scrollToCard(page, index) {
+    await expect.poll(async () => {
+        if (await card(page, index).count()) return true;
+        await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+        return false;
+    }).toBe(true);
+    await card(page, index).evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settle(page);
+}
+
+// אנימציית הכניסה של הכרטיסים מזיזה אותם כמה פיקסלים; מדידות אחריה.
+function settle(page) {
+    return page.evaluate(() => Promise.all(document.getAnimations()
+        .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map(animation => animation.finished.catch(() => {}))));
+}
+
+test('"?" פותח את רשימת הקיצורים, Escape סוגר ומחזיר את הפוקוס, ובשדה טקסט הוא נכתב', async ({ page, worker }) => {
+    await openGallery(page, worker, 3);
+
+    await page.locator('body').press('?');
+    const dialog = helpDialog(page);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.shortcuts-group h4')).toHaveText(['בגלריה', 'בתצוגה המלאה']);
+    await expect(dialog.locator('.shortcuts-row')).toHaveCount(8);
+    await expect(dialog.locator('.shortcuts-row').filter({ hasText: 'הפריט הבא' }).locator('kbd')).toHaveText('←');
+    await expect(dialog.locator('.shortcuts-row').filter({ hasText: 'הורדת הפריט' }).locator('kbd')).toHaveText('D');
+    await expect(dialog.getByRole('button', { name: 'סגירת רשימת הקיצורים' })).toBeFocused();
+    // בזמן שהחלון פתוח "?" נוסף אינו פותח אותו שוב, ו-"/" אינו קופץ לחיפוש.
+    await page.keyboard.press('/');
+    await expect(page.locator('#searchInput')).not.toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
+    // בשדה החיפוש "?" הוא תו כמו כל תו אחר.
+    await page.locator('#searchInput').fill('');
+    await page.locator('#searchInput').press('?');
+    await expect(page.locator('#searchInput')).toHaveValue('?');
+    await expect(dialog).toBeHidden();
+    await page.locator('#searchInput').fill('');
+
+    // גם בכפתור המקלדת שבסרגל; הפוקוס חוזר אליו בסגירה.
+    const button = page.getByRole('button', { name: 'קיצורי מקלדת' });
+    await expect(button).toHaveAttribute('aria-keyshortcuts', '?');
+    await button.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'סגירת רשימת הקיצורים' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(button).toBeFocused();
+});
+
+test('בתצוגה המלאה: חצים מימין לשמאל, D מוריד, F מסמן מועדף, ו-"?" נפתח מעליה בלי להזיז אותה', async ({ page, worker }) => {
+    await openGallery(page, worker, 3);
+    await cards(page).first().locator('.gallery-media').click();
+    const lightbox = page.locator('#lightboxModal');
+    const counter = page.locator('#lightboxCounter');
+    await expect(lightbox).toBeVisible();
+    await expect(counter).toHaveText('1 מתוך 3');
+
+    // חץ שמאלה הוא הבא וחץ ימינה הקודם — כמו הכפתורים.
+    await page.keyboard.press('ArrowLeft');
+    await expect(counter).toHaveText('2 מתוך 3');
+    await page.keyboard.press('ArrowRight');
+    await expect(counter).toHaveText('1 מתוך 3');
+
+    // D: הכפתור עצמו, כלומר אותה הורדה של הקובץ המקורי.
+    const downloadPromise = page.waitForEvent('download');
+    await page.keyboard.press('d');
+    await downloadPromise;
+
+    // F: הלב שבסרגל נלחץ, הלב שבכרטיס מתמלא, והמועדף נשמר בענן.
+    const favorite = page.getByRole('button', { name: 'סימון כמועדף' });
+    await expect(favorite).toHaveAttribute('aria-pressed', 'false');
+    await expect(favorite).toHaveAttribute('aria-keyshortcuts', 'F');
+    await page.keyboard.press('f');
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true');
+    await expect(favorite).toHaveClass(/is-favorite/);
+    await expect(card(page, 3).locator('.gallery-fav')).toHaveClass(/is-favorite/);
+    await expect.poll(() => worker.collection('userFavorites').get(DEFAULT_USER.uid)?.mediaIds).toEqual(['img_e2e_3']);
+    // הפריט הבא אינו מועדף; פריסה עברית (F הפיזי מפיק "כ") מסמנת גם אותו.
+    await page.keyboard.press('ArrowLeft');
+    await expect(favorite).toHaveAttribute('aria-pressed', 'false');
+    await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'כ', code: 'KeyF', bubbles: true })));
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true');
+    await expect(card(page, 2).locator('.gallery-fav')).toHaveClass(/is-favorite/);
+
+    // "?" מעל התצוגה המלאה: החצים אינם מדפדפים מאחוריו, ו-Escape סוגר רק אותו.
+    await page.keyboard.press('Shift+?');
+    const dialog = helpDialog(page);
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('d');
+    await expect(counter).toHaveText('2 מתוך 3');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(lightbox).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(lightbox).toBeHidden();
+});
+
+test('סגירת התצוגה המלאה מחזירה לאותו מקום בגלריה ולאותו כרטיס, גם אחרי F וגלילה מאחוריה', async ({ page, worker }) => {
+    await openGallery(page, worker, 150);
+    await scrollToCard(page, 80);
+    const before = await scrollY(page);
+    const topBefore = await topOf(card(page, 80));
+    expect(before).toBeGreaterThan(1000);
+
+    await card(page, 80).locator('.gallery-media').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#lightboxModal')).toBeVisible();
+    // גלגלת מעל התצוגה המלאה גוללת את הדף שמאחור.
+    await page.mouse.move(640, 360);
+    await page.mouse.wheel(0, 1500);
+    await expect.poll(() => scrollY(page)).toBeGreaterThan(before + 500);
+    // F בונה מחדש את הכרטיס, כך שהכפתור שפתח את התצוגה כבר אינו בדף.
+    await page.keyboard.press('f');
+    await expect(card(page, 80).locator('.gallery-fav')).toHaveClass(/is-favorite/);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#lightboxModal')).toBeHidden();
+    await expect(card(page, 80).locator('.gallery-media')).toBeFocused();
+    await expect.poll(() => scrollY(page)).toBe(before);
+    await settle(page);
+    expect(Math.abs(await topOf(card(page, 80)) - topBefore)).toBeLessThanOrEqual(1);
+});
+
+test('עמוד האירוע: הסגירה מחזירה את הגלילה ואת הפוקוס לכפתור שפתח — גם אחרי מעקב שמצייר אותו מחדש', async ({ page, worker }) => {
+    await openGallery(page, worker, 60);
+    const opener = page.locator('[data-event-folder="1"]');
+    await opener.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    const before = await scrollY(page);
+
+    await opener.click();
+    const eventPage = page.getByRole('dialog', { name: 'אירועים ופעילויות' });
+    await expect(eventPage).toBeVisible();
+    // מעקב מצייר את העמוד מחדש (openModal שוב על חלון פתוח).
+    await eventPage.locator('#eventFollowButton').click();
+    await expect(eventPage.locator('#eventFollowButton')).toContainText('הפסק לעקוב');
+    // הדף שמאחור נגלל בזמן שהעמוד פתוח.
+    await page.evaluate(() => window.scrollBy({ top: 1400, behavior: 'instant' }));
+    await expect.poll(() => scrollY(page)).toBeGreaterThan(before + 500);
+
+    await page.keyboard.press('Escape');
+    await expect(eventPage).toBeHidden();
+    await expect(opener).toBeFocused();
+    await expect.poll(() => scrollY(page)).toBe(before);
+
+    // "פתח את תמונות האירוע" עובר לתיקייה: אין חזרה למקום הישן.
+    await opener.click();
+    await expect(eventPage).toBeVisible();
+    await eventPage.getByRole('button', { name: 'פתח את תמונות האירוע' }).click();
+    await expect(eventPage).toBeHidden();
+    await expect(page.locator('.folder-button[aria-current="page"]')).toContainText('אירועים ופעילויות');
+});
+
+test('"חזור" של הדפדפן מאלבום של אדם מחזיר לאותו כרטיס, גם כשהיה עמוק מהמנה הראשונה', async ({ page, worker }) => {
+    worker.seedPerson({ personId: 'fp_yossi', name: 'יוסי כהן', status: 'approved', faces: [{ imageId: 'img_e2e_5' }, { imageId: 'img_e2e_9' }] });
+    await openGallery(page, worker, 150);
+    // תמונה 70 היא הכרטיס ה-81, במנה השנייה של 48.
+    await scrollToCard(page, 70);
+    const before = await scrollY(page);
+    const topBefore = await topOf(card(page, 70));
+    expect(before).toBeGreaterThan(1000);
+
+    await page.evaluate(() => { window.location.hash = '#person/fp_yossi'; });
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+    await expect(cards(page)).toHaveCount(2);
+
+    await page.goBack();
+    await expect(page.locator('#tempSearchBanner')).toBeHidden();
+    await expect(card(page, 70)).toBeVisible();
+    // הכרטיסים שנבנו מחדש עולים למקומם באנימציה; המדידה אחריה.
+    await settle(page);
+    expect(Math.abs(await topOf(card(page, 70)) - topBefore)).toBeLessThanOrEqual(1);
+    expect(Math.abs(await scrollY(page) - before)).toBeLessThanOrEqual(1);
+    // הפוקוס היה על הכותרת של האלבום, שנעלמה: הוא עובר לכרטיס שבראש המסך.
+    await expect(page.locator('#photosGrid .gallery-media:focus')).toHaveCount(1);
+});
+
+test.describe('בטלפון (390px)', () => {
+    test.use({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+
+    test('"חזרה למעלה" מופיע אחרי כשני מסכים, גולל לראש הדף ומעביר את הפוקוס לכותרת', async ({ page, worker }) => {
+        await openGallery(page, worker, 60);
+        const button = page.getByRole('button', { name: 'חזרה לראש הדף' });
+        await expect(button).toBeHidden();
+        await expect(page.getByRole('button', { name: 'קיצורי מקלדת' })).toBeHidden();
+
+        await page.evaluate(() => window.scrollTo({ top: window.innerHeight * 1.5, behavior: 'instant' }));
+        await page.waitForTimeout(100);
+        await expect(button).toBeHidden();
+        await page.evaluate(() => window.scrollTo({ top: window.innerHeight * 2.5, behavior: 'instant' }));
+        await expect(button).toBeVisible();
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+        // בפינה שבסוף השורה (שמאל במימין לשמאל), בתוך המסך.
+        const box = await button.boundingBox();
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThan(390 / 2);
+
+        await button.focus();
+        await page.keyboard.press('Enter');
+        // עם prefers-reduced-motion הגלילה מיידית.
+        await expect.poll(() => scrollY(page)).toBe(0);
+        await expect(page.locator('.brand-title')).toBeFocused();
+        await expect(button).toBeHidden();
+
+        // כפתור הלב החדש נכנס לסרגל התצוגה המלאה גם ברוחב טלפון.
+        await cards(page).first().locator('.gallery-media').click();
+        const bar = page.locator('#lightboxModal .lightbox-bar');
+        for (const name of ['סימון כמועדף', 'הורדת קובץ המדיה', 'סגירת התצוגה המלאה']) {
+            const box = await bar.getByRole('button', { name }).boundingBox();
+            expect(box.x, name).toBeGreaterThanOrEqual(0);
+            expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+        }
+        const overflow2 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(overflow2).toBeLessThanOrEqual(0);
+    });
+});

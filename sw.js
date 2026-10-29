@@ -27,6 +27,8 @@ const APP_SHELL = [
   "./gallery-layout.js",
   "./search-history.js",
   "./search-history-ui.js",
+  "./gallery-navigation.js",
+  "./gallery-navigation-ui.js",
   "./zip-writer.js",
   "./media-variants.js",
   "./video-hover-preview.js",

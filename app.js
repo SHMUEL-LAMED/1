@@ -22,6 +22,9 @@ import {
     GALLERY_DENSITY_KEY, GALLERY_LAYOUT_KEY, normalizeGalleryDensity, normalizeGalleryLayout,
     readGalleryPreference, writeGalleryPreference
 } from './gallery-layout.js';
+// קיצורי המקלדת וזיכרון הגלילה בדף הגלריה; הסף של "חזרה למעלה" מגיע מהחלק הטהור.
+import { initGalleryNavigation } from './gallery-navigation-ui.js';
+import { backToTopVisible } from './gallery-navigation.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -314,7 +317,10 @@ window.openManagementFromProfile = function() {
 function openModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
-    m._previousActiveElement = document.activeElement;
+    // פתיחה חוזרת של חלון שכבר פתוח (עמוד האירוע מצויר מחדש אחרי מעקב או
+    // עריכה) אינה מחליפה את מי שפתח אותו בכפתור שבתוך החלון — אחרת הסגירה
+    // הייתה מחזירה את הפוקוס לכפתור נסתר במקום לכרטיס שבגלריה.
+    if (m.classList.contains('hidden')) m._previousActiveElement = document.activeElement;
     m.classList.remove('hidden');
     m.setAttribute('aria-hidden', 'false');
     const firstControl = m.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -1470,6 +1476,16 @@ window.setGalleryLayout = function(layout, persist = true) {
 
 window.scrollToPageTop = function() {
     window.scrollTo({ top: 0, behavior: REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth' });
+    // הכפתור נעלם בראש הדף, ופוקוס שנשאר עליו היה הולך לאיבוד. מי שהגיע
+    // אליו במקלדת ממשיך מכותרת האתר, כמו בטעינת הדף.
+    const button = document.getElementById('backToTop');
+    if (button && document.activeElement === button) {
+        const heading = document.querySelector('.brand-title');
+        if (heading) {
+            heading.tabIndex = -1;
+            heading.focus({ preventScroll: true });
+        }
+    }
 };
 
 function initArchiveExperience() {
@@ -1488,7 +1504,8 @@ function initArchiveExperience() {
         root.style.setProperty('--scroll', ratio.toFixed(4));
         // הכותרת הצפה מתעבה ומקבלת צל כשיש תוכן שגולל מתחתיה (ראו styles.css).
         root.toggleAttribute('data-scrolled', window.scrollY > 12);
-        backToTop?.classList.toggle('is-visible', window.scrollY > 480);
+        // אחרי כשני מסכים של גלילה (gallery-navigation.js).
+        backToTop?.classList.toggle('is-visible', backToTopVisible(window.scrollY, window.innerHeight));
     };
     window.addEventListener('scroll', () => {
         if (scrollTicking) return;
@@ -1560,7 +1577,10 @@ let peopleRouteSeen = false;
 function routePeopleHash() {
     if (PAGE_MODE !== 'gallery') return;
     const hash = window.location.hash;
-    if (!PEOPLE_ROUTE_PATTERN.test(hash) && !peopleRouteSeen) return;
+    const isPeopleRoute = PEOPLE_ROUTE_PATTERN.test(hash);
+    // זיכרון הגלילה נרשם לפני שהאלבום מחליף את הרשת (gallery-navigation-ui.js).
+    window.noteGalleryRoute?.(isPeopleRoute);
+    if (!isPeopleRoute && !peopleRouteSeen) return;
     peopleRouteSeen = true;
     window.handlePeopleRoute(hash);
 }
@@ -1591,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initSessionUI();
         initGallery();
         initSearchHistory();
+        initGalleryNavigation();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
         const serviceWorkerRegistration = 'serviceWorker' in navigator

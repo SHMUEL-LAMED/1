@@ -202,6 +202,8 @@
                         <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
                         <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
                     </div>
+                    <!-- חלון קיצורי המקלדת (גם "?" במקלדת, gallery-navigation-ui.js). בטלפון מוסתר. -->
+                    <button type="button" onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
                     <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="w-auto text-xs py-2">
                         <option value="newest">החדש ביותר</option>
                         <option value="oldest">הישן ביותר</option>
@@ -497,7 +499,11 @@
                 <button type="button" id="lightboxShare" onclick="shareLightboxItem()" title="שתף קישור לפריט" aria-label="שתף קישור לפריט הזה" class="btn-secondary-dark lightbox-share h-11 rounded-full">
                     <i data-lucide="share-2" class="w-5 h-5"></i><span class="lightbox-share-text">שתף</span>
                 </button>
-                <button type="button" id="lightboxDownload" title="הורדת קובץ" aria-label="הורדת קובץ המדיה" class="btn-secondary-dark w-11 h-11 rounded-full">
+                <!-- המועדף של הפריט הנוכחי; gallery.js מעדכן את aria-pressed בכל מעבר. -->
+                <button type="button" id="lightboxFavorite" title="מועדף (F)" aria-label="סימון כמועדף" aria-pressed="false" aria-keyshortcuts="F" class="btn-secondary-dark lightbox-fav w-11 h-11 rounded-full">
+                    <i data-lucide="heart" class="w-5 h-5"></i>
+                </button>
+                <button type="button" id="lightboxDownload" title="הורדת קובץ (D)" aria-label="הורדת קובץ המדיה" aria-keyshortcuts="D" class="btn-secondary-dark w-11 h-11 rounded-full">
                     <i data-lucide="download" class="w-5 h-5"></i>
                 </button>
                 <button type="button" onclick="closeLightbox()" class="btn-secondary-dark w-11 h-11 rounded-full" aria-label="סגירת התצוגה המלאה">
@@ -908,6 +914,18 @@
                 </div>
             </header>
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
+        </div>
+    </div>
+
+    <!-- קיצורי מקלדת: הרשימה נבנית מ-GALLERY_SHORTCUTS (gallery-navigation.js) בפתיחה
+         הראשונה. מעל התצוגה המלאה, כדי שאפשר לפתוח אותו גם ממנה. -->
+    <div id="shortcutsHelpModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="shortcutsHelpTitle">
+        <div class="modal-card modal-animate-popup max-w-md">
+            <div class="modal-head">
+                <h3 id="shortcutsHelpTitle"><i data-lucide="keyboard" class="w-5 h-5"></i> קיצורי מקלדת</h3>
+                <button type="button" onclick="closeModal('shortcutsHelpModal')" class="modal-close" aria-label="סגירת רשימת הקיצורים"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div id="shortcutsHelpList" class="modal-body shortcuts-help"></div>
         </div>
     </div>
 

@@ -141,6 +141,7 @@ window.toggleFavorite = async function(event, mediaId) {
     else window.state.favorites.add(id);
     window.renderFolders();
     window.renderImages();
+    syncLightboxFavorite();
     try {
         await saveFavorites();
     } catch (error) {
@@ -148,6 +149,7 @@ window.toggleFavorite = async function(event, mediaId) {
         else window.state.favorites.delete(id);
         window.renderFolders();
         window.renderImages();
+        syncLightboxFavorite();
         window.showNotification('שמירת המועדף נכשלה. בדוק את חיבור Cloudflare.', false);
     }
 };
@@ -967,7 +969,7 @@ window._doRenderFolders = function() {
             window.state.isSuperAdmin || (!folder.isDefault && !['1', '2', '3', '4'].includes(folderId))
         );
         const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
-        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
+        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" data-event-folder="${folderId}" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
         const count = folderCounts
             ? (folderId === 'all' ? mediaCount : (Number(folderCounts[folderId]) || 0))
             : (folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length);
@@ -1076,6 +1078,7 @@ window._doRenderImages = function() {
         const loading = Boolean(window.state.imagesLoading);
         emptyState.classList.toggle('hidden', loading); emptyState.classList.toggle('flex', !loading);
         updateGalleryLoadMore();
+        window.noteGalleryRendered?.();
         return;
     }
     grid.classList.remove('hidden'); emptyState.classList.add('hidden'); emptyState.classList.remove('flex');
@@ -1091,6 +1094,8 @@ window._doRenderImages = function() {
         restoreGalleryScrollAnchor(anchor);
     }
     updateGalleryLoadMore();
+    // זיכרון הגלילה (gallery-navigation-ui.js): חזרה מאלבום של אדם למקום בגלריה.
+    window.noteGalleryRendered?.();
 };
 
 // הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
@@ -1338,6 +1343,24 @@ window.renderMoreImages = function(manual = false) {
     if (grid.children.length !== rendered) syncGalleryCards(grid, galleryPageItems.slice(0, nextCount));
     else appendGalleryCards(grid, galleryPageItems.slice(rendered, nextCount), rendered);
     updateGalleryLoadMore();
+};
+
+// הכרטיס של פריט מסוים, ואם הוא עוד לא נבנה — המנות עד אליו, מהפריטים
+// שכבר בזיכרון בלבד (בלי בקשה לענן). כך זיכרון הגלילה (gallery-navigation-ui.js)
+// חוזר לכרטיס שהיה עמוק ברשת גם אחרי שהרשת התחילה מחדש במנה הראשונה, וציור
+// שעוד ממתין (לב שנלחץ ממש לפני הסגירה) מתבצע קודם, כדי שהכרטיס יהיה הסופי.
+window.ensureGalleryCardRendered = function(mediaId) {
+    const id = window.safeRecordId(mediaId);
+    if (!id) return null;
+    if (galleryRenderPending) window._doRenderImages();
+    const index = galleryPageItems.findIndex(item => window.safeRecordId(item.id) === id);
+    if (index < 0) return null;
+    while (galleryRenderedCards.length <= index) {
+        const before = galleryRenderedCards.length;
+        window.renderMoreImages();
+        if (galleryRenderedCards.length === before) break;
+    }
+    return galleryRenderedCards.find(card => card.id === id)?.node || null;
 };
 
 // --- המשך טעינה מהענן ---
@@ -2971,19 +2994,35 @@ function updateLightbox(immediate = false) {
         lbDownload.onclick = imageUrl ? () => window.downloadGalleryMedia(img) : null;
     }
 
+    syncLightboxFavorite(img);
+
     const lbCounter = document.getElementById('lightboxCounter');
     if(lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
     // הכתובת עוקבת אחרי הפריט המוצג: בפתיחה, בדפדוף ובמצגת.
     syncLightboxHash(img);
     preloadLightboxNeighbours();
 }
+
+// כפתור המועדף שבסרגל התצוגה המלאה (גם F במקלדת, gallery-navigation-ui.js):
+// אותו toggleFavorite של הלב שבכרטיס. התווית קבועה ו-aria-pressed מבטא את
+// המצב, כך שקורא מסך מכריז "נלחץ" במקום תווית שמתחלפת מתחת לפוקוס.
+function syncLightboxFavorite(img = currentFilteredImages[window.state.currentLightboxIndex]) {
+    const button = document.getElementById('lightboxFavorite');
+    const id = window.safeRecordId(img?.id);
+    if (!button || !id) return;
+    const isFavorite = window.state.favorites.has(id);
+    button.classList.toggle('is-favorite', isFavorite);
+    button.setAttribute('aria-pressed', String(isFavorite));
+    button.onclick = event => window.toggleFavorite(event, id);
+}
+
 document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');
-    // חלון עריכת הכיתוב יושב מעל התצוגה המלאה: החצים והרווח שייכים לשדה
-    // שבו, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
-    const editor = document.getElementById('mediaDescriptionModal');
-    const editorOpen = Boolean(editor && !editor.classList.contains('hidden'));
-    if (lightbox && !lightbox.classList.contains('hidden') && !editorOpen) {
+    // חלון עריכת הכיתוב וחלון קיצורי המקלדת יושבים מעל התצוגה המלאה: החצים
+    // והרווח שייכים להם, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
+    const overlayOpen = ['mediaDescriptionModal', 'shortcutsHelpModal']
+        .some(id => document.getElementById(id)?.classList.contains('hidden') === false);
+    if (lightbox && !lightbox.classList.contains('hidden') && !overlayOpen) {
         // רווח ו-Escape שייכים למצגת כשהיא פועלת (Escape עוצר אותה בלבד).
         if (handleSlideshowKey(e)) return;
         if (e.key === 'ArrowLeft') navigateLightbox(1);
