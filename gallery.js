@@ -2,7 +2,9 @@
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
 // בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
-import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource, mediaOrientation, MEDIA_ORIENTATIONS } from './media-variants.js';
+// "אקראי" במיון ו"תמונה אקראית": סדר שנשאר יציב לאורך הביקור (gallery-random.js).
+import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
 // פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
@@ -557,9 +559,53 @@ function handleSearch(val) {
     }
 }
 
+const GALLERY_SORTS = ['newest', 'oldest', 'name', 'random'];
+// הסדר האקראי נקבע פעם אחת לביקור: חזרה ל"אקראי" אחרי מיון אחר, עמוד נוסף
+// בגלילה או ציור מחדש אינם מערבבים מחדש — רק "ערבב מחדש".
+const randomGalleryOrder = createStableShuffle({ keyOf: item => window.safeRecordId(item?.id) });
+
+// כפתור "ערבב מחדש" מוצג רק כשהמיון אקראי (בחירה חוזרת באותה אפשרות של
+// ה-select אינה מפעילה onchange, ולכן הערבוב מחדש צריך כפתור משלו).
+function syncRandomSortControls() {
+    const random = window.state.gallerySort === 'random';
+    const select = document.getElementById('gallerySortSelect');
+    if (select && select.value !== window.state.gallerySort) select.value = window.state.gallerySort;
+    document.getElementById('galleryReshuffleButton')?.classList.toggle('hidden', !random);
+}
+
 window.setGallerySort = function(sort) {
-    window.state.gallerySort = ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest';
+    window.state.gallerySort = GALLERY_SORTS.includes(sort) ? sort : 'newest';
+    syncRandomSortControls();
     window.renderImages();
+};
+
+window.reshuffleGallery = function() {
+    randomGalleryOrder.reshuffle();
+    window.state.gallerySort = 'random';
+    syncRandomSortControls();
+    window.renderImages();
+    window.showNotification('הגלריה עורבבה מחדש.', true);
+};
+
+// ההיקף של הדירוג האקראי: התיקייה הפעילה, או תוצאות החיפוש הזמני.
+function randomOrderScope() {
+    return window.state.tempSearchResults !== null ? 'temp' : (window.safeRecordId(window.state.activeFolderId) || 'all');
+}
+
+// "תמונה אקראית": פריט מתוך מה שמוצג עכשיו (התיקייה, החיפוש וכל הסינונים),
+// ולא אותו פריט פעמיים ברצף. פריטים שעוד לא נטענו מהענן אינם בהגרלה.
+let lastRandomItemId = '';
+window.openRandomGalleryItem = function() {
+    const pick = pickRandomItem(getFilteredSortedImages(), {
+        excludeKey: lastRandomItemId,
+        keyOf: item => window.safeRecordId(item?.id)
+    });
+    if (!pick) {
+        window.showNotification('אין פריטים להצגה בסינון הנוכחי.', false);
+        return;
+    }
+    lastRandomItemId = window.safeRecordId(pick.id);
+    openLightbox(lastRandomItemId);
 };
 
 // --- התאריך העברי: תצוגה וסינון ---
@@ -674,10 +720,10 @@ function syncMediaTypeSelect() {
     if (select) select.value = activeMediaTypeFilter();
 }
 
-// סינון כלשהו פעיל (תאריך עברי, סוג הרגע או סוג מדיה): בתיקייה שלא נטענה
-// כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
+// סינון כלשהו פעיל (תאריך עברי, סוג הרגע, סוג מדיה או כיוון): בתיקייה שלא
+// נטענה כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
 window.hasActiveGalleryFilters = function() {
-    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter());
+    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter()) || Boolean(activeOrientationFilter());
 };
 
 window.setGalleryMediaType = function(value) {
@@ -687,6 +733,40 @@ window.setGalleryMediaType = function(value) {
     autoloadForDateFilter();
     window.noteGallerySearchChange?.();
 };
+
+// --- סינון לפי כיוון: לאורך, לרוחב או ריבועית ---
+// הכיוון נגזר מהמידות שברשומה (media-variants.js, mediaOrientation). פריט בלי
+// מידות אינו נכלל כשהסינון פעיל, ומתחת לסרגל נכתב כמה פריטים כאלה יש, כדי
+// שלא ייראה כאילו הם נעלמו.
+function activeOrientationFilter() {
+    return MEDIA_ORIENTATIONS.includes(window.state.orientationFilter) ? window.state.orientationFilter : '';
+}
+
+function syncOrientationSelect() {
+    const select = document.getElementById('galleryOrientationFilter');
+    if (select) select.value = activeOrientationFilter();
+}
+
+window.setGalleryOrientation = function(value) {
+    window.state.orientationFilter = MEDIA_ORIENTATIONS.includes(value) ? value : '';
+    syncOrientationSelect();
+    window.renderImages();
+    autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+// כמה פריטים הוצאו מהתצוגה האחרונה רק משום שהכיוון שלהם אינו ידוע. נכתב
+// ב-getFilteredSortedImages ונקרא בציור, כדי לא לסנן את הרשימה פעמיים.
+let orientationUnknownCount = 0;
+
+function renderOrientationNote() {
+    const note = document.getElementById('galleryOrientationNote');
+    if (!note) return;
+    const count = activeOrientationFilter() ? orientationUnknownCount : 0;
+    const text = count ? `${count} פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון.` : '';
+    note.hidden = !count;
+    if (note.textContent !== text) note.textContent = text;
+}
 
 // --- חיפושים אחרונים ושמורים (search-history-ui.js) ---
 // החיפוש הנוכחי: הטקסט והסינון הפעיל. שבב "סוג הרגע" הפעיל (תגית סצנה אחת,
@@ -701,12 +781,13 @@ window.getGallerySearchSnapshot = function() {
             hebrewYear: Number(state.hebrewYearFilter) || 0,
             hebrewMonth: state.hebrewMonthFilter || '',
             mediaType: activeMediaTypeFilter(),
+            orientation: activeOrientationFilter(),
             tags: sceneTag ? [sceneTag] : []
         }
     };
 };
 
-// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע וסוג המדיה). נקרא
+// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע, סוג המדיה וכיוון). נקרא
 // בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
 // הקודם באותה לשונית לא יירש את החיפוש שלו.
 window.clearGallerySearch = function() {
@@ -716,7 +797,9 @@ window.clearGallerySearch = function() {
     state.hebrewMonthFilter = '';
     state.sceneTagFilter = '';
     state.mediaTypeFilter = '';
+    state.orientationFilter = '';
     syncMediaTypeSelect();
+    syncOrientationSelect();
     const input = document.getElementById('searchInput');
     if (input) input.value = '';
     window.renderImages();
@@ -737,7 +820,9 @@ window.applyGallerySearch = async function(search = {}) {
     state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
     state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(filters.hebrewMonth) ? filters.hebrewMonth : '';
     state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(filters.mediaType) ? filters.mediaType : '';
+    state.orientationFilter = MEDIA_ORIENTATIONS.includes(filters.orientation) ? filters.orientation : '';
     syncMediaTypeSelect();
+    syncOrientationSelect();
     // הגלריה מסננת לפי תגית סצנה אחת; תגית שאינה בטקסונומיה אינה מסננת.
     state.sceneTagFilter = (Array.isArray(filters.tags) ? filters.tags : []).find(isSceneTagId) || '';
     const query = String(search?.query || '');
@@ -792,7 +877,8 @@ function announceSceneFilter(count) {
 }
 
 function getFilteredSortedImages() {
-    let filtered = scopedGalleryImages();
+    const scoped = scopedGalleryImages();
+    let filtered = scoped;
     const hebrewFilters = activeHebrewFilters();
     if (hebrewFilters.year || hebrewFilters.month) {
         filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
@@ -820,16 +906,34 @@ function getFilteredSortedImages() {
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
-    return sortGalleryItems(filtered);
+    // הכיוון אחרון, כדי שהמונה של "בלי מידות" יספור רק פריטים שהיו מוצגים
+    // לולא הסינון הזה.
+    const orientation = activeOrientationFilter();
+    orientationUnknownCount = 0;
+    if (orientation) {
+        filtered = filtered.filter(img => {
+            const value = mediaOrientation(img);
+            if (!value) orientationUnknownCount += 1;
+            return value === orientation;
+        });
+    }
+    return sortGalleryItems(filtered, scoped);
 }
 
 // המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
-// לפי זמן ההעלאה. משמש גם את רשימת הדפדוף של קישור ישיר לפריט.
-function sortGalleryItems(items) {
+// לפי זמן ההעלאה. משמש גם את רשימת הדפדוף של קישור ישיר לפריט. במיון
+// האקראי scope הוא כל הפריטים שלפני הסינון (ראו למטה).
+function sortGalleryItems(items, scope = items) {
     if (window.state.gallerySort === 'oldest') {
         items.sort(compareCaptureAsc);
     } else if (window.state.gallerySort === 'name') {
         items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
+    } else if (window.state.gallerySort === 'random') {
+        // כל התיקייה מדורגת לפני הסינון, כדי שביטול סינון לא ידחוף את מה
+        // שהיה מסונן אל סוף הסדר.
+        const orderScope = randomOrderScope();
+        randomGalleryOrder.include(scope, orderScope);
+        return randomGalleryOrder.order(items, orderScope);
     } else {
         items.sort(compareCaptureDesc);
     }
@@ -1032,9 +1136,11 @@ let galleryRenderPending = false;
 // רינדור מחדש הוא עדכון נתונים — תמונה חדשה, לב שנלחץ, חזרה ללשונית — ואז
 // מספר הכרטיסים שכבר הוצגו נשמר, כדי שהדף לא יתקצר מתחת לגלילה של המשתמש.
 // שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
+// "ערבב מחדש" מחליף את הזרע, ולכן גם הוא תצוגה חדשה.
 function currentViewSignature() {
     return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
-        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || ''];
+        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || '',
+        activeOrientationFilter(), window.state.gallerySort === 'random' ? randomGalleryOrder.seed : 0];
 }
 
 function sameViewSignature(first, second) {
@@ -1068,6 +1174,7 @@ window._doRenderImages = function() {
     renderHebrewDateFilters(scoped);
     renderSceneFilterChips(document.getElementById('gallerySceneFilter'), scoped, activeSceneTag());
     announceSceneFilter(galleryPageItems.length);
+    renderOrientationNote();
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 
@@ -1232,7 +1339,7 @@ function placeDateGroupLabel(node, index) {
     const label = node.querySelector('.gallery-date-group');
     if (!label) return;
     const item = galleryPageItems[index];
-    const byDate = window.state.gallerySort !== 'name';
+    const byDate = window.state.gallerySort === 'newest' || window.state.gallerySort === 'oldest';
     const key = dateGroupKey(item);
     const starts = Boolean(byDate && key && (index === 0 || dateGroupKey(galleryPageItems[index - 1]) !== key));
     label.hidden = !starts;

@@ -11,7 +11,11 @@ import {
     pickBackdropSource,
     CARD_IMAGE_SIZES,
     selectVariantCandidates,
-    runVariantBackfill
+    runVariantBackfill,
+    MEDIA_ORIENTATIONS,
+    mediaDimensions,
+    mediaOrientation,
+    orientationFromDimensions
 } from "./media-variants.js";
 
 const API = "https://simchas-gallery-api.example/media";
@@ -247,4 +251,35 @@ test("AVIF: מוצע כ-srcset נפרד רק כשלכל התצוגות שברש�
 
     // סרטון: אין AVIF בכרטיס; הפוסטר נשאר WebP/JPEG.
     assert.equal(pickCardSource(video("v", { variants: variantsWithAvif("v", ["poster", "thumb"]) })).avifSrcset, "");
+});
+
+test("כיוון הפריט: מהמידות שנרשמו בהעלאה, ובלעדיהן מהתצוגות המקדימות", () => {
+    assert.deepEqual([...MEDIA_ORIENTATIONS], ["portrait", "landscape", "square"]);
+    // המידות שנרשמו בהעלאה קודמות לתצוגות.
+    const uploaded = image("u", { width: 3024, height: 4032, variants: variants("u") });
+    assert.deepEqual(mediaDimensions(uploaded), { width: 3024, height: 4032 });
+    assert.equal(mediaOrientation(uploaded), "portrait");
+    // בלי מידות ברשומה: medium, ואם אין — thumb.
+    assert.deepEqual(mediaDimensions(image("v", { variants: variants("v") })), { width: 1280, height: 853 });
+    assert.equal(mediaOrientation(image("v", { variants: variants("v", ["thumb"]) })), "landscape");
+    // סרטון מקבל כיוון מהפוסטר.
+    assert.equal(mediaOrientation(video("p", { variants: { poster: { url: `${API}/variants/p/poster.webp`, width: 720, height: 1280 } } })), "portrait");
+    // מידות חלקיות או פסולות אינן מידות; הפריט נשאר בלי כיוון.
+    assert.equal(mediaDimensions(image("x", { width: 0, height: 900 })), null);
+    assert.equal(mediaOrientation(image("y", { width: "abc", height: 400 })), "");
+    assert.equal(mediaOrientation(image("z")), "");
+    assert.equal(mediaOrientation(null), "");
+    // מידות פסולות ברשומה נופלות לתצוגות.
+    assert.equal(mediaOrientation(image("w", { width: -5, height: 10, variants: variants("w") })), "landscape");
+});
+
+test("ריבועית: עד 5% הפרש בין הצלעות", () => {
+    assert.equal(orientationFromDimensions(1080, 1080), "square");
+    assert.equal(orientationFromDimensions(480, 457), "square");
+    assert.equal(orientationFromDimensions(457, 480), "square");
+    assert.equal(orientationFromDimensions(480, 450), "landscape");
+    assert.equal(orientationFromDimensions(450, 480), "portrait");
+    assert.equal(orientationFromDimensions(4032, 3024), "landscape");
+    assert.equal(orientationFromDimensions(0, 10), "");
+    assert.equal(orientationFromDimensions(10, 10, 0), "square");
 });

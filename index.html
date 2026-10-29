@@ -208,7 +208,13 @@
                         <option value="newest">החדש ביותר</option>
                         <option value="oldest">הישן ביותר</option>
                         <option value="name">לפי שם</option>
+                        <option value="random">אקראי</option>
                     </select>
+                    <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
+                         אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
+                    <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
+                        <i data-lucide="shuffle" class="w-4 h-4"></i>
+                    </button>
                     <!-- סינון לפי התאריך העברי של יום הצילום. האפשרויות נגזרות מהפריטים
                          שבתיקייה (gallery.js, renderHebrewDateFilters). -->
                     <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter w-auto text-xs py-2">
@@ -221,6 +227,14 @@
                         <option value="">תמונות וסרטונים</option>
                         <option value="image">תמונות בלבד</option>
                         <option value="video">סרטונים בלבד</option>
+                    </select>
+                    <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
+                         והמספר שלהם מוצג ב-#galleryOrientationNote. -->
+                    <select id="galleryOrientationFilter" onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter w-auto text-xs py-2">
+                        <option value="">כל הכיוונים</option>
+                        <option value="portrait">לאורך</option>
+                        <option value="landscape">לרוחב</option>
+                        <option value="square">ריבועית</option>
                     </select>
                     <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
@@ -237,6 +251,9 @@
                     <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
                         <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
                     </button>
+                    <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="btn-secondary-dark px-3 py-2 text-xs" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
+                        <i data-lucide="dices" class="w-4 h-4"></i><span class="hidden sm:inline">תמונה אקראית</span>
+                    </button>
                     <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="בחירה מרובה">
                         <i data-lucide="list-checks" class="w-4 h-4"></i><span class="hidden sm:inline">בחירה מרובה</span>
                     </button>
@@ -246,6 +263,7 @@
                      (media-description.js), והשורה מוסתרת כשאין לאף פריט תגית. -->
                 <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
+                <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">

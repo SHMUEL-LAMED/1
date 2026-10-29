@@ -331,6 +331,28 @@ test("תיאור החיפוש בעברית: תיקייה, שנה, חודש, סו
   assert.deepEqual(describeSearch({ query: "x", filters: { folderId: "favorites" } }).details, ["המועדפים"]);
 });
 
+test("כיוון: נשמר רק כשהוא תקין, מוצג בעברית, ואינו משנה מזהים של חיפושים שנשמרו לפניו", () => {
+  assert.deepEqual(normalizeFilters({ orientation: "portrait", mediaType: "image" }), { mediaType: "image", orientation: "portrait" });
+  assert.deepEqual(normalizeFilters({ orientation: "Portrait" }), {});
+  assert.deepEqual(normalizeFilters({ orientation: "diagonal" }), {});
+  assert.deepEqual(normalizeSearch({ query: "", filters: { orientation: "square" } }), { query: "", filters: { orientation: "square" } });
+  assert.deepEqual(describeSearch({ query: "x", filters: { mediaType: "image", orientation: "landscape" } }).details, ["תמונות בלבד", "כיוון: לרוחב"]);
+  assert.deepEqual(describeSearch({ query: "x", filters: { orientation: "portrait" } }).details, ["כיוון: לאורך"]);
+  assert.deepEqual(describeSearch({ query: "x", filters: { orientation: "square" } }).details, ["כיוון: ריבועית"]);
+  // אותו טקסט בכיוון אחר, או בלי כיוון, הוא חיפוש נפרד.
+  const base = { query: "ריקודים", filters: { mediaType: "video" } };
+  const portrait = { query: "ריקודים", filters: { mediaType: "video", orientation: "portrait" } };
+  const landscape = { query: "ריקודים", filters: { mediaType: "video", orientation: "landscape" } };
+  assert.notEqual(searchId(base), searchId(portrait));
+  assert.notEqual(searchId(portrait), searchId(landscape));
+  // חיפוש בלי כיוון שומר על החתימה שהייתה לו לפני שהכיוון נוסף, ולכן גם על המזהה.
+  assert.equal(searchSignature(base), JSON.stringify(["ריקודים", "", 0, "", "video", []]));
+  // והכיוון עובר את הקריאה מהאחסון כמו שאר הסינונים.
+  const state = parseHistoryState(JSON.stringify({ v: 1, recent: [{ ...portrait, at: 5 }] }));
+  assert.deepEqual(state.recent[0].filters, { mediaType: "video", orientation: "portrait" });
+  assert.equal(state.recent[0].id, searchId(portrait));
+});
+
 test("שבב סוג הרגע: נשמר כמזהה תגית הסצנה, מוצג בתווית העברית, ומבדיל בין חיפושים", () => {
   // הגלריה מוסרת את השבב הפעיל כמזהה (getGallerySearchSnapshot ב-gallery.js).
   const dance = { query: "שמחת תורה", filters: { folderId: "all", tags: ["dance"] } };

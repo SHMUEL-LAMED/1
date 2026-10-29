@@ -2717,6 +2717,14 @@ body textarea { resize: vertical; min-height: 84px; }
     padding: 2px;
 }
 .scene-filter[hidden] { display: none; }
+/* כמה פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון (gallery.js). */
+.gallery-filter-note {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-3);
+}
+.gallery-filter-note[hidden] { display: none; }
 .scene-chip {
     position: relative;
     flex: 0 0 auto;
