@@ -3,8 +3,35 @@
 // סלחנית לניקוד ולגרשיים, והאנשים נטענים עצלה — בלי פנים ובלי מנוע הזיהוי.
 import { test, expect, seedSession, imageRecord, DEFAULT_FOLDERS, DEFAULT_USER } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
+import { SUGGEST_DEBOUNCE_MS } from '../search-suggest.js';
 
 const USER_KEY = storageKeyFor(DEFAULT_USER.uid);
+
+// טקסט שעומד בשדה שתי שניות בלי הקשה נרשם בחיפושים האחרונים (IDLE_COMMIT_MS
+// ב-search-history-ui.js). כשהמכונה עמוסה (כמה workers במקביל) שתי השניות
+// עוברות בקלות בין ההקלדה לבחירה, ונוספת שורה של הטקסט החלקי ("טיול", "משה"):
+// הרשימה, המונה וסדר השורות בתפריט משתנים, והבדיקה נכשלת לסירוגין. לכן בכל
+// קטע הקלדה השעון של הדף עומד, ומתקדם רק במפורש — ההשהיה של ההצעות וההכרזה,
+// הרחק מתחת לשתי השניות. אחרי שההקלדה נסגרה (בחירה, או Escape ושדה ריק) השעון
+// חוזר לזרום, כי הגלריה מציירת בטיימר משלה. דורש page.clock.install() לפני הטעינה.
+async function holdClock(page) {
+    // pauseAt אינו חוזר אחורה, והשעון ממשיך לזרום עד שהבקשה מגיעה לדף — במכונה
+    // עמוסה גם יותר משנייה. לכן מרווח, ובכישלון ניסיון נוסף עם מרווח גדול יותר.
+    // בקפיצה קדימה אין רישום ממתין: השדה ריק, או שהטקסט שבו נרשם כבר.
+    for (let margin = 1000; ; margin *= 4) {
+        const now = await page.evaluate(() => Date.now());
+        try {
+            await page.clock.pauseAt(now + margin);
+            return;
+        } catch (error) {
+            if (!/to the past/.test(String(error?.message)) || margin >= 64_000) throw error;
+        }
+    }
+}
+
+// ההשהיה של ההצעות ואחריה ההכרזה (40ms) ב-#searchHistoryStatus.
+const settleSuggestions = page => page.clock.runFor(SUGGEST_DEBOUNCE_MS + 100);
+
 const BOX = { x: 0.25, y: 0.2, w: 0.3, h: 0.4, a: 1.5 };
 
 function seedSuggestGallery(worker) {
@@ -32,6 +59,7 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     page.on('request', request => {
         if (/face-assets|face-api/i.test(request.url())) faceAssets.push(request.url());
     });
+    await page.clock.install();
     await page.goto('/');
 
     const cards = page.locator('#photosGrid .gallery-card');
@@ -47,7 +75,9 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     await expect(popup).toBeHidden();
 
     // תיקייה: "טיול" מציע את "טיולים וסיורים" תחת "תיקיות ואירועים", עם המונה.
+    await holdClock(page);
     await search.pressSequentially('טיול');
+    await settleSuggestions(page);
     await expect(search).toHaveAttribute('aria-expanded', 'true');
     await expect(suggestionGroup(page, 'folder').locator('[role="columnheader"]')).toHaveText('תיקיות ואירועים');
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['טיולים וסיורים']);
@@ -60,6 +90,7 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     await search.press('ArrowLeft');
     await expect(search).toHaveAttribute('aria-activedescendant', 'searchHistoryCell-0-0');
     await search.press('Enter');
+    await page.clock.resume();
     await expect(popup).toBeHidden();
     await expect(search).toHaveValue('');
     await expect(page.locator('#folderList .collection-card.is-active')).toContainText('טיולים וסיורים');
@@ -68,19 +99,25 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     await expect(search).toBeFocused();
 
     // גרש וגרשיים בכל כתיבה: "חב'ד" מוצא את "כינוס חב״ד בצ׳רנוביל".
+    await holdClock(page);
     await search.fill("חב'ד");
+    await settleSuggestions(page);
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['כינוס חב״ד בצ׳רנוביל']);
     await search.press('Escape');
     await expect(popup).toBeHidden();
     await expect(search).toHaveValue("חב'ד");
     await search.fill('');
+    await page.clock.resume();
 
     // סוג הרגע, בכתיב חסר עם ניקוד: "רִקּוּד" → שבב "ריקוד". לחיצה בעכבר.
     await page.locator('#folderList .collection-card-main', { hasText: 'כל הארכיון' }).click();
+    await holdClock(page);
     await search.fill('רִקּוּד');
+    await settleSuggestions(page);
     await expect(suggestionGroup(page, 'tag').locator('[role="columnheader"]')).toHaveText('סוג הרגע');
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['ריקוד']);
     await suggestionRows(page).locator('[data-action="suggest"]').click();
+    await page.clock.resume();
     await expect(search).toHaveValue('');
     await expect(page.locator('#gallerySceneFilter .scene-chip[data-scene-tag="dance"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(cards.locator('.gallery-title')).toHaveText(['הקפה שנייה', 'מעגל בחצר']);
@@ -89,12 +126,15 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     await expect(cards).toHaveCount(4);
 
     // מעלה: בחירה מחפשת את השם כטקסט ורושמת אותו בחיפושים האחרונים.
+    await holdClock(page);
     await search.fill('רבקה');
+    await settleSuggestions(page);
     await expect(suggestionGroup(page, 'uploader').locator('[role="columnheader"]')).toHaveText('הועלו על ידי');
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['רבקה לוי']);
     await expect(suggestionRows(page).locator('.search-history-meta')).toHaveText(['2 פריטים']);
     await search.press('ArrowDown');
     await search.press('Enter');
+    await page.clock.resume();
     await expect(search).toHaveValue('רבקה לוי');
     await expect(cards.locator('.gallery-title')).toHaveText(['שולחן החג', 'מעגל בחצר']);
     await expect(status).toHaveText('החיפוש „רבקה לוי” הופעל.');
@@ -103,13 +143,16 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
 
     // אדם: רק המאושר עם השם, בלי הממתין והמוסתר. רשימת האנשים נמשכה פעם אחת,
     // ושום דבר של זיהוי פנים לא נטען.
+    await holdClock(page);
     await search.fill('יוס');
+    await settleSuggestions(page);
     await expect(suggestionGroup(page, 'person').locator('[role="columnheader"]')).toHaveText('אנשים');
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['יוסי כהן']);
     await expect(suggestionRows(page).locator('.search-history-meta')).toHaveText(['2 תמונות']);
     expect(worker.requestsTo('GET', '/face/').map(request => request.path)).toEqual(['/face/persons']);
     await search.press('ArrowDown');
     await search.press('Enter');
+    await page.clock.resume();
     await expect(page).toHaveURL(/#person\/fp_yossi$/);
     await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
     await expect(search).toHaveValue('');
@@ -117,10 +160,13 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     expect(faceAssets).toEqual([]);
 
     // מתוך האלבום, בחירה בתיקייה סוגרת אותו ומנקה את ה-hash.
+    await holdClock(page);
     await search.fill('אירוע');
+    await settleSuggestions(page);
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['אירועים ופעילויות']);
     await search.press('ArrowDown');
     await search.press('Enter');
+    await page.clock.resume();
     await expect(page).not.toHaveURL(/#person\//);
     await expect(page.locator('#tempSearchBanner')).toBeHidden();
     await expect(cards.locator('.gallery-title')).toHaveText(['שולחן החג']);
@@ -139,6 +185,7 @@ test('ההצעות והחיפושים הקודמים באותו תפריט: הצ
             // אחסון חסום.
         }
     }, [USER_KEY, JSON.stringify({ v: 1, recent: [{ query: 'משה כץ בחצר', filters: {}, at: now - 1000 }, { query: 'ברכה', filters: {}, at: now - 2000 }], saved: [], savedUpdatedAt: 0, savedSyncedAt: 0 })]);
+    await page.clock.install();
     await page.goto('/');
 
     const search = page.locator('#searchInput');
@@ -151,7 +198,11 @@ test('ההצעות והחיפושים הקודמים באותו תפריט: הצ
     await expect(suggestionRows(page)).toHaveCount(0);
 
     // "משה": ההצעה (מעלה) ראשונה, ואחריה החיפוש האחרון שמכיל את הטקסט ושורת הניקוי.
+    // השעון עומד עד שהשדה מתרוקן: "משה" אינו נרשם בדרך, ושתי השורות של
+    // החיפושים האחרונים הן בדיוק אלה שנזרעו.
+    await holdClock(page);
     await search.pressSequentially('משה');
+    await settleSuggestions(page);
     await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['משה כץ']);
     await expect(historyRows(page).locator('.search-history-query')).toHaveText(['משה כץ בחצר']);
     await expect(status).toHaveText('הצעה אחת ו־חיפוש אחרון אחד. חיצים למעלה ולמטה לבחירה.');
@@ -180,7 +231,8 @@ test('ההצעות והחיפושים הקודמים באותו תפריט: הצ
     await search.fill('');
     await search.press('ArrowDown');
     await expect(suggestionRows(page)).toHaveCount(0);
-    await expect(historyRows(page)).toHaveCount(2);
+    await expect(historyRows(page).locator('.search-history-query')).toHaveText(['משה כץ בחצר', 'ברכה']);
+    await page.clock.resume();
 
     // טקסט שאין לו הצעה ולא חיפוש קודם — התפריט נשאר סגור, ו-Enter מחפש כרגיל.
     await search.fill('xyz');
