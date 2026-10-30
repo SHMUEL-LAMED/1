@@ -89,6 +89,20 @@ test.describe('טלפון', () => {
         expect(before.height).toBeGreaterThan(150);
         expect(Math.abs(after - before.height)).toBeLessThan(1);
     });
+
+    test('בארכיון עם מעט תמונות הפסיפס אינו משאיר שורה ריקה בתחתית הקופסה', async ({ page, worker }) => {
+        worker.seedGallery({ images: 2 });
+        await seedSession(page, { worker });
+        await page.goto('/');
+        await expect(tiles(page)).toHaveCount(2);
+        // offsetTop/offsetHeight ולא getBoundingClientRect, בגלל האנימציה עם scale.
+        const box = await page.locator('#heroMosaic').evaluate(mosaic => {
+            const first = mosaic.firstElementChild;
+            return { mosaic: mosaic.offsetHeight, bottom: first.offsetTop + first.offsetHeight };
+        });
+        expect(box.mosaic).toBeGreaterThan(150);
+        expect(Math.abs(box.mosaic - box.bottom)).toBeLessThan(1);
+    });
 });
 
 test('חיבור מראש: הייצור כתוב בדף, וסביבת הניסוי מתווספת לפי api-environment.js', async ({ page, worker }) => {
