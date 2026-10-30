@@ -1,7 +1,7 @@
 // הצעות להשלמה בשדה החיפוש: תיקיות ואירועים, סוג הרגע, אנשים ומעלים, באותו
 // combobox של החיפושים האחרונים והשמורים. בחירה מפעילה את הסינון המתאים, ההתאמה
 // סלחנית לניקוד ולגרשיים, והאנשים נטענים עצלה — בלי פנים ובלי מנוע הזיהוי.
-import { test, expect, seedSession, imageRecord, DEFAULT_FOLDERS, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, DEFAULT_FOLDERS, DEFAULT_USER, openGalleryFilters } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
 import { SUGGEST_DEBOUNCE_MS } from '../search-suggest.js';
 
@@ -122,6 +122,8 @@ test('הצעות בזמן ההקלדה: קבוצות עם כותרות, מקלד
     await expect(page.locator('#gallerySceneFilter .scene-chip[data-scene-tag="dance"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(cards.locator('.gallery-title')).toHaveText(['הקפה שנייה', 'מעגל בחצר']);
     await expect(status).toHaveText('מוצגים פריטים מסוג ריקוד.');
+    // "כל הרגעים" בחלונית "סינון" של סרגל הכלים.
+    await openGalleryFilters(page);
     await page.locator('#gallerySceneFilter .scene-chip[data-scene-tag=""]').click();
     await expect(cards).toHaveCount(4);
 

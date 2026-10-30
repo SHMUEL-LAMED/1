@@ -2,7 +2,7 @@
 // חיפוש נרשם עם הסינון שלו, כוכב שומר אותו (גם במסמך userPreferences בענן),
 // לחיצה מחזירה את הטקסט ואת כל הסינונים, והמקלדת עובדת לפי תבנית ARIA.
 // הרשימה נפרדת לכל משתמש, ואחסון פגום או חסום אינו מפיל את הדף.
-import { test, expect, seedSession, signInViaGoogle, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, signInViaGoogle, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER, openGalleryFilters } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
 import { IDLE_COMMIT_MS } from '../search-history-ui.js';
 
@@ -79,6 +79,8 @@ test('חיפוש נרשם עם הסינון, כוכב שומר אותו בענן
     // חיפוש בתיקייה "טיולים וסיורים", סרטונים בלבד.
     await page.locator('#folderList .collection-card-main', { hasText: 'טיולים וסיורים' }).click();
     await expect(cards).toHaveCount(2);
+    // סוג המדיה בחלונית "סינון" של סרגל הכלים.
+    await openGalleryFilters(page);
     await page.locator('#galleryMediaTypeFilter').selectOption('video');
     await expect(cards).toHaveCount(1);
     await search.fill('ריקודים');
@@ -168,7 +170,8 @@ test('שבב סוג הרגע (תגית סצנה) נשמר עם החיפוש, מ�
     const chip = id => page.locator(`#gallerySceneFilter .scene-chip[data-scene-tag="${id}"]`);
     await expect(cards).toHaveCount(4);
 
-    // שבב "ריקוד" וטקסט, ו-Enter: החיפוש נרשם עם מזהה התגית.
+    // שבב "ריקוד" וטקסט, ו-Enter: החיפוש נרשם עם מזהה התגית. השבבים בחלונית "סינון".
+    await openGalleryFilters(page);
     await chip('dance').click();
     await expect(chip('dance')).toHaveAttribute('aria-pressed', 'true');
     await search.fill('ריקודים');
@@ -419,6 +422,7 @@ test('התנתקות והחלפת חשבון באותה לשונית: החיפו
     await signInViaGoogle(page, second);
     await expect(page.locator('#floatingUserPanelName')).toHaveText(second.name);
     await expect(cards).toHaveCount(1);
+    await openGalleryFilters(page);
     await mediaType.selectOption('');
     await expect(cards).toHaveCount(4);
     await idleCommitPassed(page);
@@ -437,6 +441,7 @@ test('התנתקות והחלפת חשבון באותה לשונית: החיפו
     await expect(page.locator('#floatingUserPanelName')).toHaveText(DEFAULT_USER.name);
     await expect(search).toHaveValue('');
     await expect(cards).toHaveCount(4);
+    await openGalleryFilters(page);
     await mediaType.selectOption('image');
     await expect(cards).toHaveCount(3);
     await idleCommitPassed(page);

@@ -3,7 +3,7 @@
 // הרינדור ההדרגתי — סימון החודש שבראש המסך בזמן גלילה (aria-current),
 // מקלדת, הסתרה במיון שאינו לפי תאריך ובחודש יחיד, וכפתור "קפיצה לתאריך"
 // עם חלונית במסך של טלפון.
-import { test, expect, seedSession, imageRecord } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, openGalleryFilters, closeGalleryFilters } from './fixtures.mjs';
 
 const capture = takenDate => ({ takenAt: Date.parse(`${takenDate}T10:00:00Z`), takenDate, takenAtSource: 'exif' });
 const day = (start, offset) => new Date(Date.parse(`${start}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
@@ -189,11 +189,13 @@ test.describe('מסך רחב: עמודה בצד הסוף של הגלריה', () 
         await expect(monthButtons(page).locator('.gallery-timeline-month-name')).toHaveText(['אדר', 'אב', 'אלול', 'תשרי']);
         await expect(monthButtons(page).first()).toHaveAttribute('aria-current', 'true');
 
-        // סינון לחודש אחד: אין לאן לקפוץ.
+        // סינון לחודש אחד: אין לאן לקפוץ. בורר החודש בחלונית "סינון".
+        await openGalleryFilters(page);
         await page.locator('#galleryHebrewMonthFilter').selectOption({ label: 'אלול' });
         await expect(cards(page)).toHaveCount(20);
         await expect(timeline).toBeHidden();
         await page.locator('#galleryHebrewMonthFilter').selectOption('');
+        await closeGalleryFilters(page);
         await expect(timeline).toBeVisible();
         await expect(monthButtons(page)).toHaveCount(4);
     });
@@ -222,13 +224,16 @@ test.describe('טלפון: כפתור צף "קפיצה לתאריך"', () => {
         await expect(page.locator('#galleryTimelineCurrent')).toHaveText('תשרי תשפ״ז');
         await expect(toggle).toHaveAttribute('aria-label', 'קפיצה לתאריך (כעת: תשרי תשפ״ז)');
 
-        // ליד "חזרה למעלה" ולא עליו, ובתוך רוחב המסך.
+        // בערימה אחת עם "חזרה למעלה" (מעליו) ולא עליו, ובתוך רוחב המסך.
         await page.evaluate(() => window.scrollBy({ top: 1800, behavior: 'instant' }));
         await expect(page.locator('#backToTop')).toHaveClass(/is-visible/);
         const toggleBox = await toggle.boundingBox();
         const backBox = await page.locator('#backToTop').boundingBox();
-        expect(toggleBox.x + toggleBox.width <= backBox.x || backBox.x + backBox.width <= toggleBox.x).toBe(true);
+        const apart = toggleBox.x + toggleBox.width <= backBox.x || backBox.x + backBox.width <= toggleBox.x
+            || toggleBox.y + toggleBox.height <= backBox.y || backBox.y + backBox.height <= toggleBox.y;
+        expect(apart).toBe(true);
         expect(toggleBox.x).toBeGreaterThanOrEqual(0);
+        expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(390);
 
         // פתיחה: הפוקוס עובר לחודש המסומן; Escape סוגר ומחזיר לכפתור.
         await toggle.tap();

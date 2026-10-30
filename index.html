@@ -195,146 +195,226 @@
                 <h1>📸 גלריית מסיבת סוף השנה</h1>
             </div>
 
-            <!-- סרגל הכלים: חיפוש, מיון וכלי ה-AI במקום אחד. -->
+            <!-- סרגל הכלים, בשלוש שכבות: (1) חיפוש, "סינון" ו"תצוגה" (מיון, גודל ופריסה);
+                 (2) הכלים — חיפוש AI ואנשים, מצגת ופריט אקראי — ומונה הפריטים;
+                 (3) שבבי המסננים הפעילים, כל אחד עם ×, ו"נקה הכל". כל הבוררים של הסינון
+                 יושבים בחלונית #galleryFilterPanel (gallery-filter-panel.js): במסך רחב
+                 היא נפתחת מתחת לסרגל, ובטלפון היא גיליון תחתון. המזהים והפונקציות של
+                 הבוררים לא השתנו, ולכן gallery.js ממשיך לנהל אותם כמו קודם. -->
             <div class="gallery-toolbar">
-                <!-- שדה החיפוש הוא combobox: בפוקוס נפתח מתחתיו תפריט של חיפושים
-                     שמורים ואחרונים, ובזמן ההקלדה גם הצעות להשלמה — באותו תפריט
-                     (search-history-ui.js, search-suggest-ui.js). -->
-                <div id="gallerySearchBox" class="gallery-search flex-1 min-w-[190px]">
-                    <label class="admin-menu-search">
-                        <i data-lucide="search" class="w-4 h-4"></i>
-                        <span class="sr-only">חיפוש בגלריה</span>
-                        <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תיאור, תאריך או תיקייה…" oninput="handleSearch(this.value)"
-                            role="combobox" aria-autocomplete="list" aria-haspopup="grid" aria-expanded="false" aria-controls="searchHistoryPopup"
-                            aria-describedby="searchHistoryHint">
-                        <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
-                    </label>
-                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה, ובזמן ההקלדה גם הצעות: תיקיות, סוג הרגע, אנשים ומעלים. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
-                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים והצעות" hidden></div>
-                    <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
+                <div class="toolbar-main">
+                    <!-- שדה החיפוש הוא combobox: בפוקוס נפתח מתחתיו תפריט של חיפושים
+                         שמורים ואחרונים, ובזמן ההקלדה גם הצעות להשלמה — באותו תפריט
+                         (search-history-ui.js, search-suggest-ui.js). -->
+                    <div id="gallerySearchBox" class="gallery-search">
+                        <label class="admin-menu-search">
+                            <i data-lucide="search" class="w-4 h-4"></i>
+                            <span class="sr-only">חיפוש בגלריה</span>
+                            <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תיאור, תאריך או תיקייה…" oninput="handleSearch(this.value)"
+                                role="combobox" aria-autocomplete="list" aria-haspopup="grid" aria-expanded="false" aria-controls="searchHistoryPopup"
+                                aria-describedby="searchHistoryHint">
+                            <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
+                        </label>
+                        <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה, ובזמן ההקלדה גם הצעות: תיקיות, סוג הרגע, אנשים ומעלים. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
+                        <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים והצעות" hidden></div>
+                        <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
+                    </div>
+
+                    <button type="button" id="galleryFilterToggle" class="toolbar-filter-toggle" onclick="toggleGalleryFilters()"
+                        aria-expanded="false" aria-controls="galleryFilterPanel" aria-haspopup="dialog" title="סינון לפי תאריך, סוג מדיה, כיוון וסוג הרגע">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4" aria-hidden="true"></i>
+                        <span>סינון</span>
+                        <span id="galleryFilterCount" class="filter-count" hidden><span id="galleryFilterCountValue">0</span><span class="sr-only"> מסננים פעילים</span></span>
+                    </button>
+
+                    <!-- "תצוגה": מיון, גודל הכרטיסים ופריסת הרשת. שני המתגים נשמרים לכל
+                         צופה בדפדפן (app.js, gallery-layout.js). "פסיפס" שומר על יחס כל תמונה. -->
+                    <div class="toolbar-view" role="group" aria-label="תצוגה">
+                        <span class="toolbar-group-label" aria-hidden="true">תצוגה</span>
+                        <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="toolbar-select">
+                            <option value="newest">החדש ביותר</option>
+                            <option value="oldest">הישן ביותר</option>
+                            <option value="name">לפי שם</option>
+                            <option value="random">אקראי</option>
+                        </select>
+                        <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
+                             אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
+                        <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden toolbar-icon-button" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
+                            <i data-lucide="shuffle" class="w-4 h-4"></i>
+                        </button>
+                        <div class="density-toggle" role="group" aria-label="גודל הכרטיסים">
+                            <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
+                            <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
+                            <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
+                        </div>
+                        <div class="density-toggle layout-toggle" role="group" aria-label="פריסת הגלריה">
+                            <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
+                            <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
+                        </div>
+                        <!-- חלון קיצורי המקלדת (גם "?" במקלדת, gallery-navigation-ui.js). בטלפון מוסתר. -->
+                        <button type="button" onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
+                    </div>
                 </div>
 
-                <div class="gallery-tools">
-                    <!-- גודל הכרטיסים ופריסת הרשת: שני מתגים קטנים, נשמרים לכל צופה
-                         בדפדפן (app.js, gallery-layout.js). "פסיפס" שומר על יחס כל תמונה. -->
-                    <div class="density-toggle" role="group" aria-label="גודל הכרטיסים">
-                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
-                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
-                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
-                    </div>
-                    <div class="density-toggle layout-toggle" role="group" aria-label="פריסת הגלריה">
-                        <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
-                        <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
-                    </div>
-                    <!-- חלון קיצורי המקלדת (גם "?" במקלדת, gallery-navigation-ui.js). בטלפון מוסתר. -->
-                    <button type="button" onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
-                    <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="w-auto text-xs py-2">
-                        <option value="newest">החדש ביותר</option>
-                        <option value="oldest">הישן ביותר</option>
-                        <option value="name">לפי שם</option>
-                        <option value="random">אקראי</option>
-                    </select>
-                    <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
-                         אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
-                    <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
-                        <i data-lucide="shuffle" class="w-4 h-4"></i>
-                    </button>
-                    <!-- סינון לפי התאריך העברי של יום הצילום. האפשרויות נגזרות מהפריטים
-                         שבתיקייה (gallery.js, renderHebrewDateFilters). -->
-                    <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter w-auto text-xs py-2">
-                        <option value="">כל השנים</option>
-                    </select>
-                    <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter w-auto text-xs py-2">
-                        <option value="">כל החודשים</option>
-                    </select>
-                    <!-- טווח תאריכים עברי: מחודש ושנה עד חודש ושנה (hebrew-date-range.js).
-                         הכפתור פותח חלונית קטנה, ומציג את הטווח כשהוא פעיל (gallery.js,
-                         renderDateRangeControl). מצטרף לשנה ולחודש שמימינו ולשאר הסינונים. -->
-                    <div class="date-range">
-                        <button type="button" id="galleryDateRangeToggle" onclick="toggleGalleryDateRange()" class="date-range-toggle text-xs" data-active="false"
-                            aria-expanded="false" aria-controls="galleryDateRangePanel" title="סינון לפי טווח תאריכים עבריים">
-                            <i data-lucide="calendar-range" class="w-4 h-4" aria-hidden="true"></i><span class="sr-only">סינון לפי </span><span id="galleryDateRangeLabel">טווח תאריכים</span>
+                <!-- הכלים: חיפוש חכם ואנשים, ואחריהם מצגת, מסך גדול, פריט אקראי ובחירה
+                     מרובה. בטלפון השורה נגללת לרוחב בתוך עצמה בלבד. -->
+                <div class="toolbar-actions">
+                    <div class="toolbar-cluster" role="group" aria-label="חיפוש חכם ואנשים">
+                        <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="tool-button is-accent">
+                            <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
                         </button>
-                        <div id="galleryDateRangePanel" class="date-range-panel" role="group" aria-labelledby="galleryDateRangeHeading" hidden>
-                            <p id="galleryDateRangeHeading" class="date-range-heading">טווח תאריכים</p>
-                            <div class="date-range-row" role="group" aria-label="תחילת הטווח">
-                                <span class="date-range-edge" aria-hidden="true">מ־</span>
-                                <select id="galleryDateRangeFromMonth" onchange="setGalleryDateRange()" aria-label="מחודש" class="text-xs py-2" disabled>
-                                    <option value="">מתחילת השנה</option>
-                                </select>
-                                <select id="galleryDateRangeFromYear" onchange="setGalleryDateRange()" aria-label="משנה" class="text-xs py-2">
-                                    <option value="">בלי גבול</option>
-                                </select>
-                            </div>
-                            <div class="date-range-row" role="group" aria-label="סוף הטווח">
-                                <span class="date-range-edge" aria-hidden="true">עד</span>
-                                <select id="galleryDateRangeToMonth" onchange="setGalleryDateRange()" aria-label="עד חודש" class="text-xs py-2" disabled>
-                                    <option value="">עד סוף השנה</option>
-                                </select>
-                                <select id="galleryDateRangeToYear" onchange="setGalleryDateRange()" aria-label="עד שנה" class="text-xs py-2">
-                                    <option value="">בלי גבול</option>
-                                </select>
-                            </div>
-                            <div class="date-range-actions">
-                                <button type="button" id="galleryDateRangeClear" onclick="clearGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs" disabled>נקה טווח</button>
-                                <button type="button" onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs">סגור</button>
-                            </div>
-                        </div>
+                        <button type="button" onclick="openPeopleDirectory()" title="האנשים שזוהו בגלריה, עם כל התמונות של כל אחד" class="tool-button is-accent">
+                            <i data-lucide="users-round" class="w-4 h-4"></i><span>אנשים</span>
+                        </button>
+                        <button type="button" onclick="openFindMe()" title="מציאת התמונות שבהן אני מופיע" class="tool-button is-accent">
+                            <i data-lucide="user-round-search" class="w-4 h-4"></i><span>התמונות שלי</span>
+                        </button>
+                        <button type="button" onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="tool-button is-accent">
+                            <i data-lucide="brain-circuit" class="w-4 h-4"></i><span>חיפוש AI</span>
+                        </button>
                     </div>
-                    <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter w-auto text-xs py-2">
-                        <option value="">תמונות וסרטונים</option>
-                        <option value="image">תמונות בלבד</option>
-                        <option value="video">סרטונים בלבד</option>
-                    </select>
-                    <!-- אורך הסרטון: מוצג רק ב"סרטונים בלבד" (video-length.js). סרטון בלי
-                         אורך ידוע אינו נכלל, והמספר שלהם מוצג ב-#galleryVideoLengthNote. -->
-                    <select id="galleryVideoLengthFilter" onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter w-auto text-xs py-2" hidden>
-                        <option value="">אורך: הכל</option>
-                        <option value="short">קצרים (עד דקה)</option>
-                        <option value="medium">בינוניים (1–5 דקות)</option>
-                        <option value="long">ארוכים (מעל 5 דקות)</option>
-                    </select>
-                    <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
-                         והמספר שלהם מוצג ב-#galleryOrientationNote. -->
-                    <select id="galleryOrientationFilter" onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter w-auto text-xs py-2">
-                        <option value="">כל הכיוונים</option>
-                        <option value="portrait">לאורך</option>
-                        <option value="landscape">לרוחב</option>
-                        <option value="square">ריבועית</option>
-                    </select>
-                    <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
-                        <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
-                    </button>
-                    <button type="button" onclick="openPeopleDirectory()" title="האנשים שזוהו בגלריה, עם כל התמונות של כל אחד" class="face-search-button people-tool-button px-3 py-2 text-xs">
-                        <i data-lucide="users-round" class="w-4 h-4"></i><span>אנשים</span>
-                    </button>
-                    <button type="button" onclick="openFindMe()" title="מציאת התמונות שבהן אני מופיע" class="face-search-button people-tool-button px-3 py-2 text-xs">
-                        <i data-lucide="user-round-search" class="w-4 h-4"></i><span>התמונות שלי</span>
-                    </button>
-                    <button type="button" onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="face-search-button px-3 py-2 text-xs">
-                        <i data-lucide="brain-circuit" class="w-4 h-4"></i><span>חיפוש AI</span>
-                    </button>
-                    <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
-                        <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
-                    </button>
-                    <!-- מצגת במסך מלא לאולם, שמוסיפה לבד פריטים חדשים (big-screen.js). -->
-                    <button type="button" onclick="startBigScreen()" class="btn-secondary-dark px-3 py-2 text-xs" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
-                        <i data-lucide="tv" class="w-4 h-4"></i><span class="hidden sm:inline">מסך גדול</span>
-                    </button>
-                    <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="btn-secondary-dark px-3 py-2 text-xs" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
-                        <i data-lucide="dices" class="w-4 h-4"></i><span class="hidden sm:inline">תמונה אקראית</span>
-                    </button>
-                    <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="בחירה מרובה">
-                        <i data-lucide="list-checks" class="w-4 h-4"></i><span class="hidden sm:inline">בחירה מרובה</span>
-                    </button>
+                    <span class="toolbar-divider" aria-hidden="true"></span>
+                    <div class="toolbar-cluster" role="group" aria-label="צפייה">
+                        <button type="button" onclick="startGallerySlideshow()" class="tool-button" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
+                            <i data-lucide="play" class="w-4 h-4"></i><span class="tool-button-text">מצגת</span>
+                        </button>
+                        <!-- מצגת במסך מלא לאולם, שמוסיפה לבד פריטים חדשים (big-screen.js). -->
+                        <button type="button" onclick="startBigScreen()" class="tool-button" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
+                            <i data-lucide="tv" class="w-4 h-4"></i><span class="tool-button-text">מסך גדול</span>
+                        </button>
+                        <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="tool-button" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
+                            <i data-lucide="dices" class="w-4 h-4"></i><span class="tool-button-text">אקראי</span>
+                        </button>
+                        <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden tool-button" title="בחירה מרובה">
+                            <i data-lucide="list-checks" class="w-4 h-4"></i><span class="tool-button-text">בחירה מרובה</span>
+                        </button>
+                    </div>
                     <span id="imageCounter">טוען...</span>
                 </div>
-                <!-- סינון לפי סוג הרגע (תגיות הסצנה). השבבים נגזרים מהפריטים שבתצוגה
-                     (media-description.js), והשורה מוסתרת כשאין לאף פריט תגית. -->
-                <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
+
+                <!-- המסננים הפעילים: שבב לכל מסנן, עם × להסרה, ו"נקה הכל". נבנה
+                     ב-gallery-filter-panel.js מתוך המצב של הגלריה, ומוסתר כשאין מסנן. -->
+                <div id="galleryActiveFilters" class="active-filters" role="group" aria-label="מסננים פעילים" hidden>
+                    <ul id="galleryActiveFilterChips" class="active-filter-chips"></ul>
+                    <button type="button" id="galleryFilterClearAll" class="active-filters-clear" onclick="clearGalleryFilters()">נקה הכל</button>
+                </div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
                 <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
                 <p id="galleryVideoLengthNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
+
+                <!-- חלונית הסינון. במסך רחב — חלונית צפה מתחת לסרגל (aria-modal="false");
+                     בטלפון — גיליון תחתון עם רקע מעומעם ומלכודת פוקוס (aria-modal="true"). -->
+                <div id="galleryFilterBackdrop" class="filter-backdrop" onclick="closeGalleryFilters()" aria-hidden="true" hidden></div>
+                <div id="galleryFilterPanel" class="filter-panel" role="dialog" aria-modal="false" aria-labelledby="galleryFilterTitle" hidden>
+                    <div class="filter-panel-head">
+                        <span class="filter-sheet-grip" aria-hidden="true"></span>
+                        <h2 id="galleryFilterTitle" class="filter-panel-title"><i data-lucide="sliders-horizontal" class="w-4 h-4" aria-hidden="true"></i> סינון הגלריה</h2>
+                        <button type="button" class="filter-panel-close" onclick="closeGalleryFilters({ focus: true })" aria-label="סגירת חלונית הסינון"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                    <div class="filter-panel-body">
+                        <section class="filter-group" aria-labelledby="galleryFilterDateHeading">
+                            <h3 id="galleryFilterDateHeading" class="filter-group-title">תאריך עברי</h3>
+                            <!-- סינון לפי התאריך העברי של יום הצילום. האפשרויות נגזרות מהפריטים
+                                 שבתיקייה (gallery.js, renderHebrewDateFilters). -->
+                            <div class="filter-fields">
+                                <label class="filter-field">
+                                    <span class="filter-field-label" aria-hidden="true">שנה</span>
+                                    <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter">
+                                        <option value="">כל השנים</option>
+                                    </select>
+                                </label>
+                                <label class="filter-field">
+                                    <span class="filter-field-label" aria-hidden="true">חודש</span>
+                                    <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter">
+                                        <option value="">כל החודשים</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <!-- טווח תאריכים עברי: מחודש ושנה עד חודש ושנה (hebrew-date-range.js).
+                                 הכפתור פותח את הגבולות כאן, בתוך החלונית, ומציג את הטווח כשהוא פעיל
+                                 (gallery.js, renderDateRangeControl). מצטרף לשנה ולחודש ולשאר הסינונים. -->
+                            <div class="date-range">
+                                <button type="button" id="galleryDateRangeToggle" onclick="toggleGalleryDateRange()" class="date-range-toggle" data-active="false"
+                                    aria-expanded="false" aria-controls="galleryDateRangePanel" title="סינון לפי טווח תאריכים עבריים">
+                                    <i data-lucide="calendar-range" class="w-4 h-4" aria-hidden="true"></i><span class="sr-only">סינון לפי </span><span id="galleryDateRangeLabel">טווח תאריכים</span>
+                                </button>
+                                <div id="galleryDateRangePanel" class="date-range-panel" role="group" aria-labelledby="galleryDateRangeHeading" hidden>
+                                    <p id="galleryDateRangeHeading" class="date-range-heading">טווח תאריכים</p>
+                                    <div class="date-range-row" role="group" aria-label="תחילת הטווח">
+                                        <span class="date-range-edge" aria-hidden="true">מ־</span>
+                                        <select id="galleryDateRangeFromMonth" onchange="setGalleryDateRange()" aria-label="מחודש" disabled>
+                                            <option value="">מתחילת השנה</option>
+                                        </select>
+                                        <select id="galleryDateRangeFromYear" onchange="setGalleryDateRange()" aria-label="משנה">
+                                            <option value="">בלי גבול</option>
+                                        </select>
+                                    </div>
+                                    <div class="date-range-row" role="group" aria-label="סוף הטווח">
+                                        <span class="date-range-edge" aria-hidden="true">עד</span>
+                                        <select id="galleryDateRangeToMonth" onchange="setGalleryDateRange()" aria-label="עד חודש" disabled>
+                                            <option value="">עד סוף השנה</option>
+                                        </select>
+                                        <select id="galleryDateRangeToYear" onchange="setGalleryDateRange()" aria-label="עד שנה">
+                                            <option value="">בלי גבול</option>
+                                        </select>
+                                    </div>
+                                    <div class="date-range-actions">
+                                        <button type="button" id="galleryDateRangeClear" onclick="clearGalleryDateRange()" class="btn-ghost px-3 text-xs" disabled>נקה טווח</button>
+                                        <button type="button" onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 text-xs">סגור</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="filter-group" aria-labelledby="galleryFilterMediaHeading">
+                            <h3 id="galleryFilterMediaHeading" class="filter-group-title">סוג וצורה</h3>
+                            <div class="filter-fields">
+                                <label class="filter-field">
+                                    <span class="filter-field-label" aria-hidden="true">סוג מדיה</span>
+                                    <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter">
+                                        <option value="">תמונות וסרטונים</option>
+                                        <option value="image">תמונות בלבד</option>
+                                        <option value="video">סרטונים בלבד</option>
+                                    </select>
+                                </label>
+                                <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
+                                     והמספר שלהם מוצג ב-#galleryOrientationNote. -->
+                                <label class="filter-field">
+                                    <span class="filter-field-label" aria-hidden="true">כיוון</span>
+                                    <select id="galleryOrientationFilter" onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter">
+                                        <option value="">כל הכיוונים</option>
+                                        <option value="portrait">לאורך</option>
+                                        <option value="landscape">לרוחב</option>
+                                        <option value="square">ריבועית</option>
+                                    </select>
+                                </label>
+                                <!-- אורך הסרטון: מוצג רק ב"סרטונים בלבד" (video-length.js), וגם
+                                     התווית שלו (CSS, :has). סרטון בלי אורך ידוע אינו נכלל, והמספר
+                                     שלהם מוצג ב-#galleryVideoLengthNote. -->
+                                <label class="filter-field filter-field-video-length">
+                                    <span class="filter-field-label" aria-hidden="true">אורך הסרטון</span>
+                                    <select id="galleryVideoLengthFilter" onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter" hidden>
+                                        <option value="">אורך: הכל</option>
+                                        <option value="short">קצרים (עד דקה)</option>
+                                        <option value="medium">בינוניים (1–5 דקות)</option>
+                                        <option value="long">ארוכים (מעל 5 דקות)</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="filter-group filter-group-scenes" aria-labelledby="galleryFilterSceneHeading">
+                            <h3 id="galleryFilterSceneHeading" class="filter-group-title">סוג הרגע</h3>
+                            <!-- סינון לפי סוג הרגע (תגיות הסצנה). השבבים נגזרים מהפריטים שבתצוגה
+                                 (media-description.js), והקבוצה מוסתרת כשאין לאף פריט תגית. -->
+                            <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
+                        </section>
+                    </div>
+                    <div class="filter-panel-foot">
+                        <button type="button" id="galleryFilterPanelClear" class="btn-ghost" onclick="clearGalleryFilters()">נקה הכל</button>
+                        <button type="button" id="galleryFilterDone" class="btn-primary-gold" onclick="closeGalleryFilters({ focus: true })"><span id="galleryFilterDoneLabel">הצגת הפריטים</span></button>
+                    </div>
+                </div>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">

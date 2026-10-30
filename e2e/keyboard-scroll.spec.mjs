@@ -2,7 +2,7 @@
 // אמיתי: חלון "?" ומתי הוא שותק, D ו-F בתצוגה המלאה לצד החצים (מימין לשמאל),
 // חזרה לאותו מקום ולאותו כרטיס אחרי התצוגה המלאה, עמוד האירוע ואלבום של אדם
 // ב"חזור" של הדפדפן, והכפתור שמופיע אחרי כשני מסכים.
-import { test, expect, seedSession, imageRecord, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, DEFAULT_USER, openGalleryFilters, closeGalleryFilters } from './fixtures.mjs';
 
 const cards = page => page.locator('#photosGrid .gallery-card');
 const card = (page, index) => page.locator(`#photosGrid .gallery-card[data-media-id="img_e2e_${index}"]`);
@@ -282,8 +282,11 @@ test('סינון לפי כיוון שנבחר בתוך אלבום של אדם: "
 
     await page.evaluate(() => { window.location.hash = '#person/fp_yossi'; });
     await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+    // הכיוון בחלונית "סינון" של סרגל הכלים; נסגרת לפני החזרה.
+    await openGalleryFilters(page);
     await page.locator('#galleryOrientationFilter').selectOption('portrait');
     await expect(cards(page)).toHaveCount(2);
+    await closeGalleryFilters(page);
 
     await page.goBack();
     await expect(page.locator('#tempSearchBanner')).toBeHidden();

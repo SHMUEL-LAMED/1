@@ -1,7 +1,7 @@
 // תאריך הצילום והתאריך העברי בגלריה: הכרטיס מציג את התאריך העברי של יום
 // הצילום (ובלעדיו — של יום ההעלאה), התצוגה המלאה מציגה אותו עם הלועזי,
 // המיון "החדש ביותר" הוא לפי takenAt, ובוררי השנה והחודש העבריים מסננים.
-import { test, expect, seedSession, imageRecord, DEFAULT_FOLDERS } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, DEFAULT_FOLDERS, openGalleryFilters } from './fixtures.mjs';
 
 const capture = (iso, takenDate) => ({ takenAt: Date.parse(iso), takenDate, takenAtSource: 'exif' });
 
@@ -55,6 +55,8 @@ test('סינון לפי שנה עברית ולפי חודש עברי, כולל �
 
     const cards = page.locator('#photosGrid .gallery-card');
     await expect(cards).toHaveCount(4);
+    // הבוררים בחלונית "סינון" של סרגל הכלים.
+    await openGalleryFilters(page);
     const year = page.locator('#galleryHebrewYearFilter');
     const month = page.locator('#galleryHebrewMonthFilter');
     await expect(year.locator('option')).toHaveText(['כל השנים', 'תשפ״ז', 'תשפ״ו', 'תשפ״ד']);
