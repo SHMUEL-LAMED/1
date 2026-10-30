@@ -3334,7 +3334,10 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink);
 }
 .modal-head h3 > svg { color: var(--gold); }
-.modal-head .modal-close {
+/* כפתור הסגירה של חלון. גם כשאינו בכותרת (מעל תמונת השער של עמוד האירוע,
+   מעל הודעת הפופ-אפ) הוא מקבל את אותו גודל: בלי זה הוא היה רק האייקון, יעד
+   מגע של 20px בלי רקע, ובלי האייקון (סקריפט שלא נטען) — כפתור בגודל אפס. */
+.modal-close {
     width: 38px;
     height: 38px;
     flex: none;
@@ -3346,7 +3349,17 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink-3);
     transition: transform .3s var(--ease-spring), color .2s var(--ease), background .2s var(--ease);
 }
-.modal-head .modal-close:hover { color: var(--ink); background: var(--panel-3); transform: rotate(90deg); }
+.modal-close:hover { color: var(--ink); background: var(--panel-3); transform: rotate(90deg); }
+/* מעל תמונה: רקע כהה שקוף ו-X לבן, כדי שייראה גם על שער בהיר ובשני המצבים. */
+#eventPageModal .modal-close,
+#popupAnnouncementModal .modal-close {
+    background: var(--media-scrim);
+    border-color: rgba(255, 255, 255, .22);
+    color: #fff;
+    backdrop-filter: blur(6px);
+}
+#eventPageModal .modal-close:hover,
+#popupAnnouncementModal .modal-close:hover { color: #fff; background: rgba(0, 0, 0, .72); }
 
 .modal-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .modal-body p { color: var(--ink-3); font-size: 13px; line-height: 1.7; }

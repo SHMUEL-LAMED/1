@@ -38,7 +38,9 @@ import {
 import { initBigScreen, startBigScreen, noteBigScreenSlide } from './big-screen.js';
 import { insertAfterIndex, removeFromRotation } from './big-screen-model.js';
 // כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
-import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
+import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel } from './scene-tags.js';
+// הטקסט החלופי של התמונה: הכיתוב, אחרת השם, אחרת "תמונה שצולמה ב…" (media-alt.js).
+import { mediaAltText } from './media-alt.js';
 import {
     renderSceneFilterChips, installSceneFilterChips, renderLightboxDescription,
     installLightboxDescription, openDescriptionEditor
@@ -129,6 +131,7 @@ window.checkNewUpdates = function() {
 // כנגמר עכשיו — כדי שהמשתמש הבא יתחיל מהרשומה שלו באחסון. מי שחוזר תוך
 // הביקור מקבל ממנה את אותה נקודה, כמו ברענון.
 function resetNewUpdatesState() {
+    newUpdatesGeneration += 1;
     for (const uid of visitBaselines.keys()) touchVisit({ userId: uid });
     visitBaselines.clear();
     setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
@@ -136,7 +139,14 @@ function resetNewUpdatesState() {
 
 // כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
 const RECENT_UPDATES_LIMIT = 200;
+// מתקדם בכל לחיצה על "צפה עכשיו" ובכל איפוס (התנתקות, החלפת חשבון, אובדן
+// אישור — resetNewUpdatesState), כמו mediaLinkGeneration של הקישורים הישירים:
+// תשובה שחוזרת אחרי שהחשבון התחלף אינה ממלאת את tempSearchResults, אחרת
+// הרשימה של המשתמש הקודם הייתה מוצגת למי שבא אחריו.
+let newUpdatesGeneration = 0;
 async function showNewUpdates() {
+    const generation = ++newUpdatesGeneration;
+    const uid = window.state.currentUser?.uid || '';
     markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
@@ -158,6 +168,9 @@ async function showNewUpdates() {
     } catch (error) {
         console.warn('Recent updates query failed:', error);
     }
+    // גם המזהה נבדק, ולא רק המונה: החלפת חשבון שלא עברה דרך האיפוס אינה
+    // מקבלת את הרשימה. לחיצה חדשה בינתיים — רק התשובה האחרונה מוצגת.
+    if (generation !== newUpdatesGeneration || (window.state.currentUser?.uid || '') !== uid || !canViewGallery()) return;
     window.state.tempSearchResults = since
         ? recent.filter(img => isNewSince(img, since))
         : recent.filter(img => (img.createdAt || 0) >= weekAgo);
@@ -1824,7 +1837,7 @@ function buildGalleryCard(img, isEditBlocked) {
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i><span class="gallery-badge-label">סרטון${durationLabel ? ' ·' : ''}</span>${durationLabel ? `<span class="gallery-badge-duration">${durationLabel}</span>` : ''}</span>`
-        : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
+        : buildCardPicture(cardSource, window.escapeHtml(mediaAltText(img)));
     // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
     // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
     const mediaRatio = mediaAspectRatio(img);
@@ -1866,9 +1879,9 @@ function buildCardDate(img) {
 // ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
 // ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
 // כשהתמונה נטענת — handleCardImageLoad (עצירת השלד והיחס של הכרטיס).
-function buildCardPicture(source, title) {
+function buildCardPicture(source, altText) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
@@ -3619,9 +3632,9 @@ function updateLightbox(immediate = false) {
     if(lbDetails) lbDetails.innerText = `${isVideo ? `סרטון${formatMediaDuration(img.duration) ? ` (${formatMediaDuration(img.duration)})` : ''}` : 'תמונה'} • ${lightboxDateLabel(img)} • תיקייה: ${f ? f.name : 'כללי'}`;
 
     // הכיתוב ותגיות הסצנה, וכפתור העריכה למנהל. הכיתוב הוא גם הטקסט החלופי
-    // של התמונה לקוראי מסך, כשיש כזה.
+    // של התמונה לקוראי מסך, כשיש כזה; אחרת השם או התאריך (media-alt.js).
     renderLightboxDescription(img, { canEdit: Boolean(window.state.isAdminLoggedIn) });
-    if (lbImage && !isVideo) lbImage.alt = normalizeCaption(img.caption) || img.title || 'תצוגת תמונה';
+    if (lbImage && !isVideo) lbImage.alt = mediaAltText(img);
 
     const lbDownload = document.getElementById('lightboxDownload');
     if(lbDownload) {

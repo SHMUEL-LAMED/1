@@ -1,0 +1,39 @@
+# עדכוני תלויות אוטומטיים (Dependabot): PR מקובץ אחד בשבוע לכל סוג, ולא זרם
+# של PR־ים. כל PR עובר את אותן בדיקות של checks.yml (יחידה, CSS, בנייה ו־e2e),
+# ולכן עדכון ששובר משהו נתפס לפני המיזוג.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: sunday
+      timezone: Asia/Jerusalem
+    open-pull-requests-limit: 5
+    groups:
+      # כל תלויות הפיתוח (Vite, Tailwind, Playwright) ב־PR אחד: הן נבדקות יחד
+      # בבנייה ובבדיקות הדפדפן, ועדכון של אחת לבד אינו חוסך כלום.
+      dev-dependencies:
+        dependency-type: development
+    ignore:
+      # גרסה ראשית של אלה משנה את הבנייה, את פלט ה־CSS (tailwind.generated.css
+      # נבדק מול הבנייה ב־check:css) או את הדפדפן של הבדיקות — שדרוג כזה נעשה
+      # ביד, בכוונה, ולא מגיע בהפתעה ב־PR שבועי. עדכוני minor ו־patch ממשיכים.
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tailwindcss
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@playwright/test"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: sunday
+      timezone: Asia/Jerusalem
+    groups:
+      # actions/checkout, setup-node וחברותיהן ב־PR אחד.
+      github-actions:
+        patterns:
+          - "*"

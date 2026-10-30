@@ -49,6 +49,7 @@ const APP_SHELL = [
   "./video-length.js",
   "./scene-tags.js",
   "./media-description.js",
+  "./media-alt.js",
   "./lightbox-math.js",
   "./lightbox-gestures.js",
   "./lightbox-slideshow.js",
