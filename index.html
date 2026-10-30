@@ -239,10 +239,52 @@
                     <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter w-auto text-xs py-2">
                         <option value="">כל החודשים</option>
                     </select>
+                    <!-- טווח תאריכים עברי: מחודש ושנה עד חודש ושנה (hebrew-date-range.js).
+                         הכפתור פותח חלונית קטנה, ומציג את הטווח כשהוא פעיל (gallery.js,
+                         renderDateRangeControl). מצטרף לשנה ולחודש שמימינו ולשאר הסינונים. -->
+                    <div class="date-range">
+                        <button type="button" id="galleryDateRangeToggle" onclick="toggleGalleryDateRange()" class="date-range-toggle text-xs" data-active="false"
+                            aria-expanded="false" aria-controls="galleryDateRangePanel" title="סינון לפי טווח תאריכים עבריים">
+                            <i data-lucide="calendar-range" class="w-4 h-4" aria-hidden="true"></i><span class="sr-only">סינון לפי </span><span id="galleryDateRangeLabel">טווח תאריכים</span>
+                        </button>
+                        <div id="galleryDateRangePanel" class="date-range-panel" role="group" aria-labelledby="galleryDateRangeHeading" hidden>
+                            <p id="galleryDateRangeHeading" class="date-range-heading">טווח תאריכים</p>
+                            <div class="date-range-row" role="group" aria-label="תחילת הטווח">
+                                <span class="date-range-edge" aria-hidden="true">מ־</span>
+                                <select id="galleryDateRangeFromMonth" onchange="setGalleryDateRange()" aria-label="מחודש" class="text-xs py-2" disabled>
+                                    <option value="">מתחילת השנה</option>
+                                </select>
+                                <select id="galleryDateRangeFromYear" onchange="setGalleryDateRange()" aria-label="משנה" class="text-xs py-2">
+                                    <option value="">בלי גבול</option>
+                                </select>
+                            </div>
+                            <div class="date-range-row" role="group" aria-label="סוף הטווח">
+                                <span class="date-range-edge" aria-hidden="true">עד</span>
+                                <select id="galleryDateRangeToMonth" onchange="setGalleryDateRange()" aria-label="עד חודש" class="text-xs py-2" disabled>
+                                    <option value="">עד סוף השנה</option>
+                                </select>
+                                <select id="galleryDateRangeToYear" onchange="setGalleryDateRange()" aria-label="עד שנה" class="text-xs py-2">
+                                    <option value="">בלי גבול</option>
+                                </select>
+                            </div>
+                            <div class="date-range-actions">
+                                <button type="button" id="galleryDateRangeClear" onclick="clearGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs" disabled>נקה טווח</button>
+                                <button type="button" onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs">סגור</button>
+                            </div>
+                        </div>
+                    </div>
                     <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter w-auto text-xs py-2">
                         <option value="">תמונות וסרטונים</option>
                         <option value="image">תמונות בלבד</option>
                         <option value="video">סרטונים בלבד</option>
+                    </select>
+                    <!-- אורך הסרטון: מוצג רק ב"סרטונים בלבד" (video-length.js). סרטון בלי
+                         אורך ידוע אינו נכלל, והמספר שלהם מוצג ב-#galleryVideoLengthNote. -->
+                    <select id="galleryVideoLengthFilter" onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter w-auto text-xs py-2" hidden>
+                        <option value="">אורך: הכל</option>
+                        <option value="short">קצרים (עד דקה)</option>
+                        <option value="medium">בינוניים (1–5 דקות)</option>
+                        <option value="long">ארוכים (מעל 5 דקות)</option>
                     </select>
                     <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
                          והמספר שלהם מוצג ב-#galleryOrientationNote. -->
@@ -284,6 +326,7 @@
                 <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
                 <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
+                <p id="galleryVideoLengthNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">

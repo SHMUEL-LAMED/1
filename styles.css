@@ -3007,6 +3007,56 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink-3);
 }
 .gallery-filter-note[hidden] { display: none; }
+/* "טווח תאריכים" בסרגל הכלים (gallery.js, renderDateRangeControl): כפתור בגובה
+   הבוררים שלצידו, וחלונית קטנה עם שני גבולות — חודש ושנה עבריים לכל אחד. */
+.date-range { position: relative; flex: none; }
+.date-range-toggle {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink-2);
+    font-weight: 700;
+    white-space: nowrap;
+    transition: border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+}
+.date-range-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+.date-range-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.date-range-toggle[data-active="true"] { border-color: var(--gold-line); background: var(--gold-tint); color: var(--gold); }
+.date-range-toggle svg { width: 16px; height: 16px; flex: none; }
+.date-range-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 45;
+    width: min(320px, calc(100vw - 32px));
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-3);
+}
+.date-range-panel[hidden] { display: none; }
+.date-range-heading { margin: 0; font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.date-range-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 6px; }
+.date-range-row select { min-width: 0; min-height: 40px; }
+.date-range-row select:disabled { opacity: .55; cursor: not-allowed; }
+.date-range-edge { font-size: 12px; font-weight: 800; color: var(--ink-3); text-align: center; }
+.date-range-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.date-range-actions button { min-height: 40px; }
+.date-range-actions button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 767px) {
+    /* בטלפון החלונית אינה צפה: היא נפתחת בשורה מלאה משלה בתוך סרגל הכלים,
+       כך שאינה יוצאת מהמסך לשום צד ואינה מסתירה את הכרטיסים. */
+    .date-range.is-open { flex: 1 1 100%; }
+    .date-range-panel { position: static; width: 100%; margin-top: 6px; box-shadow: none; }
+}
 .scene-chip {
     position: relative;
     flex: 0 0 auto;

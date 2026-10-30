@@ -255,7 +255,7 @@ window.DEFAULT_GALLERY_FOLDERS = [
 
 // --- 1. Global State ---
 window.state = {
-    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '', orientationFilter: '',
+    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '', orientationFilter: '', dateRangeFrom: '', dateRangeTo: '', videoLengthFilter: '',
     currentLightboxIndex: -1, tempSearchResults: null,
     bulkSelectionMode: false, selectedMediaIds: new Set(), activeEventFolderId: '',
     isLocked: true, isAdminLoggedIn: false, isSuperAdmin: false, isGoogleUser: false, isInitialSuperAdminAccount: false, currentUser: null,

@@ -41,6 +41,8 @@ const APP_SHELL = [
   "./folder-preview.js",
   "./capture-date.js",
   "./hebrew-date.js",
+  "./hebrew-date-range.js",
+  "./video-length.js",
   "./scene-tags.js",
   "./media-description.js",
   "./lightbox-math.js",
