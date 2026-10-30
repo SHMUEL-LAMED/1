@@ -23,8 +23,8 @@ jobs:
       BACKGROUND_MAX_ITEMS: ${{ github.event_name == 'push' && '8' || '40' }}
       GALLERY_API_ORIGIN: https://simchas-gallery-api.0534169095.workers.dev
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
