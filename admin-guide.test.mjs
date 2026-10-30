@@ -186,6 +186,11 @@ test("מה שהמדריך מונה תואם את הקוד", () => {
     assert.ok(adminHtml.includes(button), `הכפתור "${button}" שמוזכר במדריך אינו ב-admin.html`);
   }
 
+  // אצל מנהל־על admin.js מחליף את שם הכפתור "בקש מחיקה", ולכן המדריך מצטט
+  // גם את השם שהוא רואה — אחרת מנהל־על מחפש כפתור שאינו על המסך.
+  assert.match(read("admin.js"), /'מחק לצמיתות' : 'בקש מחיקה'/);
+  assert.ok(guideSectionText(findGuideSection("uploads")).includes("מחק לצמיתות"));
+
   // הסנכרון מוסיף בלבד — וכך גם מצהיר המסך עצמו.
   assert.match(guideSectionText(findGuideSection("drive")), /מוסיף ומעדכן בלבד/);
   assert.match(adminHtml, /הסנכרון מוסיף ומעדכן בלבד/);
