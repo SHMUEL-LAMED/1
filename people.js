@@ -175,6 +175,15 @@ async function openPeopleDirectory() {
     }
 }
 
+// הצעות ההשלמה של שדה החיפוש (search-suggest-ui.js): השם, המזהה ומספר
+// התמונות של כל אדם שהצופה רשאי לראות — אותה רשימה ואותו מטמון כמו "אנשים
+// בגלריה". חיתוכי הפנים אינם נטענים כאן, ומנוע זיהוי הפנים אינו נוגע בזה.
+async function listPeopleForSearch() {
+    if (!canUsePeople()) return [];
+    const people = await loadPeople();
+    return people.map(({ personId, name, imageCount }) => ({ personId, name, imageCount }));
+}
+
 function filterPeopleDirectory(value) {
     peopleQuery = String(value ?? '').slice(0, 80);
     renderPeopleList();
@@ -605,6 +614,9 @@ window.closePeopleAlbum = closePeopleAlbum;
 // אינו ברשימת המעטפות של app.js: session-auth.js קורא לו רק אם המודול כבר
 // נטען, ואחרת אין מה לאפס.
 window.resetPeopleState = resetPeopleState;
+// כמו resetPeopleState, אינו מעטפת עצלה: הוא מחזיר ערך, ולכן search-suggest-ui.js
+// טוען קודם את המודול (ensurePeopleModule) וקורא לו אחר כך.
+window.listPeopleForSearch = listPeopleForSearch;
 window.openFindMe = openFindMe;
 window.findMeFromProfile = findMeFromProfile;
 window.findMeFromSelfie = findMeFromSelfie;

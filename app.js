@@ -25,6 +25,8 @@ import {
 // קיצורי המקלדת וזיכרון הגלילה בדף הגלריה; הסף של "חזרה למעלה" מגיע מהחלק הטהור.
 import { initGalleryNavigation } from './gallery-navigation-ui.js';
 import { backToTopVisible } from './gallery-navigation.js';
+// ציר הזמן העברי שליד הרשת: קפיצה לחודש וסימון החודש שבראש המסך.
+import { initGalleryTimeline } from './gallery-timeline-ui.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -36,7 +38,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v67';
+const SITE_VERSION = 'v68';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -87,6 +89,9 @@ const ensurePeopleModule = defineLazyModule(() => import('./people.js'), [
     'openPeopleDirectory', 'filterPeopleDirectory', 'handlePeopleRoute', 'closePeopleAlbum',
     'openFindMe', 'findMeFromProfile', 'findMeFromSelfie', 'findMeWithSaved', 'forgetFindMe'
 ]);
+// אלבום להדפסה (print-album-ui.js) — נטען רק בלחיצה על "אלבום להדפסה" בעמוד
+// האירוע או על "אלבום PDF" בסרגל הבחירה המרובה.
+defineLazyModule(() => import('./print-album-ui.js'), ['openFolderPrintAlbum', 'openSelectionPrintAlbum']);
 window.ensurePeopleModule = ensurePeopleModule;
 window.ensureCaptureDatesModule = ensureCaptureDatesModule;
 window.ensureFaceSearchModule = ensureFaceSearchModule;
@@ -250,7 +255,7 @@ window.DEFAULT_GALLERY_FOLDERS = [
 
 // --- 1. Global State ---
 window.state = {
-    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '', orientationFilter: '',
+    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '', orientationFilter: '', dateRangeFrom: '', dateRangeTo: '', videoLengthFilter: '',
     currentLightboxIndex: -1, tempSearchResults: null,
     bulkSelectionMode: false, selectedMediaIds: new Set(), activeEventFolderId: '',
     isLocked: true, isAdminLoggedIn: false, isSuperAdmin: false, isGoogleUser: false, isInitialSuperAdminAccount: false, currentUser: null,
@@ -355,6 +360,8 @@ function closeModal(id) {
     if (id === 'userUploadModal') {
         window.resetUploadPauseState?.();
     }
+    // סגירת חלון האלבום (ביטול, X או Escape) עוצרת את הטעינה שעוד רצה.
+    if (id === 'printAlbumModal') window.abortPrintAlbum?.();
     if (id === 'lightboxModal') {
         // עוצר מצגת פעילה ומאפס זום גם כשהתצוגה נסגרת ב-Escape הכללי.
         window.onLightboxClosed?.();
@@ -1609,6 +1616,8 @@ document.addEventListener('DOMContentLoaded', () => {
         initArchiveExperience();
         scheduleIconRefresh();
         initSessionUI();
+        // לפני הגלריה, כדי שגם הציור הראשון שלה יגיע לציר.
+        initGalleryTimeline();
         initGallery();
         initSearchHistory();
         initGalleryNavigation();

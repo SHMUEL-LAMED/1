@@ -140,10 +140,16 @@ test("people.js נטען עצלה, וכל נקודת כניסה שלו רשומ�
   const defined = [...peopleJs.matchAll(/^window\.(\w+)\s*=/gm)].map(match => match[1]);
   // resetPeopleState אינו במעטפת, בכוונה: התנתקות אינה מורידה את המודול רק
   // כדי לאפס אותו. session-auth.js קורא לו רק אם הוא כבר נטען.
-  assert.ok(defined.includes("resetPeopleState"));
-  assert.equal(registered.includes("resetPeopleState"), false);
+  // גם listPeopleForSearch אינו במעטפת: הוא מחזיר ערך (מעטפת אינה מחזירה), ולכן
+  // search-suggest-ui.js טוען קודם את המודול (ensurePeopleModule) וקורא לו אחר כך.
+  const notWrapped = ["resetPeopleState", "listPeopleForSearch"];
+  for (const name of notWrapped) {
+    assert.ok(defined.includes(name), name);
+    assert.equal(registered.includes(name), false, name);
+  }
   assert.match(read("session-auth.js"), /window\.resetPeopleState\?\.\(\);/);
-  assert.deepEqual([...registered].sort(), defined.filter(name => name !== "resetPeopleState").sort());
+  assert.match(read("search-suggest-ui.js"), /await window\.ensurePeopleModule\?\.\(\);/);
+  assert.deepEqual([...registered].sort(), defined.filter(name => !notWrapped.includes(name)).sort());
   // כל מטפל ב-HTML שפונה למודול רשום במעטפת.
   const html = read("index.html");
   for (const name of ["openPeopleDirectory", "openFindMe", "findMeFromProfile", "findMeFromSelfie", "findMeWithSaved", "forgetFindMe", "filterPeopleDirectory"]) {

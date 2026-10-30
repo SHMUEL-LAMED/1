@@ -12,6 +12,8 @@
 // המצב מסומן על #lightboxModal ב-data-slideshow ("playing" / "paused"),
 // ומוכרז לקוראי מסך ב-#slideshowStatus (aria-live). התזמון עצמו —
 // createSlideshowScheduler ב-lightbox-math.js — נבדק בבדיקות יחידה.
+// "מסך גדול" (big-screen.js) מפעיל את אותה מצגת עם keepAwake, ויוצא דרך
+// onSlideshowStop כשהיא נעצרת מכל סיבה.
 import { createSlideshowScheduler, normalizeSlideshowInterval } from './lightbox-math.js';
 
 const INTERVAL_KEY = 'simchat_slideshow_interval';
@@ -30,6 +32,10 @@ let slideToken = 0;
 let slideAbort = null;
 let kenBurns = null;
 let progress = null;
+// מצב "מסך גדול" (big-screen.js): המסך נשאר דולק גם כשהמצגת מושהית, כי
+// המסך באולם צריך להישאר דולק עד היציאה, לא רק בזמן ניגון.
+let keepAwake = false;
+const stopListeners = new Set();
 const el = {};
 
 const doc = () => globalThis.document;
@@ -176,7 +182,7 @@ function releaseWakeLock() {
 
 function onVisibilityChange() {
     // הדפדפן משחרר את הנעילה כשהלשונית מוסתרת; חוזרים אליה — מבקשים שוב.
-    if (doc()?.visibilityState === 'visible' && active && scheduler?.state === 'playing') acquireWakeLock();
+    if (doc()?.visibilityState === 'visible' && active && (scheduler?.state === 'playing' || keepAwake)) acquireWakeLock();
 }
 
 // --- מעברים ---
@@ -321,11 +327,18 @@ export function isSlideshowActive() {
     return active;
 }
 
+// האם המצגת מציגה את הפריט (סרטון אינו מוצג כשמדלגים על סרטונים) — למסך
+// גדול, שמחליט אם נשארו מספיק פריטים ולאן לעבור כשהשקופית הנוכחית ירדה.
+export function isSlideshowEligible(item) {
+    return Boolean(deps) && isEligible(item);
+}
+
 export function getSlideshowState() {
     return active ? scheduler.state : 'idle';
 }
 
-export function startSlideshow() {
+// keepAwake: ה-Wake Lock נשאר גם בהשהיה (מסך גדול), עד העצירה.
+export function startSlideshow({ keepAwake: stayAwake = false } = {}) {
     if (!deps) return false;
     if (active) return true;
     if (eligibleCount() < 2) {
@@ -333,6 +346,7 @@ export function startSlideshow() {
         return false;
     }
     active = true;
+    keepAwake = Boolean(stayAwake);
     if (!isEligible(currentItem())) {
         const index = nextEligibleIndex();
         if (index >= 0) deps.showIndex(index);
@@ -357,8 +371,21 @@ export function stopSlideshow({ silent = false } = {}) {
     clearOverlays();
     exitFullscreen();
     releaseWakeLock();
+    keepAwake = false;
     renderControls();
     if (!silent) announce('המצגת נעצרה.');
+    // מי שנרשם (מסך גדול) יוצא יחד עם המצגת — Escape, יציאה ממסך מלא, "עצור"
+    // או סגירת התצוגה עוברים כולם בנקודה הזו.
+    for (const listener of [...stopListeners]) {
+        try { listener(); } catch (error) { console.warn('Slideshow stop listener failed:', error); }
+    }
+}
+
+// מאזין לעצירת המצגת, מכל סיבה. מחזיר פונקציה שמסירה אותו.
+export function onSlideshowStop(listener) {
+    if (typeof listener !== 'function') return () => {};
+    stopListeners.add(listener);
+    return () => stopListeners.delete(listener);
 }
 
 export function toggleSlideshowPause() {
@@ -368,7 +395,7 @@ export function toggleSlideshowPause() {
         progress?.pause?.();
         kenBurns?.pause?.();
         if (scheduler.holding) el.video?.pause?.();
-        releaseWakeLock();
+        if (!keepAwake) releaseWakeLock();
         announce('המצגת מושהית. רווח להמשך.');
     } else {
         scheduler.resume();

@@ -81,10 +81,10 @@ test("חזרה למעלה מופיעה אחרי כשני מסכים, ולא מת
 });
 
 test("מפתח התצוגה משתנה עם התיקייה, החיפוש, המיון והסינונים בלבד", () => {
-  const base = { activeFolderId: "all", searchQuery: "", gallerySort: "newest", hebrewYearFilter: "", hebrewMonthFilter: "", sceneTagFilter: "", mediaTypeFilter: "", orientationFilter: "" };
+  const base = { activeFolderId: "all", searchQuery: "", gallerySort: "newest", hebrewYearFilter: "", hebrewMonthFilter: "", sceneTagFilter: "", mediaTypeFilter: "", orientationFilter: "", dateRangeFrom: "", dateRangeTo: "", videoLengthFilter: "" };
   const keyOf = galleryViewKey(base);
   assert.equal(galleryViewKey({ ...base, images: [1, 2], favorites: new Set(["x"]) }), keyOf);
-  for (const [field, value] of [["activeFolderId", "2"], ["searchQuery", "בר"], ["gallerySort", "oldest"], ["hebrewYearFilter", "5787"], ["hebrewMonthFilter", "tishrei"], ["sceneTagFilter", "dancing"], ["mediaTypeFilter", "video"], ["orientationFilter", "portrait"]]) {
+  for (const [field, value] of [["activeFolderId", "2"], ["searchQuery", "בר"], ["gallerySort", "oldest"], ["hebrewYearFilter", "5787"], ["hebrewMonthFilter", "tishrei"], ["sceneTagFilter", "dancing"], ["mediaTypeFilter", "video"], ["orientationFilter", "portrait"], ["dateRangeFrom", "5786-tishrei"], ["dateRangeTo", "5787"], ["videoLengthFilter", "short"]]) {
     assert.notEqual(galleryViewKey({ ...base, [field]: value }), keyOf, field);
   }
   assert.equal(typeof galleryViewKey(null), "string");

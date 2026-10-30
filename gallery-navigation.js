@@ -100,6 +100,9 @@ export function galleryViewKey(state, randomSeed = 0) {
         String(source.sceneTagFilter ?? ''),
         String(source.mediaTypeFilter ?? ''),
         String(source.orientationFilter ?? ''),
+        String(source.dateRangeFrom ?? ''),
+        String(source.dateRangeTo ?? ''),
+        String(source.videoLengthFilter ?? ''),
         seed
     ]);
 }

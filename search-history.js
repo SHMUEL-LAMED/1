@@ -3,12 +3,14 @@
 // מודול טהור, בלי DOM, ונבדק ב-Node (search-history.test.mjs). הממשק — התפריט
 // שנפתח מתחת לשדה החיפוש — ב-search-history-ui.js.
 //
-// "חיפוש" הוא טקסט החיפוש יחד עם הסינון הפעיל: תיקייה, שנה וחודש עבריים, סוג
-// המדיה, כיוון (לאורך / לרוחב / ריבועי) ותגיות (כשיש). שבב "סוג הרגע" של הגלריה (תגית סצנה, scene-tags.js)
-// נשמר ברשימת התגיות לפי המזהה הקבוע שלו, ומוצג בתווית העברית שלו. שני
-// חיפושים זהים כשהטקסט (בלי הבדלי רישיות ורווחים) וכל הסינונים זהים, ולכן
-// מזהה החיפוש נגזר מהתוכן שלו: אותו חיפוש מקבל את אותו מזהה ברשימת האחרונים
-// וברשימת השמורים.
+// "חיפוש" הוא טקסט החיפוש יחד עם הסינון הפעיל: תיקייה, שנה וחודש עבריים,
+// טווח תאריכים עברי (מחודש ושנה עד חודש ושנה, hebrew-date-range.js), סוג
+// המדיה, אורך הסרטון (video-length.js), כיוון (לאורך / לרוחב / ריבועי) ותגיות
+// (כשיש). שבב "סוג הרגע" של הגלריה (תגית סצנה, scene-tags.js) נשמר ברשימת
+// התגיות לפי המזהה הקבוע שלו, ומוצג בתווית העברית שלו. שני חיפושים זהים
+// כשהטקסט (בלי הבדלי רישיות ורווחים) וכל הסינונים זהים, ולכן מזהה החיפוש
+// נגזר מהתוכן שלו: אותו חיפוש מקבל את אותו מזהה ברשימת האחרונים וברשימת
+// השמורים.
 //
 // האחסון הוא localStorage, במפתח נפרד לכל משתמש מחובר (ומפתח "anonymous" למי
 // שאינו מחובר). אחסון חסום, מלא או פגום לעולם אינו זורק: הרשימה ממשיכה לעבוד
@@ -20,6 +22,8 @@
 import { HEBREW_MONTH_ORDER, hebrewMonthName, formatHebrewYear } from './hebrew-date.js';
 import { isSceneTagId, sceneTagLabel } from './scene-tags.js';
 import { MEDIA_ORIENTATIONS } from './media-variants.js';
+import { normalizeDateRange, describeDateRange } from './hebrew-date-range.js';
+import { normalizeVideoLength, VIDEO_LENGTH_LABELS } from './video-length.js';
 
 export const SEARCH_HISTORY_STORAGE_PREFIX = 'simchas_gallery_searches_v1';
 export const ANONYMOUS_USER_KEY = 'anonymous';
@@ -72,6 +76,14 @@ export function normalizeFilters(raw) {
     if (HEBREW_MONTH_ORDER.includes(source.hebrewMonth)) filters.hebrewMonth = source.hebrewMonth;
     if (MEDIA_TYPES.includes(source.mediaType)) filters.mediaType = source.mediaType;
     if (MEDIA_ORIENTATIONS.includes(source.orientation)) filters.orientation = source.orientation;
+    // אורך הסרטון נשמר רק עם "סרטונים בלבד": בגלריה הבורר מוצג רק אז.
+    const videoLength = normalizeVideoLength(source.videoLength);
+    if (videoLength && filters.mediaType === 'video') filters.videoLength = videoLength;
+    // טווח התאריכים: כל גבול כמחרוזת קנונית ("5786" / "5786-adar2"), בסדר
+    // הנכון גם כשנבחר הפוך.
+    const range = normalizeDateRange({ from: source.dateFrom, to: source.dateTo });
+    if (range.from) filters.dateFrom = range.from;
+    if (range.to) filters.dateTo = range.to;
     if (Array.isArray(source.tags)) {
         const seen = new Set();
         const tags = [];
@@ -97,11 +109,14 @@ export function normalizeSearch(raw) {
     return { query, filters };
 }
 
-// הסינונים (המנורמלים) בסדר קבוע. הכיוון נוסף לסוף, ורק כשהוא פעיל: כך
-// לחיפושים שנשמרו לפניו נשארת אותה חתימה ואותו מזהה, גם בענן.
+// הסינונים (המנורמלים) בסדר קבוע. הכיוון, טווח התאריכים ואורך הסרטון נוספים
+// לסוף, ורק כשהם פעילים: כך לחיפושים שנשמרו לפניהם נשארת אותה חתימה ואותו
+// מזהה, גם בענן. הטווח והאורך נכנסים כמערך מסומן, כדי שלא יתבלבלו עם הכיוון.
 function filtersKey(f) {
     const key = [f.folderId || '', f.hebrewYear || 0, f.hebrewMonth || '', f.mediaType || '', (f.tags || []).map(lower)];
     if (f.orientation) key.push(f.orientation);
+    if (f.dateFrom || f.dateTo) key.push(['range', f.dateFrom || '', f.dateTo || '']);
+    if (f.videoLength) key.push(['length', f.videoLength]);
     return key;
 }
 
@@ -212,7 +227,9 @@ export function describeSearch(raw, { folderName = () => '' } = {}) {
     else if (f.folderId) details.push(`תיקייה: ${folderName(f.folderId) || 'תיקייה שאינה קיימת עוד'}`);
     if (f.hebrewYear) details.push(`שנת ${formatHebrewYear(f.hebrewYear)}`);
     if (f.hebrewMonth) details.push(`חודש ${hebrewMonthName(f.hebrewMonth)}`);
+    if (f.dateFrom || f.dateTo) details.push(describeDateRange({ from: f.dateFrom, to: f.dateTo }));
     if (f.mediaType) details.push(MEDIA_TYPE_LABELS[f.mediaType]);
+    if (f.videoLength) details.push(`אורך: ${VIDEO_LENGTH_LABELS[f.videoLength]}`);
     if (f.orientation) details.push(`כיוון: ${ORIENTATION_LABELS[f.orientation]}`);
     if (f.tags?.length) {
         // תגיות סצנה מוצגות כ"סוג הרגע" בתווית העברית; תגית חופשית — כמו שהיא.

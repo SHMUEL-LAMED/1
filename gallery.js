@@ -8,7 +8,7 @@ import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
 // פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
-import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
+import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate, readGalleryPreference, writeGalleryPreference } from './gallery-layout.js';
 // "חדש מאז הביקור הקודם" (לכל משתמש), והתמונות האחרונות של תיקייה בריחוף.
 import {
     beginVisit, touchVisit, isNewSince, newSinceSummary, pickFolderPreviewFrames,
@@ -18,12 +18,25 @@ import { installFolderHoverPreview } from './folder-preview.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
 import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
+import { timelineMonthKey } from './gallery-timeline.js';
+// "טווח תאריכים": מחודש ושנה עבריים עד חודש ושנה עבריים (hebrew-date-range.js).
+import {
+    normalizeDateRange, parseRangeBound, dateRangeBounds, dateKeyInRange, monthsForYear, describeDateRange
+} from './hebrew-date-range.js';
+// אורך הסרטון: מהרשומה, ובלעדיה מבדיקה מוגבלת של המטא-דאטה (video-length.js).
+import {
+    normalizeVideoLength, recordDuration, videoLengthBucket, createDurationProbe, parseDurationCache,
+    serializeDurationCache, DURATION_CACHE_KEY, DURATION_PROBE_TIMEOUT_MS
+} from './video-length.js';
 // מחוות התצוגה המלאה (זום, החלקה) והמצגת — כל אחד במודול משלו.
 import { initLightboxGestures, resetLightboxZoom } from './lightbox-gestures.js';
 import {
     initLightboxSlideshow, isSlideshowActive, startSlideshow, stopSlideshow,
-    slideshowNoteNavigation, handleSlideshowKey
+    slideshowNoteNavigation, handleSlideshowKey, isSlideshowEligible
 } from './lightbox-slideshow.js';
+// "מסך גדול": המצגת הזו במסך מלא לאולם, עם פריטים חדשים שנכנסים לסבב.
+import { initBigScreen, startBigScreen, noteBigScreenSlide } from './big-screen.js';
+import { insertAfterIndex, removeFromRotation } from './big-screen-model.js';
 // כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
 import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
 import {
@@ -534,12 +547,22 @@ window.openEventPage = function(event, folderId) {
         window.closeModal('eventPageModal');
         document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
     };
-    const slideshowButton = document.getElementById('eventStartSlideshowBtn');
-    if (slideshowButton) slideshowButton.onclick = () => {
-        setActiveFolder(id);
+    // תיקייה שטרם נטענה מתחילה ריקה (loadFolderImages), ואז המצגת הייתה
+    // נכשלת ב"אין פריטים": ממתינים לעמוד הראשון. מסך מלא אחרי ההמתנה עלול
+    // להיחסם בדפדפן, והתצוגה המלאה מכסה את החלון בכל מקרה.
+    const showFolderThen = start => async () => {
+        const loading = setActiveFolder(id);
         window.closeModal('eventPageModal');
-        window.startGallerySlideshow();
+        if (window.state.imagesLoading) await loading;
+        if (window.safeRecordId(window.state.activeFolderId) === id) start();
     };
+    // אלבום להדפסה של התיקייה כולה (print-album-ui.js); עמוד האירוע נשאר פתוח מתחתיו.
+    const printButton = document.getElementById('eventPrintAlbumBtn');
+    if (printButton) printButton.onclick = () => window.openFolderPrintAlbum(id);
+    const slideshowButton = document.getElementById('eventStartSlideshowBtn');
+    if (slideshowButton) slideshowButton.onclick = showFolderThen(() => window.startGallerySlideshow());
+    const bigScreenButton = document.getElementById('eventBigScreenBtn');
+    if (bigScreenButton) bigScreenButton.onclick = showFolderThen(() => window.startBigScreen());
     const followButton = document.getElementById('eventFollowButton');
     if (followButton) {
         const isFollowing = window.state.followedFolders.has(id);
@@ -714,7 +737,8 @@ function activeHebrewFilters() {
 
 window.hasActiveDateFilter = function() {
     const { year, month } = activeHebrewFilters();
-    return Boolean(year || month);
+    const range = activeDateRange();
+    return Boolean(year || month || range.from || range.to);
 };
 
 function matchesHebrewFilters(img, filters) {
@@ -791,6 +815,158 @@ window.setGalleryHebrewMonth = function(value) {
     window.noteGallerySearchChange?.();
 };
 
+// --- טווח תאריכים: מחודש ושנה עבריים עד חודש ושנה עבריים ---
+// מצטרף לשנה ולחודש שלמעלה (וגם לכל שאר הסינונים) — כולם חייבים להתקיים. כל
+// גבול נשמר ב-state כמחרוזת קנונית ("5786" / "5786-adar2"), כמו בחיפוש השמור;
+// הגבולות נבחרים בחלונית קטנה שנפתחת מהכפתור #galleryDateRangeToggle.
+function activeDateRange() {
+    return normalizeDateRange({ from: window.state.dateRangeFrom, to: window.state.dateRangeTo });
+}
+
+// ממלא את ארבעת הבוררים ואת הכפתור. השנים — כמו בבורר השנה: מהפריטים
+// שבתיקייה, ועוד השנים שנבחרו (כדי שהבחירה לא "תקפוץ"); החודשים — לפי השנה
+// שנבחרה (אדר א׳ ואדר ב׳ רק בשנה מעוברת), ובלי שנה הבורר מושבת.
+function renderDateRangeControl(scoped) {
+    const range = activeDateRange();
+    const from = parseRangeBound(range.from, 'from');
+    const to = parseRangeBound(range.to, 'to');
+    const years = new Set();
+    for (const img of scoped) {
+        const hebrew = hebrewDateFromDateKey(captureDateKey(img));
+        if (hebrew) years.add(hebrew.year);
+    }
+    if (from) years.add(from.year);
+    if (to) years.add(to.year);
+    const yearOptions = [...years].sort((a, b) => b - a).map(year => ({ value: String(year), label: formatHebrewYear(year) }));
+    const fill = (select, firstLabel, options, selected) => {
+        if (!select) return;
+        const signature = `${firstLabel}|${options.map(option => option.value).join('|')}`;
+        if (select.dataset.optionsKey !== signature) {
+            select.dataset.optionsKey = signature;
+            select.innerHTML = [`<option value="">${window.escapeHtml(firstLabel)}</option>`]
+                .concat(options.map(option => `<option value="${window.escapeHtml(option.value)}">${window.escapeHtml(option.label)}</option>`))
+                .join('');
+        }
+        select.value = selected;
+    };
+    const monthOptions = bound => monthsForYear(bound?.year).map(key => ({ value: key, label: hebrewMonthName(key) }));
+    const edges = [['From', from, 'מתחילת השנה'], ['To', to, 'עד סוף השנה']];
+    for (const [edge, bound, wholeYearLabel] of edges) {
+        fill(document.getElementById(`galleryDateRange${edge}Year`), 'בלי גבול', yearOptions, bound ? String(bound.year) : '');
+        const monthSelect = document.getElementById(`galleryDateRange${edge}Month`);
+        fill(monthSelect, wholeYearLabel, monthOptions(bound), bound?.month || '');
+        if (monthSelect) monthSelect.disabled = !bound;
+    }
+    const active = Boolean(range.from || range.to);
+    const toggle = document.getElementById('galleryDateRangeToggle');
+    const label = document.getElementById('galleryDateRangeLabel');
+    const text = active ? describeDateRange(range) : 'טווח תאריכים';
+    if (toggle) toggle.dataset.active = active ? 'true' : 'false';
+    if (label && label.textContent !== text) label.textContent = text;
+    const clear = document.getElementById('galleryDateRangeClear');
+    if (clear) clear.disabled = !active;
+    // הכיתוב שבכפתור משנה את רוחבו, ואיתו את מקומו בסרגל.
+    placeOpenDateRangePanel();
+}
+
+// הגבול מתוך שני הבוררים שלו: שנה (חובה) וחודש (רשות — בלעדיו, השנה כולה).
+function dateRangeBoundFromSelects(edge) {
+    const year = document.getElementById(`galleryDateRange${edge}Year`)?.value || '';
+    const month = document.getElementById(`galleryDateRange${edge}Month`)?.value || '';
+    if (!year) return '';
+    // חודש שנבחר בשנה אחרת (אדר ב׳ ואז שנה פשוטה) מתורגם ב-normalizeDateRange.
+    return month ? `${year}-${month}` : year;
+}
+
+window.setGalleryDateRange = function(from = dateRangeBoundFromSelects('From'), to = dateRangeBoundFromSelects('To')) {
+    const range = normalizeDateRange({ from, to });
+    window.state.dateRangeFrom = range.from;
+    window.state.dateRangeTo = range.to;
+    renderDateRangeControl(scopedGalleryImages());
+    window.renderImages();
+    autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+window.clearGalleryDateRange = function() {
+    window.setGalleryDateRange('', '');
+    document.getElementById('galleryDateRangeFromYear')?.focus();
+};
+
+// מעל רוחב טלפון החלונית צפה מתחת לכפתור ונפרשת ממנו שמאלה. הכפתור יכול
+// לשבת בכל מקום בסרגל (הסרגל נשבר לשורות לפי הרוחב), ולכן כשהיא חורגת מהמסך
+// היא מוזזת פנימה — אחרת חלק ממנה נחתך ונוצרת גלילה אופקית בכל הדף.
+const DATE_RANGE_PANEL_MARGIN = 16;
+function placeDateRangePanel(panel) {
+    panel.style.left = '';
+    panel.style.right = '';
+    if (panel.hidden || window.matchMedia?.('(max-width: 767px)').matches) return;
+    const host = panel.offsetParent;
+    if (!host || typeof panel.getBoundingClientRect !== 'function') return;
+    const rect = panel.getBoundingClientRect();
+    const viewport = document.documentElement.clientWidth || window.innerWidth;
+    let shift = 0;
+    if (rect.left < DATE_RANGE_PANEL_MARGIN) shift = DATE_RANGE_PANEL_MARGIN - rect.left;
+    else if (rect.right > viewport - DATE_RANGE_PANEL_MARGIN) shift = viewport - DATE_RANGE_PANEL_MARGIN - rect.right;
+    if (!shift) return;
+    panel.style.right = 'auto';
+    panel.style.left = `${Math.round(rect.left + shift - host.getBoundingClientRect().left)}px`;
+}
+
+// החלונית: נפתחת ונסגרת בכפתור, נסגרת ב-Escape (והפוקוס חוזר לכפתור) ובלחיצה
+// מחוצה לה. הבוררים עצמם הם select רגילים, ולכן נגישים במקלדת ובקורא מסך.
+function setDateRangePanelOpen(open, { focus = false } = {}) {
+    const panel = document.getElementById('galleryDateRangePanel');
+    const toggle = document.getElementById('galleryDateRangeToggle');
+    if (!panel || !toggle) return;
+    panel.hidden = !open;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // בטלפון החלונית נפתחת בתוך הזרימה, בשורה מלאה משלה (styles.css).
+    toggle.closest('.date-range')?.classList.toggle('is-open', open);
+    placeDateRangePanel(panel);
+    if (open) {
+        renderDateRangeControl(scopedGalleryImages());
+        if (focus) document.getElementById('galleryDateRangeFromYear')?.focus();
+    } else if (focus) {
+        toggle.focus();
+    }
+}
+
+window.toggleGalleryDateRange = function() {
+    const panel = document.getElementById('galleryDateRangePanel');
+    const open = Boolean(panel?.hidden);
+    setDateRangePanelOpen(open, { focus: open });
+};
+
+window.closeGalleryDateRange = function() {
+    setDateRangePanelOpen(false, { focus: true });
+};
+
+// Escape בתוך החלונית סוגר רק אותה — לא מודאל ולא את תפריט החיפוש.
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const panel = document.getElementById('galleryDateRangePanel');
+    if (!panel || panel.hidden || !panel.closest('.date-range')?.contains(document.activeElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDateRangePanelOpen(false, { focus: true });
+}, true);
+
+document.addEventListener('pointerdown', event => {
+    const panel = document.getElementById('galleryDateRangePanel');
+    if (!panel || panel.hidden) return;
+    if (event.target instanceof Node && panel.closest('.date-range')?.contains(event.target)) return;
+    setDateRangePanelOpen(false);
+});
+
+// שינוי רוחב (סיבוב הטלפון, חלון שהוקטן) מזיז את הכפתור — החלונית נמדדת
+// מחדש. המאזין נרשם ב-initGallery, ובסוף כל ציור של הגלריה היא נמדדת שוב
+// (ציר הזמן שהופיע או נעלם, ראו _doRenderImages).
+function placeOpenDateRangePanel() {
+    const panel = document.getElementById('galleryDateRangePanel');
+    if (panel && !panel.hidden) placeDateRangePanel(panel);
+}
+
 // --- סינון לפי סוג המדיה ---
 const MEDIA_TYPE_FILTERS = ['image', 'video'];
 
@@ -803,19 +979,123 @@ function syncMediaTypeSelect() {
     if (select) select.value = activeMediaTypeFilter();
 }
 
-// סינון כלשהו פעיל (תאריך עברי, סוג הרגע, סוג מדיה או כיוון): בתיקייה שלא
-// נטענה כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
+// סינון כלשהו פעיל (תאריך עברי או טווח תאריכים, סוג הרגע, סוג מדיה, אורך
+// סרטון או כיוון): בתיקייה שלא נטענה כולה הוא מושך את שאר העמודים ברקע, כמו
+// חיפוש.
 window.hasActiveGalleryFilters = function() {
-    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter()) || Boolean(activeOrientationFilter());
+    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter())
+        || Boolean(activeVideoLengthFilter()) || Boolean(activeOrientationFilter());
 };
 
 window.setGalleryMediaType = function(value) {
     window.state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(value) ? value : '';
+    // אורך הסרטון שייך ל"סרטונים בלבד": מעבר לסוג אחר מבטל אותו.
+    if (window.state.mediaTypeFilter !== 'video') window.state.videoLengthFilter = '';
     syncMediaTypeSelect();
+    syncVideoLengthSelect();
     window.renderImages();
     autoloadForDateFilter();
     window.noteGallerySearchChange?.();
 };
+
+// --- סינון סרטונים לפי אורך: קצרים, בינוניים, ארוכים ---
+// הבורר מוצג רק ב"סרטונים בלבד". האורך מהרשומה (duration, נרשם בהעלאה מהאתר);
+// לסרטון בלעדיו — מבדיקה מוגבלת של המטא-דאטה, רק כשהסינון פעיל (video-length.js).
+// סרטון שהאורך שלו טרם נודע אינו נכלל, ו-#galleryVideoLengthNote אומר כמה יש.
+function activeVideoLengthFilter() {
+    return activeMediaTypeFilter() === 'video' ? normalizeVideoLength(window.state.videoLengthFilter) : '';
+}
+
+function syncVideoLengthSelect() {
+    const select = document.getElementById('galleryVideoLengthFilter');
+    if (!select) return;
+    select.hidden = activeMediaTypeFilter() !== 'video';
+    select.value = activeVideoLengthFilter();
+}
+
+window.setGalleryVideoLength = function(value) {
+    window.state.videoLengthFilter = normalizeVideoLength(value);
+    syncVideoLengthSelect();
+    window.renderImages();
+    autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+// הבדיקה בדפדפן: <video preload="metadata"> מוריד רק את הכותרת של הקובץ (גם
+// כש-moov בסופו — בבקשת טווח), ונזרק מיד. השניות מעוגלות כמו בהעלאה.
+function probeVideoDuration(url) {
+    return new Promise(resolve => {
+        const video = document.createElement('video');
+        let settled = false;
+        let timer = 0;
+        const finish = seconds => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            video.removeAttribute('src');
+            try { video.load(); } catch { /* אין מה לשחרר */ }
+            resolve(seconds);
+        };
+        timer = window.setTimeout(() => finish(0), DURATION_PROBE_TIMEOUT_MS);
+        video.muted = true;
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+            const duration = Number(video.duration);
+            finish(Number.isFinite(duration) && duration > 0 ? Math.max(1, Math.round(duration)) : 0);
+        };
+        video.onerror = () => finish(0);
+        video.src = url;
+    });
+}
+
+// התור נוצר רק בשימוש הראשון בסינון, ואיתו נקרא המטמון מהביקורים הקודמים.
+let videoDurationProbe = null;
+function durationProbe() {
+    if (!videoDurationProbe) {
+        const known = readGalleryPreference(DURATION_CACHE_KEY, parseDurationCache);
+        videoDurationProbe = createDurationProbe({
+            probe: probeVideoDuration,
+            known,
+            onSettle: (id, seconds) => {
+                if (seconds) writeGalleryPreference(DURATION_CACHE_KEY, serializeDurationCache(known));
+                window.renderImages();
+            }
+        });
+    }
+    return videoDurationProbe;
+}
+
+function videoDuration(img) {
+    return recordDuration(img, durationProbe().known);
+}
+
+// הסרטונים שהוצאו מהתצוגה האחרונה רק משום שהאורך שלהם אינו ידוע. נכתב
+// ב-getFilteredSortedImages ונקרא בציור (כמו orientationUnknownCount).
+let videoLengthUnknown = [];
+
+// מבקש בדיקה לסרטונים שהאורך שלהם חסר, ואומר מתחת לסרגל כמה עוד נבדקים וכמה
+// לא נמצא להם אורך — כדי שלא ייראה כאילו הם נעלמו.
+function renderVideoLengthNote() {
+    const note = document.getElementById('galleryVideoLengthNote');
+    if (!note) return;
+    let text = '';
+    if (activeVideoLengthFilter() && videoLengthUnknown.length) {
+        const probe = durationProbe();
+        probe.request(videoLengthUnknown.map(img => ({ id: window.safeRecordId(img.id), url: window.safeImageUrl(img.url) })));
+        const checking = videoLengthUnknown.filter(img => probe.status(window.safeRecordId(img.id)) === 'pending').length;
+        const missing = videoLengthUnknown.length - checking;
+        if (checking) {
+            text = checking === 1 ? 'בודק את האורך של סרטון אחד…' : `בודק את האורך של ${checking} סרטונים…`;
+        } else if (missing) {
+            text = missing === 1 ? 'סרטון אחד שהאורך שלו אינו ידוע אינו נכלל בסינון לפי אורך.'
+                : `${missing} סרטונים שהאורך שלהם אינו ידוע אינם נכללים בסינון לפי אורך.`;
+        }
+    }
+    note.hidden = !text;
+    if (note.textContent !== text) note.textContent = text;
+}
 
 // --- סינון לפי כיוון: לאורך, לרוחב או ריבועית ---
 // הכיוון נגזר מהמידות שברשומה (media-variants.js, mediaOrientation). פריט בלי
@@ -865,25 +1145,32 @@ window.getGallerySearchSnapshot = function() {
             folderId: window.safeRecordId(state.activeFolderId) || 'all',
             hebrewYear: Number(state.hebrewYearFilter) || 0,
             hebrewMonth: state.hebrewMonthFilter || '',
+            dateFrom: activeDateRange().from,
+            dateTo: activeDateRange().to,
             mediaType: activeMediaTypeFilter(),
+            videoLength: activeVideoLengthFilter(),
             orientation: activeOrientationFilter(),
             tags: sceneTag ? [sceneTag] : []
         }
     };
 };
 
-// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע, סוג המדיה וכיוון). נקרא
-// בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
+// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, טווח תאריכים, סוג הרגע, סוג
+// המדיה, אורך הסרטון וכיוון). נקרא בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
 // הקודם באותה לשונית לא יירש את החיפוש שלו.
 window.clearGallerySearch = function() {
     const state = window.state;
     state.searchQuery = '';
     state.hebrewYearFilter = '';
     state.hebrewMonthFilter = '';
+    state.dateRangeFrom = '';
+    state.dateRangeTo = '';
     state.sceneTagFilter = '';
     state.mediaTypeFilter = '';
+    state.videoLengthFilter = '';
     state.orientationFilter = '';
     syncMediaTypeSelect();
+    syncVideoLengthSelect();
     syncOrientationSelect();
     const input = document.getElementById('searchInput');
     if (input) input.value = '';
@@ -904,9 +1191,14 @@ window.applyGallerySearch = async function(search = {}) {
     const year = Number(filters.hebrewYear) || 0;
     state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
     state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(filters.hebrewMonth) ? filters.hebrewMonth : '';
+    const range = normalizeDateRange({ from: filters.dateFrom, to: filters.dateTo });
+    state.dateRangeFrom = range.from;
+    state.dateRangeTo = range.to;
     state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(filters.mediaType) ? filters.mediaType : '';
+    state.videoLengthFilter = state.mediaTypeFilter === 'video' ? normalizeVideoLength(filters.videoLength) : '';
     state.orientationFilter = MEDIA_ORIENTATIONS.includes(filters.orientation) ? filters.orientation : '';
     syncMediaTypeSelect();
+    syncVideoLengthSelect();
     syncOrientationSelect();
     // הגלריה מסננת לפי תגית סצנה אחת; תגית שאינה בטקסונומיה אינה מסננת.
     state.sceneTagFilter = (Array.isArray(filters.tags) ? filters.tags : []).find(isSceneTagId) || '';
@@ -968,6 +1260,11 @@ function getFilteredSortedImages() {
     if (hebrewFilters.year || hebrewFilters.month) {
         filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
     }
+    // הטווח נבדק על אותו יום שהכרטיס מציג (יום הצילום, ובלעדיו יום ההעלאה).
+    const rangeBounds = dateRangeBounds(activeDateRange());
+    if (rangeBounds.fromKey || rangeBounds.toKey) {
+        filtered = filtered.filter(img => dateKeyInRange(captureDateKey(img), rangeBounds));
+    }
     const mediaType = activeMediaTypeFilter();
     if (mediaType) {
         filtered = filtered.filter(img => (mediaType === 'video') === Boolean(window.isVideoRecord(img)));
@@ -991,15 +1288,25 @@ function getFilteredSortedImages() {
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
-    // הכיוון אחרון, כדי שהמונה של "בלי מידות" יספור רק פריטים שהיו מוצגים
-    // לולא הסינון הזה.
+    // אורך הסרטון והכיוון אחרונים, ובמעבר אחד: המונים של "אורך לא ידוע"
+    // ו"בלי מידות" סופרים רק פריטים שהיו מוצגים לולא הסינון שלהם — כלומר
+    // שעוברים את כל השאר, כולל זה של השני. סרטון לרוחב שהכיוון מסתיר אינו
+    // נכנס ל-videoLengthUnknown, ולכן גם אינו נבדק ברשת (renderVideoLengthNote).
+    // פריט ששניהם חסרים לו אינו נספר באף אחד: גם אורך שיימצא לא יציג אותו.
+    const videoLength = activeVideoLengthFilter();
     const orientation = activeOrientationFilter();
+    videoLengthUnknown = [];
     orientationUnknownCount = 0;
-    if (orientation) {
+    if (videoLength || orientation) {
         filtered = filtered.filter(img => {
-            const value = mediaOrientation(img);
-            if (!value) orientationUnknownCount += 1;
-            return value === orientation;
+            if (videoLength && !window.isVideoRecord(img)) return false;
+            const bucket = videoLength ? videoLengthBucket(videoDuration(img)) : '';
+            const lengthMatches = !videoLength || bucket === videoLength;
+            const shape = orientation ? mediaOrientation(img) : '';
+            const orientationMatches = !orientation || shape === orientation;
+            if (videoLength && !bucket && orientationMatches) videoLengthUnknown.push(img);
+            if (orientation && !shape && lengthMatches) orientationUnknownCount += 1;
+            return lengthMatches && orientationMatches;
         });
     }
     return sortGalleryItems(filtered, scoped);
@@ -1259,7 +1566,8 @@ let galleryRenderPending = false;
 function currentViewSignature() {
     return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
         window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || '',
-        activeOrientationFilter(), window.state.gallerySort === 'random' ? randomGalleryOrder.seed : 0];
+        activeOrientationFilter(), activeDateRange().from, activeDateRange().to, activeVideoLengthFilter(),
+        window.state.gallerySort === 'random' ? randomGalleryOrder.seed : 0];
 }
 
 function sameViewSignature(first, second) {
@@ -1291,9 +1599,20 @@ window._doRenderImages = function() {
     galleryPageItems = getFilteredSortedImages().filter(item => window.safeRecordId(item.id));
     const scoped = scopedGalleryImages();
     renderHebrewDateFilters(scoped);
+    renderDateRangeControl(scoped);
+    syncVideoLengthSelect();
     renderSceneFilterChips(document.getElementById('gallerySceneFilter'), scoped, activeSceneTag());
     announceSceneFilter(galleryPageItems.length);
+    // ציר הזמן העברי (gallery-timeline-ui.js) נבנה מאותה רשימה בדיוק.
+    window.updateGalleryTimeline?.(galleryPageItems);
     renderOrientationNote();
+    renderVideoLengthNote();
+    // renderDateRangeControl מיקם את החלונית הפתוחה לפני שציר הזמן הופיע או
+    // נעלם (במסך רחב הוא עמודה שלישית — הגלריה משנה את רוחבה, הסרגל נשבר
+    // אחרת והכפתור זז) ולפני שבורר האורך נוסף לסרגל. מיקום לפי הפריסה הקודמת
+    // היה משאיר אותה חורגת מהקצה השמאלי, עם גלילה אופקית — ולכן היא נמדדת
+    // שוב כאן, כשהפריסה כבר סופית.
+    placeOpenDateRangePanel();
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 
@@ -1449,9 +1768,10 @@ function placeGalleryCard(node, index) {
 // קיבוץ לפי חודש הצילום: במיון לפי תאריך, הכרטיס הראשון של כל חודש עברי
 // מקבל תווית "תשרי תשפ״ז". התווית תלויה בשכן, ולכן — כמו המספר — היא נכתבת
 // על האלמנט ואינה חלק מהמרקאפ שמושווה.
+// המפתח זהה לזה של ציר הזמן העברי (gallery-timeline.js), כדי שהתווית והחודש
+// המסומן בציר יסכימו תמיד.
 function dateGroupKey(item) {
-    const hebrew = item ? hebrewDateFromDateKey(captureDateKey(item)) : null;
-    return hebrew ? `${hebrew.year}-${hebrew.monthKey}` : '';
+    return timelineMonthKey(item ? hebrewDateFromDateKey(captureDateKey(item)) : null);
 }
 
 function placeDateGroupLabel(node, index) {
@@ -2997,6 +3317,73 @@ window.startGallerySlideshow = function() {
     if (!isSlideshowActive()) startSlideshow();
 };
 
+// פריטים חדשים (מסך גדול) נכנסים מיד אחרי הפריט המוצג: הם השקופיות הבאות
+// במצגת, והסבב ממשיך אחריהם מאיפה שהיה. מחזיר כמה נוספו.
+function insertLightboxItemsNext(items) {
+    const known = new Set(currentFilteredImages.map(item => window.safeRecordId(item.id)));
+    const fresh = (items || []).filter(item => !known.has(window.safeRecordId(item?.id)));
+    if (!fresh.length) return 0;
+    currentFilteredImages = insertAfterIndex(currentFilteredImages, window.state.currentLightboxIndex, fresh);
+    const lbCounter = document.getElementById('lightboxCounter');
+    if (lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    preloadLightboxNeighbours();
+    return fresh.length;
+}
+
+// פריטים שירדו מהתצוגה בזמן מסך גדול (נמחקו, הועברו או שאישורם בוטל) יוצאים
+// גם מהסבב: תמונה שמנהל הסיר אינה ממשיכה לרוץ באולם. כשהמוצג עכשיו ביניהם
+// מוצג הבא אחריו, כמו מעבר רגיל במצגת (זמן מלא לשקופית, גם בהשהיה). ids הם
+// מזהים אחרי safeRecordId. מחזיר כמה הוסרו.
+function removeLightboxItems(ids) {
+    const result = removeFromRotation(currentFilteredImages, window.state.currentLightboxIndex, ids, {
+        idOf: item => window.safeRecordId(item?.id),
+        isEligible: item => isSlideshowEligible(item)
+    });
+    if (!result.removed) return 0;
+    currentFilteredImages = result.items;
+    // לא נשאר דבר: מי שקרא (big-screen.js) סוגר את התצוגה.
+    if (!result.items.length) {
+        window.state.currentLightboxIndex = -1;
+        return result.removed;
+    }
+    if (result.currentRemoved) {
+        showLightboxIndex(result.index);
+        slideshowNoteNavigation();
+        return result.removed;
+    }
+    window.state.currentLightboxIndex = result.index;
+    const lbCounter = document.getElementById('lightboxCounter');
+    if (lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    preloadLightboxNeighbours();
+    return result.removed;
+}
+
+// "מסך גדול" בסרגל הגלריה ובדף האירוע: מצגת של התצוגה הנוכחית לאולם
+// (big-screen.js). שם האירוע הוא שם התיקייה הפעילה.
+window.startBigScreen = function() {
+    initBigScreen({
+        getViewItems: () => getFilteredSortedImages(),
+        getItems: () => currentFilteredImages,
+        open: items => openLightbox(items[0]?.id, items),
+        insertNext: items => insertLightboxItemsNext(items),
+        removeItems: ids => removeLightboxItems(ids),
+        // בזמן טעינה התצוגה ריקה לרגע; אין להסיק ממנה שהפריטים נמחקו.
+        isViewLoading: () => Boolean(window.state.imagesLoading),
+        refreshView: () => (typeof window.refreshActiveGalleryFolder === 'function' ? window.refreshActiveGalleryFolder() : Promise.resolve()),
+        getEventName: () => {
+            const id = window.safeRecordId(window.state.activeFolderId) || 'all';
+            const folder = window.state.folders.find(item => window.safeRecordId(item.id) === id);
+            if (folder?.name) return folder.name;
+            return id === 'favorites' ? 'המועדפים' : 'גלריית שמחת התורה';
+        },
+        isOpen: () => isLightboxOpen(),
+        close: () => window.closeLightbox(),
+        notify: (text, ok) => window.showNotification(text, ok),
+        idOf: item => window.safeRecordId(item?.id)
+    });
+    startBigScreen();
+};
+
 // --- טעינה מוקדמת ופענוח בתצוגה המלאה ---
 // לכל היותר ארבע טעינות מוקדמות נשמרות בו־זמנית; הישנה שבהן נזנחת, ואם
 // טרם הסתיימה — ההורדה שלה מבוטלת.
@@ -3236,6 +3623,7 @@ function updateLightbox(immediate = false) {
     // הכתובת עוקבת אחרי הפריט המוצג: בפתיחה, בדפדוף ובמצגת.
     syncLightboxHash(img);
     preloadLightboxNeighbours();
+    noteBigScreenSlide(img);
 }
 
 // כפתור המועדף שבסרגל התצוגה המלאה (גם F במקלדת, gallery-navigation-ui.js):
@@ -3526,6 +3914,7 @@ export function initGallery() {
     // סוף הביקור נרשם כשהדף נסתר או נסגר; רענון מיד אחריו הוא המשך של אותו ביקור.
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') noteVisitSeen(); });
     window.addEventListener('pagehide', noteVisitSeen);
+    window.addEventListener('resize', placeOpenDateRangePanel);
     // שבבי סוג הרגע, תגיות התצוגה המלאה וכפתור העריכה — מאזין אחד לכל אחד.
     installSceneFilterChips(document.getElementById('gallerySceneFilter'), tagId => window.setGallerySceneTag(tagId));
     installLightboxDescription({ onTagSelect: filterBySceneTagFromLightbox, onEdit: editCurrentLightboxDescription });

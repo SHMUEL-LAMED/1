@@ -353,6 +353,49 @@ test("כיוון: נשמר רק כשהוא תקין, מוצג בעברית, וא
   assert.equal(state.recent[0].id, searchId(portrait));
 });
 
+test("טווח תאריכים ואורך סרטון: נשמרים מנורמלים, מוצגים בעברית, ואינם משנים מזהים ישנים", () => {
+  // הטווח נשמר כמחרוזות קנוניות ובסדר הנכון, גם כשנבחר הפוך.
+  assert.deepEqual(normalizeFilters({ dateFrom: "5787-tishrei", dateTo: "5786-av" }), { dateFrom: "5786-av", dateTo: "5787-tishrei" });
+  assert.deepEqual(normalizeFilters({ dateFrom: "5786" }), { dateFrom: "5786" });
+  assert.deepEqual(normalizeFilters({ dateTo: "5784-adar" }), { dateTo: "5784-adar2" });
+  assert.deepEqual(normalizeFilters({ dateFrom: "junk", dateTo: "" }), {});
+  // אורך הסרטון נשמר רק עם "סרטונים בלבד".
+  assert.deepEqual(normalizeFilters({ mediaType: "video", videoLength: "short" }), { mediaType: "video", videoLength: "short" });
+  assert.deepEqual(normalizeFilters({ mediaType: "image", videoLength: "short" }), { mediaType: "image" });
+  assert.deepEqual(normalizeFilters({ videoLength: "long" }), {});
+  assert.deepEqual(normalizeFilters({ mediaType: "video", videoLength: "huge" }), { mediaType: "video" });
+  assert.deepEqual(normalizeSearch({ query: "", filters: { dateFrom: "5786" } }), { query: "", filters: { dateFrom: "5786" } });
+
+  assert.deepEqual(
+    describeSearch({ query: "x", filters: { hebrewYear: 5786, dateFrom: "5786-tishrei", dateTo: "5787-adar", mediaType: "video", videoLength: "medium" } }).details,
+    ["שנת תשפ״ו", "מתשרי תשפ״ו עד אדר ב׳ תשפ״ז", "סרטונים בלבד", "אורך: בינוניים (1–5 דקות)"]
+  );
+  assert.deepEqual(describeSearch({ query: "x", filters: { dateFrom: "5786" } }).details, ["משנת תשפ״ו ואילך"]);
+
+  // חיפוש בלי הסינונים החדשים שומר על החתימה שהייתה לו לפניהם, ולכן גם על המזהה.
+  const base = { query: "ריקודים", filters: { mediaType: "video", orientation: "portrait" } };
+  assert.equal(searchSignature(base), JSON.stringify(["ריקודים", "", 0, "", "video", [], "portrait"]));
+  const short = { query: "ריקודים", filters: { mediaType: "video", videoLength: "short" } };
+  const long = { query: "ריקודים", filters: { mediaType: "video", videoLength: "long" } };
+  const ranged = { query: "ריקודים", filters: { mediaType: "video", dateFrom: "5786" } };
+  const ids = new Set([base, short, long, ranged, { query: "ריקודים", filters: { mediaType: "video" } }].map(searchId));
+  assert.equal(ids.size, 5);
+  // אותו טווח בסדר הפוך — אותו חיפוש.
+  assert.equal(
+    searchId({ query: "x", filters: { dateFrom: "5787", dateTo: "5786-av" } }),
+    searchId({ query: "x", filters: { dateFrom: "5786-av", dateTo: "5787" } })
+  );
+
+  // הסינונים החדשים עוברים את הקריאה מהאחסון ואת הייצוא לענן.
+  const both = { query: "ריקודים", filters: { mediaType: "video", videoLength: "long", dateFrom: "5784-adar1", dateTo: "5786" } };
+  const state = parseHistoryState(JSON.stringify({ v: 1, recent: [{ ...both, at: 5 }] }));
+  assert.deepEqual(state.recent[0].filters, { mediaType: "video", videoLength: "long", dateFrom: "5784-adar1", dateTo: "5786" });
+  assert.equal(state.recent[0].id, searchId(both));
+  const store = createSearchHistoryStore({ storage: memoryStorage(), userId: "u1", now: clock() });
+  assert.equal(store.saveSearch(both).ok, true);
+  assert.deepEqual(store.exportSaved().savedSearches[0].filters, state.recent[0].filters);
+});
+
 test("שבב סוג הרגע: נשמר כמזהה תגית הסצנה, מוצג בתווית העברית, ומבדיל בין חיפושים", () => {
   // הגלריה מוסרת את השבב הפעיל כמזהה (getGallerySearchSnapshot ב-gallery.js).
   const dance = { query: "שמחת תורה", filters: { folderId: "all", tags: ["dance"] } };

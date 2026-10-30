@@ -137,6 +137,22 @@
             </div>
         </aside>
 
+        <!-- ---------- ציר הזמן העברי ----------
+             השנים והחודשים העבריים שבתצוגה (gallery-timeline-ui.js), רק במיון לפי תאריך
+             ומשני חודשים ומעלה. במסך רחב — עמודה דבוקה בצד הסוף של הגלריה; במסך צר —
+             כפתור צף שפותח את אותה רשימה. לפני הגלריה ב-DOM, כדי ש-Tab יגיע אליו לפני
+             הכרטיסים. -->
+        <nav id="galleryTimeline" class="gallery-timeline" aria-label="ציר הזמן לפי חודשים עבריים" data-open="false" hidden>
+            <button type="button" id="galleryTimelineToggle" class="gallery-timeline-toggle" onclick="toggleGalleryTimeline()" aria-expanded="false" aria-controls="galleryTimelinePanel" aria-label="קפיצה לתאריך" title="קפיצה לתאריך">
+                <i data-lucide="calendar-days" class="w-4 h-4"></i>
+                <span id="galleryTimelineCurrent" class="gallery-timeline-current"></span>
+            </button>
+            <div id="galleryTimelinePanel" class="gallery-timeline-panel">
+                <p class="gallery-timeline-title" aria-hidden="true">קפיצה לחודש</p>
+                <ol id="galleryTimelineList" class="gallery-timeline-list"></ol>
+            </div>
+        </nav>
+
         <!-- ---------- הגלריה ---------- -->
         <section id="galleryStage" class="gallery-stage" aria-label="תמונות הגלריה">
 
@@ -175,7 +191,8 @@
             <!-- סרגל הכלים: חיפוש, מיון וכלי ה-AI במקום אחד. -->
             <div class="gallery-toolbar">
                 <!-- שדה החיפוש הוא combobox: בפוקוס נפתח מתחתיו תפריט של חיפושים
-                     שמורים ואחרונים (search-history-ui.js). -->
+                     שמורים ואחרונים, ובזמן ההקלדה גם הצעות להשלמה — באותו תפריט
+                     (search-history-ui.js, search-suggest-ui.js). -->
                 <div id="gallerySearchBox" class="gallery-search flex-1 min-w-[190px]">
                     <label class="admin-menu-search">
                         <i data-lucide="search" class="w-4 h-4"></i>
@@ -185,8 +202,8 @@
                             aria-describedby="searchHistoryHint">
                         <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
                     </label>
-                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
-                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים אחרונים ושמורים" hidden></div>
+                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה, ובזמן ההקלדה גם הצעות: תיקיות, סוג הרגע, אנשים ומעלים. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
+                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים והצעות" hidden></div>
                     <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
                 </div>
 
@@ -223,10 +240,52 @@
                     <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter w-auto text-xs py-2">
                         <option value="">כל החודשים</option>
                     </select>
+                    <!-- טווח תאריכים עברי: מחודש ושנה עד חודש ושנה (hebrew-date-range.js).
+                         הכפתור פותח חלונית קטנה, ומציג את הטווח כשהוא פעיל (gallery.js,
+                         renderDateRangeControl). מצטרף לשנה ולחודש שמימינו ולשאר הסינונים. -->
+                    <div class="date-range">
+                        <button type="button" id="galleryDateRangeToggle" onclick="toggleGalleryDateRange()" class="date-range-toggle text-xs" data-active="false"
+                            aria-expanded="false" aria-controls="galleryDateRangePanel" title="סינון לפי טווח תאריכים עבריים">
+                            <i data-lucide="calendar-range" class="w-4 h-4" aria-hidden="true"></i><span class="sr-only">סינון לפי </span><span id="galleryDateRangeLabel">טווח תאריכים</span>
+                        </button>
+                        <div id="galleryDateRangePanel" class="date-range-panel" role="group" aria-labelledby="galleryDateRangeHeading" hidden>
+                            <p id="galleryDateRangeHeading" class="date-range-heading">טווח תאריכים</p>
+                            <div class="date-range-row" role="group" aria-label="תחילת הטווח">
+                                <span class="date-range-edge" aria-hidden="true">מ־</span>
+                                <select id="galleryDateRangeFromMonth" onchange="setGalleryDateRange()" aria-label="מחודש" class="text-xs py-2" disabled>
+                                    <option value="">מתחילת השנה</option>
+                                </select>
+                                <select id="galleryDateRangeFromYear" onchange="setGalleryDateRange()" aria-label="משנה" class="text-xs py-2">
+                                    <option value="">בלי גבול</option>
+                                </select>
+                            </div>
+                            <div class="date-range-row" role="group" aria-label="סוף הטווח">
+                                <span class="date-range-edge" aria-hidden="true">עד</span>
+                                <select id="galleryDateRangeToMonth" onchange="setGalleryDateRange()" aria-label="עד חודש" class="text-xs py-2" disabled>
+                                    <option value="">עד סוף השנה</option>
+                                </select>
+                                <select id="galleryDateRangeToYear" onchange="setGalleryDateRange()" aria-label="עד שנה" class="text-xs py-2">
+                                    <option value="">בלי גבול</option>
+                                </select>
+                            </div>
+                            <div class="date-range-actions">
+                                <button type="button" id="galleryDateRangeClear" onclick="clearGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs" disabled>נקה טווח</button>
+                                <button type="button" onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 py-2 text-xs">סגור</button>
+                            </div>
+                        </div>
+                    </div>
                     <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter w-auto text-xs py-2">
                         <option value="">תמונות וסרטונים</option>
                         <option value="image">תמונות בלבד</option>
                         <option value="video">סרטונים בלבד</option>
+                    </select>
+                    <!-- אורך הסרטון: מוצג רק ב"סרטונים בלבד" (video-length.js). סרטון בלי
+                         אורך ידוע אינו נכלל, והמספר שלהם מוצג ב-#galleryVideoLengthNote. -->
+                    <select id="galleryVideoLengthFilter" onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter w-auto text-xs py-2" hidden>
+                        <option value="">אורך: הכל</option>
+                        <option value="short">קצרים (עד דקה)</option>
+                        <option value="medium">בינוניים (1–5 דקות)</option>
+                        <option value="long">ארוכים (מעל 5 דקות)</option>
                     </select>
                     <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
                          והמספר שלהם מוצג ב-#galleryOrientationNote. -->
@@ -251,6 +310,10 @@
                     <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
                         <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
                     </button>
+                    <!-- מצגת במסך מלא לאולם, שמוסיפה לבד פריטים חדשים (big-screen.js). -->
+                    <button type="button" onclick="startBigScreen()" class="btn-secondary-dark px-3 py-2 text-xs" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
+                        <i data-lucide="tv" class="w-4 h-4"></i><span class="hidden sm:inline">מסך גדול</span>
+                    </button>
                     <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="btn-secondary-dark px-3 py-2 text-xs" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
                         <i data-lucide="dices" class="w-4 h-4"></i><span class="hidden sm:inline">תמונה אקראית</span>
                     </button>
@@ -264,6 +327,7 @@
                 <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
                 <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
+                <p id="galleryVideoLengthNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">
@@ -277,6 +341,7 @@
                 <div class="flex flex-wrap items-center justify-center gap-2">
                     <button type="button" onclick="openBulkMoveDialog()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="folder-input" class="w-3.5 h-3.5"></i> העבר</button>
                     <button type="button" onclick="downloadSelectedMedia(this)" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="download" class="w-3.5 h-3.5"></i> הורד</button>
+                    <button type="button" onclick="openSelectionPrintAlbum()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="book-image" class="w-3.5 h-3.5"></i> אלבום PDF</button>
                     <button type="button" onclick="deleteSelectedMedia()" class="btn-danger-soft px-3 py-2 text-[11px]"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> מחק</button>
                     <button type="button" onclick="toggleBulkSelectionMode(false)" class="btn-secondary-dark px-3 py-2 text-[11px]">סיום</button>
                 </div>
@@ -342,6 +407,8 @@
                 <aside class="admin-panel p-4 flex flex-col gap-2.5">
                     <button type="button" id="eventOpenGalleryBtn" class="btn-primary-gold w-full py-3 text-xs"><i data-lucide="images" class="w-4 h-4"></i> פתח את תמונות האירוע</button>
                     <button type="button" id="eventStartSlideshowBtn" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="play" class="w-4 h-4"></i> הפעל מצגת</button>
+                    <button type="button" id="eventPrintAlbumBtn" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="book-image" class="w-4 h-4"></i> אלבום להדפסה</button>
+                    <button type="button" id="eventBigScreenBtn" class="btn-secondary-dark w-full py-3 text-xs" title="מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים"><i data-lucide="tv" class="w-4 h-4"></i> מסך גדול</button>
                     <button type="button" id="eventFollowButton" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="bell-plus" class="w-4 h-4"></i> עקוב אחר התיקייה</button>
                     <button type="button" id="eventEditToggleBtn" data-admin-profile-launcher onclick="toggleEventEdit(true)" class="hidden btn-secondary-dark w-full py-3 text-xs"><i data-lucide="pencil" class="w-4 h-4"></i> עריכת פרטי האירוע</button>
                 </aside>
@@ -534,6 +601,8 @@
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
             <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
+                <!-- מסך גדול: פריט שנוסף בזמן ההצגה, עד שהסבב עובר הלאה (big-screen.js). -->
+                <span id="bigScreenNewBadge" class="big-screen-new" hidden>חדש</span>
                 <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
@@ -576,6 +645,15 @@
             </button>
         </div>
         <div class="text-center text-sm py-2"><span id="lightboxCounter">1 מתוך 10</span></div>
+        <!-- מסך גדול: שם האירוע ושעון בפינה, ויציאה (big-screen.js). מוצג רק במצב הזה. -->
+        <div id="bigScreenInfo" class="big-screen-info" hidden>
+            <span id="bigScreenEvent" class="big-screen-event"></span>
+            <time id="bigScreenClock" class="big-screen-clock"></time>
+            <button type="button" id="bigScreenExit" class="slideshow-btn big-screen-exit" aria-label="יציאה ממסך גדול" aria-keyshortcuts="Escape" title="יציאה (Escape)">
+                <i data-lucide="minimize" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <p id="bigScreenStatus" class="sr-only" role="status" aria-live="polite"></p>
     </div>
 
     <!-- אישור פעולה -->
@@ -946,6 +1024,43 @@
             <div id="shortcutsHelpList" class="modal-body shortcuts-help"></div>
         </div>
     </div>
+
+    <!-- אלבום להדפסה (print-album-ui.js): כמה תמונות בעמוד, טעינת התמונות עם
+         התקדמות וביטול, ואז חלון ההדפסה של הדפדפן — שם "שמירה כ־PDF" נותנת את
+         הקובץ. מעל עמוד האירוע, שממנו הוא נפתח. -->
+    <div id="printAlbumModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="printAlbumHeading" aria-describedby="printAlbumSummary">
+        <div class="modal-card modal-animate-popup max-w-md">
+            <div class="modal-head">
+                <h3 id="printAlbumHeading"><i data-lucide="book-image" class="w-5 h-5"></i> אלבום להדפסה</h3>
+                <button type="button" onclick="closeModal('printAlbumModal')" class="modal-close" aria-label="סגירת חלון האלבום"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="printAlbumSummary"></p>
+                <!-- אותם שבבים כמו בבורר תגיות הסצנה, כאן כלחצני רדיו. -->
+                <fieldset id="printAlbumPerPage" class="scene-tag-fieldset">
+                    <legend class="field-label">תמונות בכל עמוד</legend>
+                    <div class="scene-tag-picker">
+                        <label class="scene-tag-option"><input type="radio" name="printAlbumPerPage" value="1"> תמונה אחת</label>
+                        <label class="scene-tag-option"><input type="radio" name="printAlbumPerPage" value="2"> שתיים</label>
+                        <label class="scene-tag-option"><input type="radio" name="printAlbumPerPage" value="4"> ארבע</label>
+                    </div>
+                </fieldset>
+                <p class="field-hint">האלבום נפתח בחלון ההדפסה של הדפדפן, בעמודי A4. לקובץ PDF בחר שם "שמירה כ־PDF" במקום מדפסת.</p>
+                <div id="printAlbumProgress" class="print-album-progress" hidden>
+                    <div class="progress-track"><div id="printAlbumProgressBar" class="progress-bar"></div></div>
+                    <p id="printAlbumStatus" role="status" aria-live="polite"></p>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('printAlbumModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="printAlbumStartBtn" onclick="startPrintAlbum()" class="btn-primary-gold"><i data-lucide="printer" class="w-4 h-4"></i> הכן והדפס</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- העמודים של האלבום. מוסתר במסך, ובהדפסה של אלבום — רק הוא מודפס
+         (body.is-printing-album ב-styles.css). נבנה מחדש בכל אלבום. -->
+    <div id="printAlbum" class="print-album"></div>
 
     <!-- חזרה לראש הדף -->
     <button type="button" id="backToTop" class="back-to-top" onclick="scrollToPageTop()" aria-label="חזרה לראש הדף" title="חזרה למעלה">

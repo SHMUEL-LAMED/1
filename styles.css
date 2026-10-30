@@ -1891,6 +1891,11 @@ body textarea { resize: vertical; min-height: 84px; }
 .search-history-clear:hover { color: var(--danger); }
 .search-history-clear-icon { flex: none; width: 16px; height: 16px; }
 .search-history-note [role="gridcell"] { padding: 6px 10px; font-size: 11px; color: var(--ink-3); }
+/* הצעות ההשלמה (search-suggest-ui.js) באותו תפריט: שורה של תא אחד, בלי כוכב והסרה.
+   הסמל בצבע הזהב מבדיל אותן מהחיפושים הקודמים שמתחתיהן. */
+.search-suggest-row { display: flex; border-radius: var(--r-sm); }
+.search-suggest-row:hover { background: var(--panel-soft); }
+.search-suggest-kind { color: var(--gold); }
 .search-history button:focus-visible { box-shadow: var(--focus-ring); }
 @media (max-width: 767px) {
     /* בטלפון סרגל הכלים אינו נצמד (static), ולכן אינו מרים את התפריט מעל
@@ -2606,6 +2611,130 @@ body textarea { resize: vertical; min-height: 84px; }
 #photosGrid { scroll-margin-top: calc(var(--header-h) + 12px); }
 .back-to-top:hover { background: var(--gold-foil); color: var(--ink-on-accent); }
 
+/* ---- ציר הזמן העברי (gallery-timeline-ui.js) ----
+   במסך רחב: עמודה שלישית בפריסה, בצד הסוף של הגלריה (משמאל — הדף מימין
+   לשמאל), דבוקה מתחת לכותרת כמו רשימת התיקיות. העמודה נוספת רק כשהציר מוצג
+   (data-timeline על .gallery-layout), כדי שבמיון לפי שם לא יישאר רווח ריק.
+   במסך צר: כפתור צף ליד "חזרה למעלה", שמציג את החודש הנוכחי ופותח את אותה
+   רשימה כחלונית מעליו. */
+.gallery-timeline[hidden] { display: none; }
+.gallery-timeline-list,
+.gallery-timeline-months { list-style: none; margin: 0; padding: 0; }
+.gallery-timeline-panel {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 12px 8px;
+    border-radius: var(--r-lg);
+    background: var(--glass-strong);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+}
+.gallery-timeline-title { margin: 0 8px 8px; font-size: 11px; font-weight: 800; color: var(--ink-3); }
+.gallery-timeline-year + .gallery-timeline-year { margin-top: 10px; }
+.gallery-timeline-year-label {
+    display: block;
+    padding: 2px 8px 4px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+}
+/* קו הציר: החודשים תלויים עליו, והחודש הפעיל מסומן עליו בפס זהב. */
+.gallery-timeline-months { margin-inline-start: 8px; border-inline-start: 1px solid var(--line-strong); }
+.gallery-timeline-month {
+    position: relative;
+    width: 100%;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: start;
+    transition: background .2s var(--ease), color .2s var(--ease);
+}
+.gallery-timeline-month:hover { background: var(--panel-soft); color: var(--ink); }
+.gallery-timeline-month:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.gallery-timeline-month[aria-current="true"] { background: var(--gold-tint); color: var(--gold); font-weight: 800; }
+.gallery-timeline-month[aria-current="true"]::before {
+    content: "";
+    position: absolute;
+    inset-block: 6px;
+    inset-inline-start: -2px;
+    width: 3px;
+    border-radius: var(--r-full);
+    background: var(--gold);
+}
+.gallery-timeline-count { font-size: 10px; font-weight: 700; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+.gallery-timeline-month[aria-current="true"] .gallery-timeline-count { color: var(--gold-deep); }
+.gallery-timeline-toggle { display: none; }
+
+@media (min-width: 1200px) {
+    .gallery-layout[data-timeline] {
+        grid-template-columns: 312px minmax(0, 1fr) 128px;
+        grid-template-areas: "hero hero hero" "rail stage timeline";
+    }
+    .gallery-timeline { grid-area: timeline; position: sticky; top: calc(var(--header-h) + 12px); z-index: 20; }
+    .gallery-timeline-panel { max-height: calc(100vh - var(--header-h) - 32px); }
+}
+
+@media (max-width: 1199px) {
+    .gallery-timeline {
+        position: fixed;
+        bottom: 24px;
+        inset-inline-end: 84px;
+        z-index: 44;
+        opacity: 1;
+        transition: opacity .3s var(--ease), visibility 0s;
+    }
+    /* כמו "חזרה למעלה": הכפתור מופיע רק כשהרשת על המסך, לא מעל רצועת הכניסה. */
+    .gallery-timeline:not([data-in-view]) { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .3s var(--ease), visibility 0s linear .3s; }
+    .gallery-timeline-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        min-width: 48px;
+        justify-content: center;
+        padding: 0 16px;
+        border-radius: var(--r-full);
+        background: var(--glass-strong);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid var(--gold-line);
+        color: var(--gold);
+        box-shadow: var(--shadow-2);
+        font-family: var(--font-display);
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .gallery-timeline-toggle:hover { background: var(--gold-foil); color: var(--ink-on-accent); }
+    .gallery-timeline-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .gallery-timeline-current:empty { display: none; }
+    /* החלונית קבועה למסך ולא לכפתור, כדי שבטלפון צר היא לא תברח מצדו השני. */
+    .gallery-timeline-panel {
+        display: none;
+        position: fixed;
+        bottom: 84px;
+        inset-inline-end: 24px;
+        width: min(260px, calc(100vw - 32px));
+        max-height: min(60vh, 420px);
+        background: var(--panel);
+        box-shadow: var(--shadow-3);
+    }
+    .gallery-timeline[data-open="true"] .gallery-timeline-panel { display: block; }
+    .gallery-timeline-month { min-height: 40px; }
+}
+
 /* ==========================================================================
    13. תצוגה מלאה (Lightbox) — אולם קולנוע, כהה תמיד
    ========================================================================== */
@@ -2883,6 +3012,56 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink-3);
 }
 .gallery-filter-note[hidden] { display: none; }
+/* "טווח תאריכים" בסרגל הכלים (gallery.js, renderDateRangeControl): כפתור בגובה
+   הבוררים שלצידו, וחלונית קטנה עם שני גבולות — חודש ושנה עבריים לכל אחד. */
+.date-range { position: relative; flex: none; }
+.date-range-toggle {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink-2);
+    font-weight: 700;
+    white-space: nowrap;
+    transition: border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+}
+.date-range-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+.date-range-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.date-range-toggle[data-active="true"] { border-color: var(--gold-line); background: var(--gold-tint); color: var(--gold); }
+.date-range-toggle svg { width: 16px; height: 16px; flex: none; }
+.date-range-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 45;
+    width: min(320px, calc(100vw - 32px));
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-3);
+}
+.date-range-panel[hidden] { display: none; }
+.date-range-heading { margin: 0; font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.date-range-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 6px; }
+.date-range-row select { min-width: 0; min-height: 40px; }
+.date-range-row select:disabled { opacity: .55; cursor: not-allowed; }
+.date-range-edge { font-size: 12px; font-weight: 800; color: var(--ink-3); text-align: center; }
+.date-range-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.date-range-actions button { min-height: 40px; }
+.date-range-actions button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 767px) {
+    /* בטלפון החלונית אינה צפה: היא נפתחת בשורה מלאה משלה בתוך סרגל הכלים,
+       כך שאינה יוצאת מהמסך לשום צד ואינה מסתירה את הכרטיסים. */
+    .date-range.is-open { flex: 1 1 100%; }
+    .date-range-panel { position: static; width: 100%; margin-top: 6px; box-shadow: none; }
+}
 .scene-chip {
     position: relative;
     flex: 0 0 auto;
@@ -3007,6 +3186,108 @@ body textarea { resize: vertical; min-height: 84px; }
 .scene-tag-option input { width: 16px; height: 16px; accent-color: var(--gold); }
 .scene-tag-option input:focus-visible { box-shadow: none; }
 .scene-caption-count { text-align: end; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   13ב. מסך גדול (big-screen.js) — המצגת על מסך באולם
+   ========================================================================== */
+
+/* קריא מקצה האולם: הכותרת והכיתוב גדלים עם רוחב המסך. */
+#lightboxModal.is-big-screen h4 { font-size: clamp(20px, 2.4vw, 40px); line-height: 1.3; }
+#lightboxModal.is-big-screen .lightbox-sub { font-size: clamp(13px, 1.2vw, 20px); }
+/* במצגת רגילה התיאור מוסתר; במסך גדול הכיתוב נשאר, גדול. תגיות ועריכה הן
+   פעולות של מי שעומד ליד המסך, לא של הקהל, ולכן אינן מוצגות. */
+#lightboxModal.is-big-screen .lightbox-description:not([hidden]):has(.lightbox-caption:not([hidden])) {
+    display: flex;
+    width: min(1100px, 100%);
+    padding: 14px 22px;
+}
+#lightboxModal.is-big-screen .lightbox-caption { font-size: clamp(18px, 2.2vw, 36px); line-height: 1.45; font-weight: 600; text-align: center; }
+#lightboxModal.is-big-screen .lightbox-tags,
+#lightboxModal.is-big-screen .lightbox-edit,
+#lightboxModal.is-big-screen .lightbox-caption-empty,
+#lightboxModal.is-big-screen #lightboxShare,
+#lightboxModal.is-big-screen #lightboxFavorite,
+#lightboxModal.is-big-screen #lightboxDownload { display: none; }
+
+/* אחרי כמה שניות בלי עכבר או מקלדת (.is-idle) הפקדים והסמן נעלמים, והתמונה,
+   הכיתוב, שם האירוע והשעון נשארים לבד. opacity ולא hidden: פקד שבמיקוד נשאר
+   במקומו, והמקש הבא מחזיר את כולם. */
+#lightboxModal.is-big-screen .lightbox-actions,
+#lightboxModal.is-big-screen .lightbox-nav,
+#lightboxModal.is-big-screen .slideshow-controls,
+#lightboxModal.is-big-screen #lightboxCounter,
+#lightboxModal.is-big-screen .big-screen-exit { transition: opacity .45s var(--ease); }
+#lightboxModal.is-big-screen.is-idle .lightbox-actions,
+#lightboxModal.is-big-screen.is-idle .lightbox-nav,
+#lightboxModal.is-big-screen.is-idle .slideshow-controls,
+#lightboxModal.is-big-screen.is-idle #lightboxCounter,
+#lightboxModal.is-big-screen.is-idle .big-screen-exit { opacity: 0; pointer-events: none; }
+#lightboxModal.is-big-screen.is-idle,
+#lightboxModal.is-big-screen.is-idle * { cursor: none !important; }
+
+/* שם האירוע והשעון: בטלפון בסוף הטור, ובמסך רחב צפים בפינה. */
+.big-screen-info {
+    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 100%;
+    margin-top: 8px;
+    padding-block: 6px;
+    padding-inline: 18px 8px;
+    border-radius: var(--r-full);
+    background: var(--cinema-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--cinema-line);
+    box-shadow: var(--cinema-shadow);
+    color: var(--cinema-ink);
+}
+.big-screen-info[hidden] { display: none; }
+/* במסך רחב הפינה התחתונה שמורה לה: התוכן מסתיים מעליה, כך שכיתוב ארוך אינו
+   נכנס מתחתיה. */
+@media (min-width: 900px) {
+    #lightboxModal.is-big-screen { padding-bottom: 84px; }
+    .big-screen-info { position: absolute; bottom: 20px; inset-inline-end: 20px; margin: 0; max-width: 45vw; z-index: 5; }
+}
+.big-screen-event {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(15px, 1.5vw, 24px);
+    color: var(--cinema-accent);
+}
+/* הספרות של השעה תמיד משמאל לימין, ברוחב קבוע כדי שלא "ירקדו". */
+.big-screen-clock {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: clamp(16px, 1.6vw, 26px);
+    color: var(--cinema-ink);
+}
+.big-screen-exit { min-width: 40px; }
+
+/* תג "חדש" על פריט שנוסף בזמן ההצגה; נעלם כשהסבב עובר לפריט הבא. */
+.big-screen-new {
+    position: absolute;
+    top: 16px;
+    inset-inline-start: 16px;
+    z-index: 3;
+    padding: 6px 16px;
+    border-radius: var(--r-full);
+    background: var(--gold-foil);
+    box-shadow: var(--shadow-gold);
+    color: var(--ink-on-accent);
+    font-size: clamp(14px, 1.4vw, 22px);
+    font-weight: 800;
+    pointer-events: none;
+    animation: fade-in .6s var(--ease) both;
+}
+.big-screen-new[hidden] { display: none; }
 
 /* ==========================================================================
    14. חלונות (modal) — מעטפת אחידה לכל החלונות באתר
@@ -4960,7 +5241,8 @@ body.gallery-locked #galleryLoadMore,
 body.gallery-locked .folder-rail,
 body.gallery-locked #bulkSelectionBar,
 body.gallery-locked #tempSearchBanner,
-body.gallery-locked #emptyState { display: none; }
+body.gallery-locked #emptyState,
+body.gallery-locked .gallery-timeline { display: none; }
 body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "stage"; }
 
 /* פריטים שמוצגים רק למנהל־על. .hidden של Tailwind מנצח כאן, ולכן די
@@ -5311,6 +5593,10 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .admin-main-head { padding: 13px; }
     .conversation-bubble { max-width: 88%; }
     .back-to-top { bottom: 16px; inset-inline-end: 16px; width: 44px; height: 44px; }
+    /* ציר הזמן הצף: ליד "חזרה למעלה", באותו גובה. */
+    .gallery-timeline { bottom: 16px; inset-inline-end: 70px; }
+    .gallery-timeline-toggle { height: 44px; min-width: 44px; padding: 0 14px; }
+    .gallery-timeline-panel { bottom: 70px; inset-inline-end: 16px; }
     /* מתגי הגודל והפריסה נשארים גם בטלפון (קטן = יותר כרטיסים בשורה), בכפתורים
        מעט קטנים יותר כדי שסרגל הכלים לא יתארך. */
     .density-toggle button { width: 36px; height: 34px; }
@@ -5330,7 +5616,85 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .gallery-card::before, .gallery-card::after { display: none; }
 }
 
+/* --- אלבום להדפסה (print-album-ui.js) ---
+   העמודים נבנים בתוך #printAlbum, שאינו מוצג במסך. בהדפסה של אלבום
+   (body.is-printing-album) כל השאר מוסתר ורק הוא מודפס, עמוד A4 לכל
+   .print-album-page. הצבעים קבועים כאן ולא מהאסימונים: במצב "לילה" גם סולם
+   הבסיס מתהפך (slate-900 בהיר), ועל נייר האלבום הטקסט תמיד כהה על לבן,
+   בכל מצב תצוגה. המידות במילימטרים, לפי שטח הדפוס של
+   A4 בשוליים של 12 מ"מ (186×273), עם מרווח קטן לעיגול של הדפדפן. */
+.print-album-progress { display: flex; flex-direction: column; gap: 8px; }
+.print-album-progress[hidden] { display: none; }
+.print-album-progress p { font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.print-album { display: none; }
+
 @media print {
-    .site-header, .settings-wrap, .floating-profile-container, #adminDrawer, .admin-sidebar, .back-to-top, .scroll-progress, #bg-container { display: none; }
+    .site-header, .settings-wrap, .floating-profile-container, #adminDrawer, .admin-sidebar, .back-to-top, .gallery-timeline, .scroll-progress, #bg-container { display: none; }
     body { background: #fff; color: #000; }
+}
+
+/* האתר אינו מדפיס דבר מלבד האלבום, ולכן גודל הדף והשוליים קבועים לכל הדפסה. */
+@page { size: A4 portrait; margin: 12mm; }
+
+@media print {
+    body.is-printing-album { display: block; min-height: 0; background: #fff; }
+    body.is-printing-album > :not(#printAlbum) { display: none !important; }
+    body.is-printing-album .print-album {
+        display: block;
+        direction: rtl;
+        --album-ink: #0f172a;
+        --album-ink-2: #334155;
+        --album-ink-3: #64748b;
+        --album-accent: #b45309;
+        color: var(--album-ink);
+        font-family: var(--font-body);
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .print-album-page {
+        height: 270mm;
+        overflow: hidden;
+        break-after: page;
+        page-break-after: always;
+        box-sizing: border-box;
+    }
+    .print-album-page:last-child { break-after: auto; page-break-after: auto; }
+
+    /* השער: תמונה ראשונה, שם האירוע, התאריך העברי ומספר התמונות. */
+    .print-album-cover {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3mm;
+        text-align: center;
+    }
+    .print-album-cover-image {
+        width: 100%;
+        max-height: 150mm;
+        object-fit: contain;
+        margin-bottom: 8mm;
+        border-radius: 3mm;
+    }
+    .print-album-kicker { margin: 0; font-size: 11pt; font-weight: 700; letter-spacing: .08em; color: var(--album-accent); }
+    .print-album-title { margin: 0; color: var(--album-ink); font-family: var(--font-display); font-size: 32pt; line-height: 1.2; }
+    .print-album-date { margin: 0; font-size: 16pt; font-weight: 700; }
+    .print-album-gregorian,
+    .print-album-count { margin: 0; font-size: 11pt; color: var(--album-ink-3); }
+    .print-album-description { margin: 6mm 0 0; max-width: 150mm; font-size: 11pt; line-height: 1.7; color: var(--album-ink-2); }
+
+    /* עמודי התמונות: 1 — עמוד שלם, 2 — זו מעל זו, 4 — רשת של 2×2. כל תמונה
+       מוצגת בשלמותה (contain), בלי חיתוך, וממורכזת במשבצת שלה. */
+    .print-album-photos { display: grid; gap: 8mm; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    .print-album[data-per-page="2"] .print-album-photos { grid-template-rows: repeat(2, minmax(0, 1fr)); }
+    .print-album[data-per-page="4"] .print-album-photos { gap: 6mm; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+    .print-album-item { display: flex; flex-direction: column; gap: 2.5mm; min-height: 0; margin: 0; break-inside: avoid; }
+    .print-album-frame { position: relative; flex: 1 1 auto; min-height: 0; }
+    .print-album-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    .print-album-caption { flex: none; display: flex; flex-direction: column; gap: .5mm; text-align: center; }
+    .print-album-item-title { font-size: 11pt; font-weight: 800; }
+    .print-album-item-caption { font-size: 10pt; line-height: 1.5; color: var(--album-ink-2); }
+    .print-album-item-date { font-size: 8.5pt; color: var(--album-ink-3); }
+    .print-album[data-per-page="4"] .print-album-item-title { font-size: 9.5pt; }
+    .print-album[data-per-page="4"] .print-album-item-caption { font-size: 8.5pt; }
 }

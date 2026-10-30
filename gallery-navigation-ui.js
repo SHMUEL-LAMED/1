@@ -56,6 +56,9 @@ function handleKeyDown(event) {
         openShortcutsHelp();
         return;
     }
+    // "מסך גדול" (big-screen.js) מסתיר את ההורדה והמועדף: המקלדת שליד המסך
+    // באולם אינה מורידה קבצים ואינה מסמנת מועדפים בחשבון של מי שהפעיל אותו.
+    if (document.getElementById('lightboxModal')?.classList.contains('is-big-screen')) return;
     const button = document.getElementById(action === 'download' ? 'lightboxDownload' : 'lightboxFavorite');
     if (!button || button.disabled) return;
     event.preventDefault();
@@ -125,7 +128,8 @@ function openShortcutsHelp() {
 // המרחק של כרטיס מראש המסך לפי הפריסה, בלי ה-transform של אנימציית הכניסה:
 // כרטיס שנבנה מחדש (חזרה מאלבום, לב שנלחץ) עולה למקומו מ-20 פיקסלים מתחתיו,
 // ומדידה באמצע התנועה הייתה משאירה את הגלריה מוזזת בדיוק בהפרש הזה.
-function layoutTop(node) {
+// גם ציר הזמן העברי (gallery-timeline-ui.js) מודד בה את הכרטיסים.
+export function layoutTop(node) {
     const parent = node.offsetParent;
     if (!parent) return node.getBoundingClientRect().top;
     return parent.getBoundingClientRect().top + parent.clientTop + node.offsetTop;
