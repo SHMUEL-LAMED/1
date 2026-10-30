@@ -16,6 +16,9 @@
 //   state.imagesHasMore         — האם יש עוד עמודים לתיקייה הפעילה
 //   state.folderCounts / state.imagesTotal — מוני התיקיות מהשרת
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
+//   state.latestImagesHasMore   — האם יש בארכיון עוד מעבר להן
+//   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
+//   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
 
@@ -256,6 +259,8 @@ async function refreshLatestImages() {
     }
     knownLatestIds = latestIds;
     window.state.latestImages = latest;
+    // אין אחריהן עוד — הארכיון כולו; "חדש מאז הביקור הקודם" סופר אז בדיוק.
+    window.state.latestImagesHasMore = Boolean(page.hasMore);
     window.renderFolders?.();
     window.checkNewUpdates?.();
 }
@@ -289,6 +294,7 @@ function resetGalleryFeed() {
         window.state.imagesLoading = false;
         window.state.imagesLoadingMore = false;
         window.state.latestImages = [];
+        window.state.latestImagesHasMore = true;
         window.state.folderCounts = null;
         window.state.imagesTotal = null;
     }
@@ -329,6 +335,11 @@ function getLoadedFolderImages(folderId) {
     return (window.state?.images || []).filter(item => itemBelongsToFolder(item, id));
 }
 
+// כל מה שנטען בביקור מכל התיקיות, בלי לפנות לרשת — לתגי "חדש" על התיקיות.
+function getAllLoadedImages() {
+    return [...feedCache.values()].flatMap(entry => entry.items);
+}
+
 function isFolderFullyLoaded(folderId) {
     const entry = feedCache.get(safeId(folderId));
     return Boolean(entry && !entry.hasMore);
@@ -346,6 +357,21 @@ async function prefetchFolderImages(folderId) {
     return [...page.items];
 }
 
+// פריט אחד לפי מזהה, לקישור ישיר (#media/<id>, ראו media-link.js) לפריט שעוד
+// לא נטען. אותה שאילתה ואותן הרשאות כמו הגלריה: פריט שנמחק, שממתין לאישור
+// או שאינו קיים מחזיר null. לפני אישור הצפייה אין פנייה לרשת.
+async function fetchImageById(imageId) {
+    const id = safeId(imageId);
+    if (!id || feedStopped) return null;
+    const snapshot = await getDocsByIds(imagesCollection(), [id]);
+    return snapshot.docs.map(item => item.data()).find(item => safeId(item?.id) === id) || null;
+}
+
+// האם הגלריה פתוחה לצופה הזה (ההזנה פועלת רק אחרי אישור הצפייה).
+function isGalleryFeedActive() {
+    return !feedStopped;
+}
+
 window.loadFolderImages = loadFolderImages;
 window.loadMoreImages = loadMoreImages;
 window.loadAllImagesForSearch = loadAllImagesForSearch;
@@ -355,5 +381,8 @@ window.refreshGalleryFeed = refreshGalleryFeed;
 window.noteGalleryImageUpserted = noteImageUpserted;
 window.noteGalleryImageRemoved = noteImageRemoved;
 window.getLoadedFolderImages = getLoadedFolderImages;
+window.getAllLoadedImages = getAllLoadedImages;
 window.isFolderFullyLoaded = isFolderFullyLoaded;
 window.prefetchFolderImages = prefetchFolderImages;
+window.fetchGalleryImageById = fetchImageById;
+window.isGalleryFeedActive = isGalleryFeedActive;

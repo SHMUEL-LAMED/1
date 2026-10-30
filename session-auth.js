@@ -428,8 +428,12 @@ async function initFirebase() {
 // (tempSearchResults והבאנר שמעליה). הם נמחקים בכל התנתקות, החלפת חשבון
 // ואובדן אישור — אחרת שם ופנים של אדם נשארים מול מבקר שאינו מחובר, ותוצאות
 // של משתמש אחד מוצגות למשתמש הבא. people.js מאפס גם את המצב שלו, רק אם נטען.
+// גם התצוגה המלאה נסגרת, עם הקישור הישיר לפריט שנפתח בה (gallery.js), וגם
+// באנר "נוספו N פריטים מאז הביקור הקודם שלך" — הספירה בו אישית (gallery.js).
 function clearPrivateGalleryViews() {
     window.resetPeopleState?.();
+    window.resetMediaLinkState?.();
+    window.resetNewUpdatesState?.();
     window.state.tempSearchResults = null;
     const banner = document.getElementById('tempSearchBanner');
     if (banner) {
@@ -515,8 +519,10 @@ function setupFirestoreListeners(user) {
         // עם סמני דפדוף.
         if (window.PAGE_MODE !== 'admin' && typeof window.startGalleryFeed === 'function') {
             window.galleryUnsubscribers.push(window.startGalleryFeed());
-            // קישור ישיר לאלבום של אדם (#person/<id>) נפתח רק עכשיו, כשהצפייה אושרה.
+            // קישור ישיר לאלבום של אדם (#person/<id>) או לפריט (#media/<id>)
+            // נפתח רק עכשיו, כשהצפייה אושרה.
             window.routePeopleHash?.();
+            window.routeMediaHash?.();
             return;
         }
 

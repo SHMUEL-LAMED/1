@@ -210,3 +210,49 @@ export async function runVariantBackfill(candidates, processItem, options = {}) 
     await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, lane));
     return summary;
 }
+
+// --- כיוון הפריט: לאורך, לרוחב או ריבועי ---
+// הרשומות אינן שומרות כיוון, אבל רובן יודעות את המידות: העלאה רושמת את
+// width/height של התמונה כפי שפוענחה (upload-compress.js), וכל תצוגה מקדימה
+// נשמרת עם המידות שלה — שתיהן אחרי הסיבוב שב-EXIF, ולכן הן הכיוון שרואים.
+// תצוגה מוקטנת שומרת על יחס הצלעות, כך שגם סרטון (poster) מקבל כיוון.
+// פריט בלי אף אחת מהן (מדיה ישנה שטרם עברה את ריצת ההשלמה של התצוגות)
+// מחזיר '' — כיוון לא ידוע, ולא ניחוש מהתמונה שנטענה בכרטיס: כרטיס שעוד לא
+// נגלל אליו לא נטען, וסינון שתלוי בזה היה משתנה תוך כדי גלילה.
+export const MEDIA_ORIENTATIONS = Object.freeze(['portrait', 'landscape', 'square']);
+// עד 5% הפרש בין הצלעות נחשב ריבועי: עיגול בהקטנה ל-480 פיקסלים, או חיתוך
+// "ריבועי" של מצלמה שאינו מדויק בפיקסל.
+export const SQUARE_TOLERANCE = 0.05;
+
+function positiveDimension(value) {
+    const number = Math.trunc(Number(value));
+    return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+// המידות הידועות של הפריט, או null. המידות שנרשמו בהעלאה קודמות לתצוגות.
+export function mediaDimensions(record) {
+    const width = positiveDimension(record?.width);
+    const height = positiveDimension(record?.height);
+    if (width && height) return { width, height };
+    for (const name of ['medium', 'poster', 'thumb']) {
+        const entry = record?.variants?.[name];
+        const variantWidth = positiveDimension(entry?.width);
+        const variantHeight = positiveDimension(entry?.height);
+        if (variantWidth && variantHeight) return { width: variantWidth, height: variantHeight };
+    }
+    return null;
+}
+
+export function orientationFromDimensions(width, height, tolerance = SQUARE_TOLERANCE) {
+    const w = positiveDimension(width);
+    const h = positiveDimension(height);
+    if (!w || !h) return '';
+    if (Math.abs(w - h) <= Math.max(w, h) * tolerance) return 'square';
+    return w > h ? 'landscape' : 'portrait';
+}
+
+// 'portrait' | 'landscape' | 'square', או '' כשהמידות אינן ידועות.
+export function mediaOrientation(record) {
+    const dimensions = mediaDimensions(record);
+    return dimensions ? orientationFromDimensions(dimensions.width, dimensions.height) : '';
+}

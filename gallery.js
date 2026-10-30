@@ -2,9 +2,19 @@
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
 // בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
-import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource } from './media-variants.js';
+import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource, mediaOrientation, MEDIA_ORIENTATIONS } from './media-variants.js';
+// "אקראי" במיון ו"תמונה אקראית": סדר שנשאר יציב לאורך הביקור (gallery-random.js).
+import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
+// פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
+import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
+// "חדש מאז הביקור הקודם" (לכל משתמש), והתמונות האחרונות של תיקייה בריחוף.
+import {
+    beginVisit, touchVisit, isNewSince, newSinceSummary, pickFolderPreviewFrames,
+    newUpdatesBannerState, readUpdatesSeen, markUpdatesSeen as storeUpdatesSeen, NEW_UPDATES_DEFAULT_TEXT
+} from './new-since.js';
+import { installFolderHoverPreview } from './folder-preview.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
 import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
@@ -20,6 +30,11 @@ import {
     renderSceneFilterChips, installSceneFilterChips, renderLightboxDescription,
     installLightboxDescription, openDescriptionEditor
 } from './media-description.js';
+// קישור ישיר לפריט (#media/<id>) וכפתור "שתף" שבתצוגה המלאה.
+import {
+    parseMediaRoute, mediaHash, mediaShareUrl, mediaShareData, canUseNativeShare,
+    isShareCancel, hashToRestore, findRecordById, withRecord
+} from './media-link.js';
 
 let currentFilteredImages = [];
 
@@ -27,24 +42,93 @@ let currentFilteredImages = [];
 // "חדש מאז הביקור הקודם" נבדק מול העמוד החדש ביותר של הארכיון
 // (state.latestImages, שאילתת limit קטנה), לא מול הרשימה כולה — היא אינה
 // נטענת עוד בדף הגלריה.
+//
+// נקודת הייחוס היא הביקור הקודם של המשתמש המחובר (new-since.js): היא נקבעת
+// פעם אחת לכל משתמש בטעינת הדף ואינה זזה עד הטעינה הבאה, ולכן תגי "חדש" על
+// הכרטיסים ועל התיקיות אינם נעלמים באמצע הביקור. בביקור הראשון אין נקודה,
+// והבאנר חוזר להתנהגות הקודמת ("עדכונים מהשבוע האחרון").
+//
+// הבאנר אישי — הספירה בו היא של המשתמש המחובר, ו"סגור" נשמר לכל משתמש
+// לעצמו (readUpdatesSeen ב-new-since.js) — ולכן הוא מוסתר ומתאפס בכל
+// התנתקות, החלפת חשבון או אובדן אישור (resetNewUpdatesState).
+const visitBaselines = new Map();
+
+function newSinceBaseline() {
+    const uid = window.state.currentUser?.uid;
+    if (!uid) return 0;
+    if (!visitBaselines.has(uid)) visitBaselines.set(uid, beginVisit({ userId: uid }));
+    return visitBaselines.get(uid);
+}
+
+// הדף נסתר או נסגר: הביקור הבא יימדד מהרגע הזה ולא מתחילת הביקור.
+function noteVisitSeen() {
+    const uid = window.state.currentUser?.uid;
+    if (uid && visitBaselines.has(uid)) touchVisit({ userId: uid });
+}
+
+// כל מה שכבר נטען בביקור, בלי לפנות לרשת: החדשות ביותר בארכיון, התיקייה
+// הפעילה וכל תיקייה שנטענה (gallery-feed.js).
+function loadedGalleryLists() {
+    return [window.state.latestImages || [], window.state.images || [], window.getAllLoadedImages?.() || []];
+}
+
+// לפני שנטען דבר (משתמש שעוד לא אושר, או הגלריה עוד בטעינה) הביקור אינו
+// מתחיל, כדי שנקודת הייחוס תיקבע רק כשיש באמת מה לראות.
+function galleryNewSinceSummary() {
+    const lists = loadedGalleryLists();
+    const since = lists.some(list => list.length) ? newSinceBaseline() : 0;
+    return newSinceSummary(since ? lists : [], since, { latest: window.state.latestImages, latestHasMore: window.state.latestImagesHasMore });
+}
+
+// "סגור" ו"צפה עכשיו" נשמרים במפתח של המשתמש המחובר; בלי משתמש — במפתח
+// הגלובלי הישן.
+function markUpdatesSeen() {
+    storeUpdatesSeen({ userId: window.state.currentUser?.uid });
+}
+
+function setNewUpdatesBanner({ visible, text }) {
+    const banner = document.getElementById('newUpdatesBanner');
+    const label = document.getElementById('newUpdatesBannerText');
+    if (label) label.textContent = text;
+    if (banner) banner.classList.toggle('hidden', !visible);
+}
+
 window.checkNewUpdates = function() {
     const source = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
-    if (!source || source.length === 0) return;
-    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
-    const lastSeen = parseInt(localStorage.getItem('yeshiva_last_seen_update') || '0');
-    const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
-    const banner = document.getElementById('newUpdatesBanner');
-    if (banner && newest > lastSeen && (Date.now() - newest < ONE_WEEK)) {
-        banner.classList.remove('hidden');
+    if (!document.getElementById('newUpdatesBanner')) return;
+    // אין מה להציג (הגלריה ננעלה או עוד לא נטענה): הבאנר נסגר ולא נשאר מהקודם.
+    if (!source || source.length === 0) {
+        setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
+        return;
     }
+    const since = newSinceBaseline();
+    setNewUpdatesBanner(newUpdatesBannerState({
+        since,
+        summary: since ? galleryNewSinceSummary() : null,
+        newest: source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0),
+        lastSeen: readUpdatesSeen({ userId: window.state.currentUser?.uid })
+    }));
+}
+
+// התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js):
+// הבאנר והספירה שבו שייכים למשתמש הקודם, ולכן נסגרים וחוזרים לטקסט ברירת
+// המחדל. גם נקודות הייחוס שבזיכרון נמחקות — אחרי שהביקור של כל משתמש נרשם
+// כנגמר עכשיו — כדי שהמשתמש הבא יתחיל מהרשומה שלו באחסון. מי שחוזר תוך
+// הביקור מקבל ממנה את אותה נקודה, כמו ברענון.
+function resetNewUpdatesState() {
+    for (const uid of visitBaselines.keys()) touchVisit({ userId: uid });
+    visitBaselines.clear();
+    setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
 }
 
 // כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
 const RECENT_UPDATES_LIMIT = 200;
 async function showNewUpdates() {
-    localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
+    markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
+    // עם ביקור קודם — מה שנוסף מאז; אחרת — השבוע האחרון.
+    const since = newSinceBaseline();
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     // התמונות מהשבוע האחרון מגיעות משאילתה ממוינת מהחדש לישן עם limit,
     // ולא מהרשימה המלאה. אם השאילתה נכשלת נשארים עם מה שכבר בזיכרון.
@@ -61,7 +145,9 @@ async function showNewUpdates() {
     } catch (error) {
         console.warn('Recent updates query failed:', error);
     }
-    window.state.tempSearchResults = recent.filter(img => (img.createdAt || 0) >= weekAgo);
+    window.state.tempSearchResults = since
+        ? recent.filter(img => isNewSince(img, since))
+        : recent.filter(img => (img.createdAt || 0) >= weekAgo);
 
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) {
@@ -78,7 +164,7 @@ async function showNewUpdates() {
         title.textContent = "עדכונים אחרונים";
         const desc = document.createElement('p');
         desc.className = "text-xs text-amber-400";
-        desc.textContent = "תמונות מהשבוע האחרון";
+        desc.textContent = since ? "מה שנוסף מאז הביקור הקודם שלך" : "תמונות מהשבוע האחרון";
         textDiv.appendChild(title);
         textDiv.appendChild(desc);
         leftDiv.appendChild(textDiv);
@@ -98,7 +184,7 @@ async function showNewUpdates() {
 }
 
 function dismissNewUpdates() {
-    localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
+    markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
 }
@@ -134,6 +220,7 @@ window.toggleFavorite = async function(event, mediaId) {
     else window.state.favorites.add(id);
     window.renderFolders();
     window.renderImages();
+    syncLightboxFavorite();
     try {
         await saveFavorites();
     } catch (error) {
@@ -141,6 +228,7 @@ window.toggleFavorite = async function(event, mediaId) {
         else window.state.favorites.delete(id);
         window.renderFolders();
         window.renderImages();
+        syncLightboxFavorite();
         window.showNotification('שמירת המועדף נכשלה. בדוק את חיבור Cloudflare.', false);
     }
 };
@@ -440,6 +528,9 @@ window.openEventPage = function(event, folderId) {
     const openButton = document.getElementById('eventOpenGalleryBtn');
     if (openButton) openButton.onclick = () => {
         setActiveFolder(id);
+        // ראש הרשת הוא היעד גם כשזו התיקייה שכבר פעילה: זיכרון הגלילה
+        // (gallery-navigation-ui.js) לא יחזיר אחרי הסגירה למקום הישן.
+        window.forgetGalleryScrollMemory?.('event');
         window.closeModal('eventPageModal');
         document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
     };
@@ -545,9 +636,59 @@ function handleSearch(val) {
     }
 }
 
+const GALLERY_SORTS = ['newest', 'oldest', 'name', 'random'];
+// הסדר האקראי נקבע פעם אחת לביקור: חזרה ל"אקראי" אחרי מיון אחר, עמוד נוסף
+// בגלילה או ציור מחדש אינם מערבבים מחדש — רק "ערבב מחדש".
+const randomGalleryOrder = createStableShuffle({ keyOf: item => window.safeRecordId(item?.id) });
+
+// כפתור "ערבב מחדש" מוצג רק כשהמיון אקראי (בחירה חוזרת באותה אפשרות של
+// ה-select אינה מפעילה onchange, ולכן הערבוב מחדש צריך כפתור משלו).
+function syncRandomSortControls() {
+    const random = window.state.gallerySort === 'random';
+    const select = document.getElementById('gallerySortSelect');
+    if (select && select.value !== window.state.gallerySort) select.value = window.state.gallerySort;
+    document.getElementById('galleryReshuffleButton')?.classList.toggle('hidden', !random);
+}
+
 window.setGallerySort = function(sort) {
-    window.state.gallerySort = ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest';
+    window.state.gallerySort = GALLERY_SORTS.includes(sort) ? sort : 'newest';
+    syncRandomSortControls();
     window.renderImages();
+};
+
+window.reshuffleGallery = function() {
+    randomGalleryOrder.reshuffle();
+    window.state.gallerySort = 'random';
+    syncRandomSortControls();
+    window.renderImages();
+    window.showNotification('הגלריה עורבבה מחדש.', true);
+};
+
+// הזרע הנוכחי של הסדר האקראי, לזיכרון הגלילה (gallery-navigation-ui.js):
+// מקום שנשמר לפני "ערבב מחדש" אינו משוחזר בסדר החדש, כמו ב-currentViewSignature.
+window.galleryRandomSeed = function() {
+    return randomGalleryOrder.seed;
+};
+
+// ההיקף של הדירוג האקראי: התיקייה הפעילה, או תוצאות החיפוש הזמני.
+function randomOrderScope() {
+    return window.state.tempSearchResults !== null ? 'temp' : (window.safeRecordId(window.state.activeFolderId) || 'all');
+}
+
+// "תמונה אקראית": פריט מתוך מה שמוצג עכשיו (התיקייה, החיפוש וכל הסינונים),
+// ולא אותו פריט פעמיים ברצף. פריטים שעוד לא נטענו מהענן אינם בהגרלה.
+let lastRandomItemId = '';
+window.openRandomGalleryItem = function() {
+    const pick = pickRandomItem(getFilteredSortedImages(), {
+        excludeKey: lastRandomItemId,
+        keyOf: item => window.safeRecordId(item?.id)
+    });
+    if (!pick) {
+        window.showNotification('אין פריטים להצגה בסינון הנוכחי.', false);
+        return;
+    }
+    lastRandomItemId = window.safeRecordId(pick.id);
+    openLightbox(lastRandomItemId);
 };
 
 // --- התאריך העברי: תצוגה וסינון ---
@@ -662,10 +803,10 @@ function syncMediaTypeSelect() {
     if (select) select.value = activeMediaTypeFilter();
 }
 
-// סינון כלשהו פעיל (תאריך עברי, סוג הרגע או סוג מדיה): בתיקייה שלא נטענה
-// כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
+// סינון כלשהו פעיל (תאריך עברי, סוג הרגע, סוג מדיה או כיוון): בתיקייה שלא
+// נטענה כולה הוא מושך את שאר העמודים ברקע, כמו חיפוש.
 window.hasActiveGalleryFilters = function() {
-    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter());
+    return window.hasActiveDateFilter() || Boolean(activeSceneTag()) || Boolean(activeMediaTypeFilter()) || Boolean(activeOrientationFilter());
 };
 
 window.setGalleryMediaType = function(value) {
@@ -675,6 +816,42 @@ window.setGalleryMediaType = function(value) {
     autoloadForDateFilter();
     window.noteGallerySearchChange?.();
 };
+
+// --- סינון לפי כיוון: לאורך, לרוחב או ריבועית ---
+// הכיוון נגזר מהמידות שברשומה (media-variants.js, mediaOrientation). פריט בלי
+// מידות אינו נכלל כשהסינון פעיל, ומתחת לסרגל נכתב כמה פריטים כאלה יש, כדי
+// שלא ייראה כאילו הם נעלמו.
+function activeOrientationFilter() {
+    return MEDIA_ORIENTATIONS.includes(window.state.orientationFilter) ? window.state.orientationFilter : '';
+}
+
+function syncOrientationSelect() {
+    const select = document.getElementById('galleryOrientationFilter');
+    if (select) select.value = activeOrientationFilter();
+}
+
+window.setGalleryOrientation = function(value) {
+    window.state.orientationFilter = MEDIA_ORIENTATIONS.includes(value) ? value : '';
+    syncOrientationSelect();
+    window.renderImages();
+    autoloadForDateFilter();
+    window.noteGallerySearchChange?.();
+};
+
+// כמה פריטים הוצאו מהתצוגה האחרונה רק משום שהכיוון שלהם אינו ידוע. נכתב
+// ב-getFilteredSortedImages ונקרא בציור, כדי לא לסנן את הרשימה פעמיים.
+let orientationUnknownCount = 0;
+
+function renderOrientationNote() {
+    const note = document.getElementById('galleryOrientationNote');
+    if (!note) return;
+    const count = activeOrientationFilter() ? orientationUnknownCount : 0;
+    const text = !count ? ''
+        : count === 1 ? 'פריט אחד בלי מידות שמורות אינו נכלל בסינון לפי כיוון.'
+            : `${count} פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון.`;
+    note.hidden = !count;
+    if (note.textContent !== text) note.textContent = text;
+}
 
 // --- חיפושים אחרונים ושמורים (search-history-ui.js) ---
 // החיפוש הנוכחי: הטקסט והסינון הפעיל. שבב "סוג הרגע" הפעיל (תגית סצנה אחת,
@@ -689,12 +866,13 @@ window.getGallerySearchSnapshot = function() {
             hebrewYear: Number(state.hebrewYearFilter) || 0,
             hebrewMonth: state.hebrewMonthFilter || '',
             mediaType: activeMediaTypeFilter(),
+            orientation: activeOrientationFilter(),
             tags: sceneTag ? [sceneTag] : []
         }
     };
 };
 
-// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע וסוג המדיה). נקרא
+// מאפס את טקסט החיפוש ואת הסינון (שנה, חודש, סוג הרגע, סוג המדיה וכיוון). נקרא
 // בהתנתקות ובהחלפת חשבון (search-history-ui.js), כדי שמי שבא אחרי המשתמש
 // הקודם באותה לשונית לא יירש את החיפוש שלו.
 window.clearGallerySearch = function() {
@@ -704,7 +882,9 @@ window.clearGallerySearch = function() {
     state.hebrewMonthFilter = '';
     state.sceneTagFilter = '';
     state.mediaTypeFilter = '';
+    state.orientationFilter = '';
     syncMediaTypeSelect();
+    syncOrientationSelect();
     const input = document.getElementById('searchInput');
     if (input) input.value = '';
     window.renderImages();
@@ -725,7 +905,9 @@ window.applyGallerySearch = async function(search = {}) {
     state.hebrewYearFilter = year >= 5000 && year < 7000 ? String(year) : '';
     state.hebrewMonthFilter = HEBREW_MONTH_ORDER.includes(filters.hebrewMonth) ? filters.hebrewMonth : '';
     state.mediaTypeFilter = MEDIA_TYPE_FILTERS.includes(filters.mediaType) ? filters.mediaType : '';
+    state.orientationFilter = MEDIA_ORIENTATIONS.includes(filters.orientation) ? filters.orientation : '';
     syncMediaTypeSelect();
+    syncOrientationSelect();
     // הגלריה מסננת לפי תגית סצנה אחת; תגית שאינה בטקסונומיה אינה מסננת.
     state.sceneTagFilter = (Array.isArray(filters.tags) ? filters.tags : []).find(isSceneTagId) || '';
     const query = String(search?.query || '');
@@ -780,7 +962,8 @@ function announceSceneFilter(count) {
 }
 
 function getFilteredSortedImages() {
-    let filtered = scopedGalleryImages();
+    const scoped = scopedGalleryImages();
+    let filtered = scoped;
     const hebrewFilters = activeHebrewFilters();
     if (hebrewFilters.year || hebrewFilters.month) {
         filtered = filtered.filter(img => matchesHebrewFilters(img, hebrewFilters));
@@ -808,16 +991,38 @@ function getFilteredSortedImages() {
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
-    // המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
-    // לפי זמן ההעלאה.
-    if (window.state.gallerySort === 'oldest') {
-        filtered.sort(compareCaptureAsc);
-    } else if (window.state.gallerySort === 'name') {
-        filtered.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
-    } else {
-        filtered.sort(compareCaptureDesc);
+    // הכיוון אחרון, כדי שהמונה של "בלי מידות" יספור רק פריטים שהיו מוצגים
+    // לולא הסינון הזה.
+    const orientation = activeOrientationFilter();
+    orientationUnknownCount = 0;
+    if (orientation) {
+        filtered = filtered.filter(img => {
+            const value = mediaOrientation(img);
+            if (!value) orientationUnknownCount += 1;
+            return value === orientation;
+        });
     }
-    return filtered;
+    return sortGalleryItems(filtered, scoped);
+}
+
+// המיון לפי תאריך הוא לפי רגע הצילום (takenAt), ובשוויון — או כשאין —
+// לפי זמן ההעלאה. משמש גם את רשימת הדפדוף של קישור ישיר לפריט. במיון
+// האקראי scope הוא כל הפריטים שלפני הסינון (ראו למטה).
+function sortGalleryItems(items, scope = items) {
+    if (window.state.gallerySort === 'oldest') {
+        items.sort(compareCaptureAsc);
+    } else if (window.state.gallerySort === 'name') {
+        items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
+    } else if (window.state.gallerySort === 'random') {
+        // כל התיקייה מדורגת לפני הסינון, כדי שביטול סינון לא ידחוף את מה
+        // שהיה מסונן אל סוף הסדר.
+        const orderScope = randomOrderScope();
+        randomGalleryOrder.include(scope, orderScope);
+        return randomGalleryOrder.order(items, orderScope);
+    } else {
+        items.sort(compareCaptureDesc);
+    }
+    return items;
 }
 
 // „עודכן” ברצועת הכניסה נועד לומר שהארכיון חי, ולכן ימים אחרונים מוצגים
@@ -916,6 +1121,33 @@ function folderEventDateLabel(folder) {
     return hebrew || key;
 }
 
+// --- התצוגה המקדימה של תיקייה (folder-preview.js) ---
+// התמונות מגיעות קודם ממה שכבר נטען בביקור. רק לתיקייה שעוד לא נטען ממנה
+// דבר מתבקש העמוד הראשון שלה — אותו עמוד שלחיצה עליה הייתה מביאה, והוא
+// נשמר במטמון של gallery-feed.js, כך שהלחיצה אחר כך אינה פונה שוב לרשת.
+const folderPreviewLoads = new Map();
+
+function folderPreviewFrames(folderId) {
+    const lists = [window.state.latestImages || [], window.getLoadedFolderImages?.(folderId) || []];
+    return pickFolderPreviewFrames(lists, folderId, { sanitize: window.safeImageUrl });
+}
+
+function loadFolderPreviewFrames(folderId) {
+    const id = window.safeRecordId(folderId);
+    // "כל הארכיון" והתיקייה הפעילה כבר בזיכרון; תיקייה ריקה — אין מה לבקש.
+    if (!id || id === 'all' || id === window.safeRecordId(window.state.activeFolderId)) return [];
+    const counts = window.state.folderCounts;
+    if (counts && !(Number(counts[id]) > 0)) return [];
+    if (typeof window.prefetchFolderImages !== 'function') return [];
+    if (!folderPreviewLoads.has(id)) {
+        const request = Promise.resolve(window.prefetchFolderImages(id))
+            .then(items => pickFolderPreviewFrames([items], id, { sanitize: window.safeImageUrl }))
+            .finally(() => folderPreviewLoads.delete(id));
+        folderPreviewLoads.set(id, request);
+    }
+    return folderPreviewLoads.get(id);
+}
+
 window._doRenderFolders = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const folderList = document.getElementById('folderList'); if (!folderList) return;
@@ -947,6 +1179,7 @@ window._doRenderFolders = function() {
     if (folderMediaCount) folderMediaCount.textContent = String(mediaCount);
     renderArchiveEntryFacts(eventCount, mediaCount);
     renderHeroMosaic();
+    const newSince = galleryNewSinceSummary();
 
     folders.forEach(folder => {
         const folderId = window.safeRecordId(folder.id);
@@ -956,7 +1189,7 @@ window._doRenderFolders = function() {
             window.state.isSuperAdmin || (!folder.isDefault && !['1', '2', '3', '4'].includes(folderId))
         );
         const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
-        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
+        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" data-event-folder="${folderId}" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
         const count = folderCounts
             ? (folderId === 'all' ? mediaCount : (Number(folderCounts[folderId]) || 0))
             : (folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length);
@@ -969,8 +1202,11 @@ window._doRenderFolders = function() {
             ? 'כל התמונות והסרטונים במקום אחד'
             : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folderEventDateLabel(folder)) : 'אוסף מהגלריה'));
         const folderIcon = folderId === 'all' ? 'layout-grid' : window.safeIconName(folder.icon);
+        // "חדש": בתיקייה יש פריט שנוסף מאז הביקור הקודם; "כל הארכיון" — בכל תיקייה שהיא.
+        const isNewFolder = folderId === 'all' ? newSince.count > 0 : newSince.folderIds.has(folderId);
+        const newBadge = isNewFolder ? '<span class="new-since-badge" title="נוספו פריטים מאז הביקור הקודם שלך">חדש</span>' : '';
         folderParts.push(`
-            <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
+            <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}" data-folder-id="${folderId}">
                 <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
                     <span class="collection-card-icon" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i></span>
                     <span class="collection-card-content">
@@ -978,6 +1214,7 @@ window._doRenderFolders = function() {
                         <span class="collection-card-meta">${folderMeta}</span>
                     </span>
                     <span class="folder-count collection-card-count"><strong>${count}</strong><small>פריטים</small></span>
+                    ${newBadge}
                 </button>
                 <div class="collection-card-actions">${eventBtn}${delBtn}</div>
                 <span class="collection-card-active-label" aria-hidden="true"><i data-lucide="check" class="w-3 h-3"></i> נבחר</span>
@@ -985,6 +1222,8 @@ window._doRenderFolders = function() {
     });
     folderList.innerHTML = folderParts.join('');
     window.scheduleIconRefresh(folderList);
+    // התצוגה המקדימה של התיקייה שתחת העכבר עוברת לכרטיס החדש שלה.
+    folderList.__folderHoverPreview?.refresh();
 }
 
 // הגלריה מרונדרת במנות. המנה הראשונה נבנית מיד, וכל מנה נוספת מצטרפת רק
@@ -1016,9 +1255,11 @@ let galleryRenderPending = false;
 // רינדור מחדש הוא עדכון נתונים — תמונה חדשה, לב שנלחץ, חזרה ללשונית — ואז
 // מספר הכרטיסים שכבר הוצגו נשמר, כדי שהדף לא יתקצר מתחת לגלילה של המשתמש.
 // שינוי של אחד מהם מחזיר את הרשת למנה הראשונה.
+// "ערבב מחדש" מחליף את הזרע, ולכן גם הוא תצוגה חדשה.
 function currentViewSignature() {
     return [window.state.activeFolderId, window.state.searchQuery, window.state.gallerySort, window.state.tempSearchResults,
-        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || ''];
+        window.state.hebrewYearFilter || '', window.state.hebrewMonthFilter || '', activeSceneTag(), window.state.mediaTypeFilter || '',
+        activeOrientationFilter(), window.state.gallerySort === 'random' ? randomGalleryOrder.seed : 0];
 }
 
 function sameViewSignature(first, second) {
@@ -1052,6 +1293,7 @@ window._doRenderImages = function() {
     renderHebrewDateFilters(scoped);
     renderSceneFilterChips(document.getElementById('gallerySceneFilter'), scoped, activeSceneTag());
     announceSceneFilter(galleryPageItems.length);
+    renderOrientationNote();
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 
@@ -1065,6 +1307,7 @@ window._doRenderImages = function() {
         const loading = Boolean(window.state.imagesLoading);
         emptyState.classList.toggle('hidden', loading); emptyState.classList.toggle('flex', !loading);
         updateGalleryLoadMore();
+        window.noteGalleryRendered?.();
         return;
     }
     grid.classList.remove('hidden'); emptyState.classList.add('hidden'); emptyState.classList.remove('flex');
@@ -1080,6 +1323,8 @@ window._doRenderImages = function() {
         restoreGalleryScrollAnchor(anchor);
     }
     updateGalleryLoadMore();
+    // זיכרון הגלילה (gallery-navigation-ui.js): חזרה מאלבום של אדם למקום בגלריה.
+    window.noteGalleryRendered?.();
 };
 
 // הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
@@ -1148,8 +1393,14 @@ function syncGalleryCards(grid, items) {
         previous.delete(id);
         let node = known && known.html === html && known.node.isConnected ? known.node : null;
         if (!node) {
+            // היחס שנמדד מהתמונה (handleCardImageLoad) אינו במרקאפ, ולכן עובר
+            // לכרטיס החדש. בלעדיו לב או בחירה היו מחזירים את הכרטיס ל-4:3 עד
+            // שהתמונה נטענת שוב, ושורת הפסיפס הייתה קופצת. תמונה שהתחלפה מתקנת
+            // אותו שוב כשהיא נטענת.
+            const measuredRatio = known?.node.style.getPropertyValue('--media-ratio') || '';
             known?.node.remove();
             node = insertGalleryCard(grid, html, grid.children[index] || null);
+            if (measuredRatio) node.style.setProperty('--media-ratio', measuredRatio.trim());
             window.scheduleIconRefresh(node);
         } else if (grid.children[index] !== node) {
             grid.insertBefore(node, grid.children[index] || null);
@@ -1207,7 +1458,7 @@ function placeDateGroupLabel(node, index) {
     const label = node.querySelector('.gallery-date-group');
     if (!label) return;
     const item = galleryPageItems[index];
-    const byDate = window.state.gallerySort !== 'name';
+    const byDate = window.state.gallerySort === 'newest' || window.state.gallerySort === 'oldest';
     const key = dateGroupKey(item);
     const starts = Boolean(byDate && key && (index === 0 || dateGroupKey(galleryPageItems[index - 1]) !== key));
     label.hidden = !starts;
@@ -1230,15 +1481,24 @@ function buildGalleryCard(img, isEditBlocked) {
     const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
     const cardSource = pickCardSource(img, window.safeImageUrl);
     const durationLabel = formatMediaDuration(img.duration);
+    // נוסף מאז הביקור הקודם. נקודת הייחוס קבועה לאורך הביקור, ולכן התג חלק
+    // מהמרקאפ שמושווה בלי לגרום לבנייה מחדש של כרטיסים.
+    const isNew = isNewSince(img, newSinceBaseline());
+    // בתג הסרטון המילה והמשך בנפרד: בכרטיס צר ה-CSS משאיר רק את המשך (האייקון
+    // כבר אומר "סרטון"), כדי שהתג לא ייכנס מתחת ללב.
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
-           <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
+           <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i><span class="gallery-badge-label">סרטון${durationLabel ? ' ·' : ''}</span>${durationLabel ? `<span class="gallery-badge-duration">${durationLabel}</span>` : ''}</span>`
         : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
+    // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
+    // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
+    const mediaRatio = mediaAspectRatio(img);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
-    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
+    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}${isNew ? ' (חדש)' : ''}">
                 ${mediaHtml}
+                ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
@@ -1271,13 +1531,27 @@ function buildCardDate(img) {
 // תמונת הכרטיס: <img> עם srcset של thumb ו-medium כשיש שתיהן, ועטופה
 // ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
 // ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
-// is-loaded נקבע על .gallery-media ולא על ההורה הישיר, שעשוי להיות <picture>.
+// כשהתמונה נטענת — handleCardImageLoad (עצירת השלד והיחס של הכרטיס).
 function buildCardPicture(source, title) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="this.closest('.gallery-media')?.classList.add('is-loaded')" onerror="window.handleImageError(this)">`;
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
+
+// התמונה שבכרטיס נטענה: הברק של השלד נעצר (is-loaded נקבע על .gallery-media
+// ולא על ההורה הישיר, שעשוי להיות <picture>), והיחס שלה נכתב על הכרטיס כשהרשומה
+// לא ידעה אותו או טעתה בו — לפיו הפסיפס מסדר את השורה. הכתיבה היא על האלמנט
+// ולא במרקאפ שמושווה, ולכן רינדור מחדש אינו בונה את הכרטיס שוב בגללה.
+window.handleCardImageLoad = function(image) {
+    image.closest('.gallery-media')?.classList.add('is-loaded');
+    const card = image.closest('.gallery-card');
+    if (!card) return;
+    const measured = aspectRatioFrom(image.naturalWidth, image.naturalHeight);
+    if (ratioNeedsUpdate(card.style.getPropertyValue('--media-ratio'), measured)) {
+        card.style.setProperty('--media-ratio', String(measured));
+    }
+};
 
 // מוסיפה את המנה הבאה בלבד. כשכל מה שהורד כבר מוצג ובענן נותרו עוד תמונות,
 // הן מתבקשות מהענף שמטפל בעימוד בשרת. manual=true מגיע מכפתור „הצג עוד”.
@@ -1304,6 +1578,24 @@ window.renderMoreImages = function(manual = false) {
     if (grid.children.length !== rendered) syncGalleryCards(grid, galleryPageItems.slice(0, nextCount));
     else appendGalleryCards(grid, galleryPageItems.slice(rendered, nextCount), rendered);
     updateGalleryLoadMore();
+};
+
+// הכרטיס של פריט מסוים, ואם הוא עוד לא נבנה — המנות עד אליו, מהפריטים
+// שכבר בזיכרון בלבד (בלי בקשה לענן). כך זיכרון הגלילה (gallery-navigation-ui.js)
+// חוזר לכרטיס שהיה עמוק ברשת גם אחרי שהרשת התחילה מחדש במנה הראשונה, וציור
+// שעוד ממתין (לב שנלחץ ממש לפני הסגירה) מתבצע קודם, כדי שהכרטיס יהיה הסופי.
+window.ensureGalleryCardRendered = function(mediaId) {
+    const id = window.safeRecordId(mediaId);
+    if (!id) return null;
+    if (galleryRenderPending) window._doRenderImages();
+    const index = galleryPageItems.findIndex(item => window.safeRecordId(item.id) === id);
+    if (index < 0) return null;
+    while (galleryRenderedCards.length <= index) {
+        const before = galleryRenderedCards.length;
+        window.renderMoreImages();
+        if (galleryRenderedCards.length === before) break;
+    }
+    return galleryRenderedCards.find(card => card.id === id)?.node || null;
 };
 
 // --- המשך טעינה מהענן ---
@@ -2365,15 +2657,29 @@ function ensureLightboxInteractions() {
     });
 }
 
-function openLightbox(imageId) {
+// items: רשימת דפדוף מפורשת, לקישור ישיר לפריט שאינו בתצוגה הנוכחית;
+// בלעדיה — מה שהגלריה מציגה עכשיו, כמו בלחיצה על כרטיס. מחזיר האם נפתח.
+function openLightbox(imageId, items = null) {
     imageId = window.safeRecordId(imageId);
-    currentFilteredImages = getFilteredSortedImages();
+    currentFilteredImages = Array.isArray(items) ? items : getFilteredSortedImages();
     window.state.currentLightboxIndex = currentFilteredImages.findIndex(img => window.safeRecordId(img.id) === imageId);
-    if (window.state.currentLightboxIndex === -1) return;
+    if (window.state.currentLightboxIndex === -1) return false;
     ensureLightboxInteractions();
+    // ה-hash שלפני הפתיחה (#person/<id> של אלבום, למשל) חוזר בסגירה.
+    const wasOpen = isLightboxOpen();
+    if (!wasOpen) hashBeforeLightbox = hashToRestore(window.location?.hash);
     window.recordMediaView(imageId);
     // בפתיחה אין תמונה קודמת שכדאי להשאיר על המסך: הפריט מוצג מיד.
-    updateLightbox(true); window.openModal('lightboxModal');
+    updateLightbox(true);
+    // קישור לפריט אחר כשהתצוגה כבר פתוחה: openModal שוב היה שומר כ"מוקד
+    // הקודם" כפתור שבתוך התצוגה, והסגירה הייתה מחזירה את המוקד לחלון מוסתר.
+    if (!wasOpen) window.openModal('lightboxModal');
+    return true;
+}
+
+function isLightboxOpen() {
+    const lightbox = document.getElementById('lightboxModal');
+    return Boolean(lightbox && !lightbox.classList.contains('hidden'));
 }
 
 function showLightboxIndex(index) {
@@ -2452,7 +2758,165 @@ function filterBySceneTagFromLightbox(tagId) {
 window.onLightboxClosed = function() {
     stopSlideshow({ silent: true });
     resetLightboxZoom();
+    restoreHashAfterLightbox();
 };
+
+// --- קישור ישיר לפריט ושיתוף (media-link.js) ---
+// בזמן שהתצוגה המלאה פתוחה הכתובת היא #media/<id> של הפריט המוצג, כך שאפשר
+// להעתיק אותה מהדפדפן כמו מכפתור "שתף". כל השינויים ב-hash כאן הם
+// replaceState: פתיחה, דפדוף וסגירה אינם מוסיפים רשומות להיסטוריה, וכפתור
+// "חזור" אינו עובר תמונה־תמונה. replaceState גם אינו מפעיל hashchange,
+// ולכן אינו חוזר אל הנתב שב-app.js.
+let hashBeforeLightbox = '';
+let lightboxOwnsHash = false;
+// מתקדם בכל פתיחה מקישור ובכל איפוס (התנתקות, החלפת חשבון): קישור שהתחיל
+// להיטען לפני כן אינו נפתח כשהתשובה חוזרת.
+let mediaLinkGeneration = 0;
+
+function replaceLocationHash(hash) {
+    try {
+        window.history.replaceState(window.history.state, document.title, `${window.location.pathname}${window.location.search}${hash}`);
+    } catch (error) {
+        // היסטוריה חסומה (למשל בתוך מסגרת): הכתובת פשוט אינה מתעדכנת.
+    }
+}
+
+function syncLightboxHash(img) {
+    const hash = mediaHash(window.safeRecordId(img?.id));
+    // בלי כתובת (בדיקות Node של הגלריה) אין מה לעדכן.
+    if (!hash || !window.location) return;
+    lightboxOwnsHash = true;
+    if (window.location.hash !== hash) replaceLocationHash(hash);
+}
+
+// הסגירה מחזירה את מה שהיה לפני הפתיחה — רק אם התצוגה היא שכתבה את ה-hash.
+// סגירה כללית (closeModal) של תצוגה שלא נפתחה אינה מוחקת קישור שעוד ממתין
+// לאישור הצפייה.
+function restoreHashAfterLightbox() {
+    if (!lightboxOwnsHash) return;
+    lightboxOwnsHash = false;
+    if (parseMediaRoute(window.location.hash)) replaceLocationHash(hashBeforeLightbox);
+    hashBeforeLightbox = '';
+}
+
+// הגלריה פתוחה לצופה הזה: ההזנה של gallery-feed.js פועלת רק אחרי אישור הצפייה.
+function canViewGallery() {
+    return typeof window.isGalleryFeedActive === 'function' && window.isGalleryFeedActive();
+}
+
+// נקרא מ-app.js בכל שינוי של ה-hash, וגם אחרי שהגלריה נפתחה למשתמש מאושר
+// (session-auth.js). לפני אישור הצפייה אין מה לפתוח: שער הגישה מוצג, והקישור
+// נשאר בכתובת עד שהצפייה תאושר. פריט שבתצוגה הנוכחית נפתח בה; אחרת הרשומה
+// נטענת לפי מזהה, והדפדוף הוא בתיקייה שלה (העמוד הראשון, מהמטמון של
+// gallery-feed.js כשכבר נטען), עם הפריט עצמו גם כשהוא ישן יותר מהעמוד.
+async function openMediaFromLink(hash = window.location.hash) {
+    const route = parseMediaRoute(hash);
+    if (!route) {
+        // כפתור "חזור" מקישור שהודבק בלשונית פתוחה: התצוגה נסגרת איתו.
+        if (lightboxOwnsHash && isLightboxOpen()) window.closeLightbox();
+        return;
+    }
+    if (!canViewGallery()) return;
+    const mediaId = route.mediaId;
+    const shown = currentFilteredImages[window.state.currentLightboxIndex];
+    if (isLightboxOpen() && window.safeRecordId(shown?.id) === mediaId) return;
+    const generation = ++mediaLinkGeneration;
+    // בדיקה לפני הפתיחה, כדי שתצוגה פתוחה לא תאבד את רשימת הדפדוף שלה
+    // כשהפריט אינו ברשימה הנוכחית.
+    const visible = getFilteredSortedImages();
+    if (visible.some(img => window.safeRecordId(img.id) === mediaId)) {
+        openLightbox(mediaId, visible);
+        return;
+    }
+    try {
+        const loaded = findRecordById([window.state.images, window.state.tempSearchResults, window.state.latestImages], mediaId, window.safeRecordId);
+        const record = loaded || await window.fetchGalleryImageById(mediaId);
+        if (generation !== mediaLinkGeneration || !canViewGallery()) return;
+        if (!record) {
+            if (parseMediaRoute(window.location.hash)?.mediaId === mediaId) replaceLocationHash('');
+            window.showNotification('הפריט שבקישור לא נמצא. ייתכן שהוא נמחק, או שהקישור שגוי.', false);
+            return;
+        }
+        const folderItems = await window.prefetchFolderImages(record.folderId).catch(error => {
+            console.warn('Media link folder failed to load:', error);
+            return [];
+        });
+        if (generation !== mediaLinkGeneration || !canViewGallery()) return;
+        openLightbox(mediaId, sortGalleryItems(withRecord(folderItems, record, window.safeRecordId)));
+    } catch (error) {
+        if (generation !== mediaLinkGeneration) return;
+        console.warn('Media link failed to open:', error);
+        window.showNotification('פתיחת הקישור נכשלה. נסה שוב בעוד רגע.', false);
+    }
+}
+
+// התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js):
+// פריט פרטי אינו נשאר על המסך, וקישור שכבר נפתח אינו נפתח מחדש למשתמש הבא
+// (הסגירה מנקה את ה-hash). קישור שמבקר הגיע איתו ועוד לא נפתח נשאר בכתובת,
+// כדי שייפתח אחרי הכניסה. גם ה-hash שלפני הפתיחה אינו חוזר: #person/<id> של
+// אלבום שהמשתמש פתח היה נפתח מחדש למשתמש הבא (resetPeopleState ב-people.js
+// אינו רואה אותו, כי בזמן הזה הכתובת היא עוד #media/<id>).
+function resetMediaLinkState() {
+    mediaLinkGeneration += 1;
+    hashBeforeLightbox = '';
+    if (isLightboxOpen()) window.closeLightbox();
+}
+
+// העתקה ללוח: Clipboard API, ובלעדיו (דף שאינו מאובטח, דפדפן ישן, הרשאה
+// שנדחתה) העתקה משדה זמני. מחזיר האם הועתק.
+async function copyTextToClipboard(text) {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (error) {
+        // ננסה את הדרך הישנה.
+    }
+    // הסימון בשדה הזמני לוקח את המוקד; אחרי ההעתקה הוא חוזר לכפתור "שתף".
+    const focused = document.activeElement;
+    const field = document.createElement('textarea');
+    field.value = text;
+    field.setAttribute('readonly', '');
+    field.setAttribute('aria-hidden', 'true');
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    document.body.append(field);
+    field.select();
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {
+        copied = false;
+    }
+    field.remove();
+    focused?.focus?.({ preventScroll: true });
+    return copied;
+}
+
+// כפתור "שתף" בתצוגה המלאה: חלון השיתוף של המערכת כשיש (טלפונים), אחרת
+// העתקת הקישור. סגירת חלון השיתוף בלי יעד אינה כישלון; שיתוף שנכשל עובר להעתקה.
+async function shareLightboxItem() {
+    const img = currentFilteredImages[window.state.currentLightboxIndex];
+    const url = mediaShareUrl(window.location, window.safeRecordId(img?.id));
+    if (!img || !url) return;
+    const data = mediaShareData({ title: img.title, isVideo: window.isVideoRecord(img) }, url);
+    if (canUseNativeShare(navigator, data)) {
+        try {
+            await navigator.share(data);
+            return;
+        } catch (error) {
+            if (isShareCancel(error)) return;
+            console.warn('Native share failed, copying instead:', error);
+        }
+    }
+    if (await copyTextToClipboard(url)) {
+        window.showNotification('הקישור הועתק');
+        return;
+    }
+    // אין דרך להעתיק מכאן: הקישור מוצג לסימון והעתקה ידנית.
+    window.prompt('העתק את הקישור לפריט:', url);
+}
 
 window.closeLightbox = function() {
     window.onLightboxClosed();
@@ -2765,17 +3229,35 @@ function updateLightbox(immediate = false) {
         lbDownload.onclick = imageUrl ? () => window.downloadGalleryMedia(img) : null;
     }
 
+    syncLightboxFavorite(img);
+
     const lbCounter = document.getElementById('lightboxCounter');
     if(lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    // הכתובת עוקבת אחרי הפריט המוצג: בפתיחה, בדפדוף ובמצגת.
+    syncLightboxHash(img);
     preloadLightboxNeighbours();
 }
+
+// כפתור המועדף שבסרגל התצוגה המלאה (גם F במקלדת, gallery-navigation-ui.js):
+// אותו toggleFavorite של הלב שבכרטיס. התווית קבועה ו-aria-pressed מבטא את
+// המצב, כך שקורא מסך מכריז "נלחץ" במקום תווית שמתחלפת מתחת לפוקוס.
+function syncLightboxFavorite(img = currentFilteredImages[window.state.currentLightboxIndex]) {
+    const button = document.getElementById('lightboxFavorite');
+    const id = window.safeRecordId(img?.id);
+    if (!button || !id) return;
+    const isFavorite = window.state.favorites.has(id);
+    button.classList.toggle('is-favorite', isFavorite);
+    button.setAttribute('aria-pressed', String(isFavorite));
+    button.onclick = event => window.toggleFavorite(event, id);
+}
+
 document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');
-    // חלון עריכת הכיתוב יושב מעל התצוגה המלאה: החצים והרווח שייכים לשדה
-    // שבו, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
-    const editor = document.getElementById('mediaDescriptionModal');
-    const editorOpen = Boolean(editor && !editor.classList.contains('hidden'));
-    if (lightbox && !lightbox.classList.contains('hidden') && !editorOpen) {
+    // חלון עריכת הכיתוב וחלון קיצורי המקלדת יושבים מעל התצוגה המלאה: החצים
+    // והרווח שייכים להם, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
+    const overlayOpen = ['mediaDescriptionModal', 'shortcutsHelpModal']
+        .some(id => document.getElementById(id)?.classList.contains('hidden') === false);
+    if (lightbox && !lightbox.classList.contains('hidden') && !overlayOpen) {
         // רווח ו-Escape שייכים למצגת כשהיא פועלת (Escape עוצר אותה בלבד).
         if (handleSlideshowKey(e)) return;
         if (e.key === 'ArrowLeft') navigateLightbox(1);
@@ -3009,6 +3491,7 @@ window.setActiveFolder = setActiveFolder;
 window.handleSearch = handleSearch;
 window.showNewUpdates = showNewUpdates;
 window.dismissNewUpdates = dismissNewUpdates;
+window.resetNewUpdatesState = resetNewUpdatesState;
 window.clearTempSearchFilter = clearTempSearchFilter;
 window.submitUserUpload = submitUserUpload;
 window.handleCreateEmptyFolder = handleCreateEmptyFolder;
@@ -3018,6 +3501,9 @@ window.handleDeleteImage = handleDeleteImage;
 window.changeImageFolder = changeImageFolder;
 window.openLightbox = openLightbox;
 window.navigateLightbox = navigateLightbox;
+window.openMediaFromLink = openMediaFromLink;
+window.resetMediaLinkState = resetMediaLinkState;
+window.shareLightboxItem = shareLightboxItem;
 window.getFilteredSortedImages = getFilteredSortedImages;
 window.saveMediaDescription = saveMediaDescription;
 
@@ -3034,6 +3520,12 @@ export function initGallery() {
     window.renderImages?.();
     const grid = document.getElementById('photosGrid');
     if (grid) installVideoHoverPreview(grid);
+    // תיקייה בריחוף או במיקוד מהמקלדת מציגה את התמונות האחרונות שבה.
+    const folderList = document.getElementById('folderList');
+    if (folderList) installFolderHoverPreview(folderList, { framesFor: folderPreviewFrames, loadFrames: loadFolderPreviewFrames });
+    // סוף הביקור נרשם כשהדף נסתר או נסגר; רענון מיד אחריו הוא המשך של אותו ביקור.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') noteVisitSeen(); });
+    window.addEventListener('pagehide', noteVisitSeen);
     // שבבי סוג הרגע, תגיות התצוגה המלאה וכפתור העריכה — מאזין אחד לכל אחד.
     installSceneFilterChips(document.getElementById('gallerySceneFilter'), tagId => window.setGallerySceneTag(tagId));
     installLightboxDescription({ onTagSelect: filterBySceneTagFromLightbox, onEdit: editCurrentLightboxDescription });

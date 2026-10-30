@@ -4,7 +4,7 @@
 // שנפתח מתחת לשדה החיפוש — ב-search-history-ui.js.
 //
 // "חיפוש" הוא טקסט החיפוש יחד עם הסינון הפעיל: תיקייה, שנה וחודש עבריים, סוג
-// המדיה ותגיות (כשיש). שבב "סוג הרגע" של הגלריה (תגית סצנה, scene-tags.js)
+// המדיה, כיוון (לאורך / לרוחב / ריבועי) ותגיות (כשיש). שבב "סוג הרגע" של הגלריה (תגית סצנה, scene-tags.js)
 // נשמר ברשימת התגיות לפי המזהה הקבוע שלו, ומוצג בתווית העברית שלו. שני
 // חיפושים זהים כשהטקסט (בלי הבדלי רישיות ורווחים) וכל הסינונים זהים, ולכן
 // מזהה החיפוש נגזר מהתוכן שלו: אותו חיפוש מקבל את אותו מזהה ברשימת האחרונים
@@ -19,6 +19,7 @@
 // בדפדפן בלבד. ראו mergeRemoteSaved.
 import { HEBREW_MONTH_ORDER, hebrewMonthName, formatHebrewYear } from './hebrew-date.js';
 import { isSceneTagId, sceneTagLabel } from './scene-tags.js';
+import { MEDIA_ORIENTATIONS } from './media-variants.js';
 
 export const SEARCH_HISTORY_STORAGE_PREFIX = 'simchas_gallery_searches_v1';
 export const ANONYMOUS_USER_KEY = 'anonymous';
@@ -70,6 +71,7 @@ export function normalizeFilters(raw) {
     if (Number.isInteger(year) && year >= 5000 && year < 7000) filters.hebrewYear = year;
     if (HEBREW_MONTH_ORDER.includes(source.hebrewMonth)) filters.hebrewMonth = source.hebrewMonth;
     if (MEDIA_TYPES.includes(source.mediaType)) filters.mediaType = source.mediaType;
+    if (MEDIA_ORIENTATIONS.includes(source.orientation)) filters.orientation = source.orientation;
     if (Array.isArray(source.tags)) {
         const seen = new Set();
         const tags = [];
@@ -95,9 +97,12 @@ export function normalizeSearch(raw) {
     return { query, filters };
 }
 
-// הסינונים (המנורמלים) בסדר קבוע.
+// הסינונים (המנורמלים) בסדר קבוע. הכיוון נוסף לסוף, ורק כשהוא פעיל: כך
+// לחיפושים שנשמרו לפניו נשארת אותה חתימה ואותו מזהה, גם בענן.
 function filtersKey(f) {
-    return [f.folderId || '', f.hebrewYear || 0, f.hebrewMonth || '', f.mediaType || '', (f.tags || []).map(lower)];
+    const key = [f.folderId || '', f.hebrewYear || 0, f.hebrewMonth || '', f.mediaType || '', (f.tags || []).map(lower)];
+    if (f.orientation) key.push(f.orientation);
+    return key;
 }
 
 function sameFilters(first, second) {
@@ -194,6 +199,7 @@ function defaultStorage() {
 // --- תיאור לתצוגה ---
 
 const MEDIA_TYPE_LABELS = { image: 'תמונות בלבד', video: 'סרטונים בלבד' };
+const ORIENTATION_LABELS = { portrait: 'לאורך', landscape: 'לרוחב', square: 'ריבועית' };
 
 // הפרטים שמוצגים מתחת לטקסט החיפוש, בעברית. folderName מקבל מזהה ומחזיר את
 // שם התיקייה (או מחרוזת ריקה כשהיא אינה קיימת עוד).
@@ -207,6 +213,7 @@ export function describeSearch(raw, { folderName = () => '' } = {}) {
     if (f.hebrewYear) details.push(`שנת ${formatHebrewYear(f.hebrewYear)}`);
     if (f.hebrewMonth) details.push(`חודש ${hebrewMonthName(f.hebrewMonth)}`);
     if (f.mediaType) details.push(MEDIA_TYPE_LABELS[f.mediaType]);
+    if (f.orientation) details.push(`כיוון: ${ORIENTATION_LABELS[f.orientation]}`);
     if (f.tags?.length) {
         // תגיות סצנה מוצגות כ"סוג הרגע" בתווית העברית; תגית חופשית — כמו שהיא.
         const sceneTags = f.tags.filter(isSceneTagId);

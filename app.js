@@ -17,6 +17,14 @@ import { installSiteUpdateWatcher } from './auto-update.js';
 import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './capture-date.js';
 // חיפושים אחרונים ושמורים: התפריט שמתחת לשדה החיפוש של הגלריה.
 import { initSearchHistory } from './search-history-ui.js';
+// גודל הכרטיסים ופריסת הרשת (רשת / פסיפס): נרמול והעדפה שמורה לכל צופה.
+import {
+    GALLERY_DENSITY_KEY, GALLERY_LAYOUT_KEY, normalizeGalleryDensity, normalizeGalleryLayout,
+    readGalleryPreference, writeGalleryPreference
+} from './gallery-layout.js';
+// קיצורי המקלדת וזיכרון הגלילה בדף הגלריה; הסף של "חזרה למעלה" מגיע מהחלק הטהור.
+import { initGalleryNavigation } from './gallery-navigation-ui.js';
+import { backToTopVisible } from './gallery-navigation.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -28,7 +36,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v66';
+const SITE_VERSION = 'v67';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -242,7 +250,7 @@ window.DEFAULT_GALLERY_FOLDERS = [
 
 // --- 1. Global State ---
 window.state = {
-    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '',
+    folders: window.DEFAULT_GALLERY_FOLDERS.map(folder => ({ ...folder })), images: [], pendingImages: [], pendingUsers: [], allUsers: [], deletionRequests: [], trashItems: [], activityLogs: [], favorites: new Set(), followedFolders: new Set(), activeFolderId: 'all', searchQuery: '', gallerySort: 'newest', hebrewYearFilter: '', hebrewMonthFilter: '', sceneTagFilter: '', mediaTypeFilter: '', orientationFilter: '',
     currentLightboxIndex: -1, tempSearchResults: null,
     bulkSelectionMode: false, selectedMediaIds: new Set(), activeEventFolderId: '',
     isLocked: true, isAdminLoggedIn: false, isSuperAdmin: false, isGoogleUser: false, isInitialSuperAdminAccount: false, currentUser: null,
@@ -309,7 +317,10 @@ window.openManagementFromProfile = function() {
 function openModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
-    m._previousActiveElement = document.activeElement;
+    // פתיחה חוזרת של חלון שכבר פתוח (עמוד האירוע מצויר מחדש אחרי מעקב או
+    // עריכה) אינה מחליפה את מי שפתח אותו בכפתור שבתוך החלון — אחרת הסגירה
+    // הייתה מחזירה את הפוקוס לכפתור נסתר במקום לכרטיס שבגלריה.
+    if (m.classList.contains('hidden')) m._previousActiveElement = document.activeElement;
     m.classList.remove('hidden');
     m.setAttribute('aria-hidden', 'false');
     const firstControl = m.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -1414,8 +1425,6 @@ function initAmbientArchiveBackground() {
 const REDUCED_MOTION_QUERY = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : { matches: false };
-const GALLERY_DENSITY_KEY = 'simchat-gallery-density';
-const GALLERY_DENSITIES = ['compact', 'comfortable', 'large'];
 
 // מונה שעולה בהדרגה אל הערך החדש. הפורמט מגיע מהקורא (למשל toLocaleString)
 // כדי שהמונה יציג בדיוק את מה שהיה מוצג בלעדיו.
@@ -1440,28 +1449,49 @@ window.animateCounter = function(element, value, format = String) {
     requestAnimationFrame(step);
 };
 
-// צפיפות רשת הגלריה: צפוף / רגיל / גדול. הבחירה נשמרת בדפדפן.
+// גודל הכרטיסים ברשת הגלריה: קטן / בינוני / גדול (בקוד compact / comfortable /
+// large, כמו כשהמתג נקרא "צפיפות", כדי שבחירה שכבר נשמרה תישאר). נשמר בדפדפן.
 window.setGalleryDensity = function(density, persist = true) {
-    const next = GALLERY_DENSITIES.includes(density) ? density : 'comfortable';
+    const next = normalizeGalleryDensity(density);
     const grid = document.getElementById('photosGrid');
     if (grid) grid.dataset.density = next;
     document.querySelectorAll('.density-toggle [data-density]').forEach(button => {
         button.setAttribute('aria-pressed', String(button.dataset.density === next));
     });
-    if (persist) {
-        try { localStorage.setItem(GALLERY_DENSITY_KEY, next); } catch (error) { /* מצב פרטי: אין שמירה */ }
-    }
+    if (persist) writeGalleryPreference(GALLERY_DENSITY_KEY, next);
+};
+
+// פריסת הרשת: "רשת" (משבצות אחידות, התמונה נחתכת) או "פסיפס" (כל תמונה ביחס
+// שלה, בלי חיתוך). הפריסה היא CSS בלבד על אותם כרטיסים ובאותו סדר, ולכן אין
+// כאן רינדור מחדש: הגלילה, המנות, הבחירה המרובה והמיקוד נשארים כפי שהם.
+window.setGalleryLayout = function(layout, persist = true) {
+    const next = normalizeGalleryLayout(layout);
+    const grid = document.getElementById('photosGrid');
+    if (grid) grid.dataset.layout = next;
+    document.querySelectorAll('.layout-toggle [data-layout]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.layout === next));
+    });
+    if (persist) writeGalleryPreference(GALLERY_LAYOUT_KEY, next);
 };
 
 window.scrollToPageTop = function() {
     window.scrollTo({ top: 0, behavior: REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth' });
+    // הכפתור נעלם בראש הדף, ופוקוס שנשאר עליו היה הולך לאיבוד. מי שהגיע
+    // אליו במקלדת ממשיך מכותרת האתר, כמו בטעינת הדף.
+    const button = document.getElementById('backToTop');
+    if (button && document.activeElement === button) {
+        const heading = document.querySelector('.brand-title');
+        if (heading) {
+            heading.tabIndex = -1;
+            heading.focus({ preventScroll: true });
+        }
+    }
 };
 
 function initArchiveExperience() {
-    // צפיפות שמורה
-    let savedDensity = null;
-    try { savedDensity = localStorage.getItem(GALLERY_DENSITY_KEY); } catch (error) { savedDensity = null; }
-    window.setGalleryDensity(savedDensity, false);
+    // גודל הכרטיסים והפריסה שהצופה בחר בביקור קודם.
+    window.setGalleryDensity(readGalleryPreference(GALLERY_DENSITY_KEY, normalizeGalleryDensity), false);
+    window.setGalleryLayout(readGalleryPreference(GALLERY_LAYOUT_KEY, normalizeGalleryLayout), false);
 
     // פס התקדמות הגלילה וכפתור החזרה למעלה — מאזין אחד, מסונכרן לפריים.
     const root = document.documentElement;
@@ -1474,7 +1504,8 @@ function initArchiveExperience() {
         root.style.setProperty('--scroll', ratio.toFixed(4));
         // הכותרת הצפה מתעבה ומקבלת צל כשיש תוכן שגולל מתחתיה (ראו styles.css).
         root.toggleAttribute('data-scrolled', window.scrollY > 12);
-        backToTop?.classList.toggle('is-visible', window.scrollY > 480);
+        // אחרי כשני מסכים של גלילה (gallery-navigation.js).
+        backToTop?.classList.toggle('is-visible', backToTopVisible(window.scrollY, window.innerHeight));
     };
     window.addEventListener('scroll', () => {
         if (scrollTicking) return;
@@ -1546,12 +1577,26 @@ let peopleRouteSeen = false;
 function routePeopleHash() {
     if (PAGE_MODE !== 'gallery') return;
     const hash = window.location.hash;
-    if (!PEOPLE_ROUTE_PATTERN.test(hash) && !peopleRouteSeen) return;
+    const isPeopleRoute = PEOPLE_ROUTE_PATTERN.test(hash);
+    // זיכרון הגלילה נרשם לפני שהאלבום מחליף את הרשת (gallery-navigation-ui.js).
+    window.noteGalleryRoute?.(isPeopleRoute);
+    if (!isPeopleRoute && !peopleRouteSeen) return;
     peopleRouteSeen = true;
     window.handlePeopleRoute(hash);
 }
 window.routePeopleHash = routePeopleHash;
 window.addEventListener('hashchange', routePeopleHash);
+
+// קישור ישיר לפריט אחד (#media/<id>, מכפתור "שתף" שבתצוגה המלאה). כמו נתיבי
+// האנשים: נבדק בכל שינוי של ה-hash, ו-session-auth.js קורא לכאן שוב אחרי
+// שהגלריה נפתחה למשתמש מאושר, כדי שקישור שהגיע לפני הכניסה ייפתח אחריה.
+// gallery.js מטפל גם ב-hash אחר: חזרה מקישור שנפתח סוגרת את התצוגה המלאה.
+function routeMediaHash() {
+    if (PAGE_MODE !== 'gallery') return;
+    window.openMediaFromLink?.(window.location.hash);
+}
+window.routeMediaHash = routeMediaHash;
+window.addEventListener('hashchange', routeMediaHash);
 
 // אתחול מפורש ובסדר קבוע: השכבה המשותפת כבר מוכנה, ועכשיו מתחילה
 // שכבת ההתחברות. סנכרון Drive עצמו נטען רק בדף הניהול.
@@ -1566,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initSessionUI();
         initGallery();
         initSearchHistory();
+        initGalleryNavigation();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
         const serviceWorkerRegistration = 'serviceWorker' in navigator

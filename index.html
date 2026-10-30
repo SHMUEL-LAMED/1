@@ -191,16 +191,30 @@
                 </div>
 
                 <div class="gallery-tools">
-                    <div class="density-toggle" role="group" aria-label="צפיפות התצוגה">
-                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="תצוגה צפופה" aria-label="תצוגה צפופה"><i data-lucide="grid-3x3"></i></button>
-                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="תצוגה רגילה" aria-label="תצוגה רגילה"><i data-lucide="layout-grid"></i></button>
-                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="תצוגה גדולה" aria-label="תצוגה גדולה"><i data-lucide="rectangle-horizontal"></i></button>
+                    <!-- גודל הכרטיסים ופריסת הרשת: שני מתגים קטנים, נשמרים לכל צופה
+                         בדפדפן (app.js, gallery-layout.js). "פסיפס" שומר על יחס כל תמונה. -->
+                    <div class="density-toggle" role="group" aria-label="גודל הכרטיסים">
+                        <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
+                        <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
+                        <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
                     </div>
+                    <div class="density-toggle layout-toggle" role="group" aria-label="פריסת הגלריה">
+                        <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
+                        <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
+                    </div>
+                    <!-- חלון קיצורי המקלדת (גם "?" במקלדת, gallery-navigation-ui.js). בטלפון מוסתר. -->
+                    <button type="button" onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
                     <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="w-auto text-xs py-2">
                         <option value="newest">החדש ביותר</option>
                         <option value="oldest">הישן ביותר</option>
                         <option value="name">לפי שם</option>
+                        <option value="random">אקראי</option>
                     </select>
+                    <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
+                         אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
+                    <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
+                        <i data-lucide="shuffle" class="w-4 h-4"></i>
+                    </button>
                     <!-- סינון לפי התאריך העברי של יום הצילום. האפשרויות נגזרות מהפריטים
                          שבתיקייה (gallery.js, renderHebrewDateFilters). -->
                     <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter w-auto text-xs py-2">
@@ -213,6 +227,14 @@
                         <option value="">תמונות וסרטונים</option>
                         <option value="image">תמונות בלבד</option>
                         <option value="video">סרטונים בלבד</option>
+                    </select>
+                    <!-- הכיוון נגזר מהמידות שברשומה; פריט בלי מידות אינו נכלל בסינון,
+                         והמספר שלהם מוצג ב-#galleryOrientationNote. -->
+                    <select id="galleryOrientationFilter" onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter w-auto text-xs py-2">
+                        <option value="">כל הכיוונים</option>
+                        <option value="portrait">לאורך</option>
+                        <option value="landscape">לרוחב</option>
+                        <option value="square">ריבועית</option>
                     </select>
                     <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="face-search-button px-3 py-2 text-xs">
                         <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
@@ -229,6 +251,9 @@
                     <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
                         <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
                     </button>
+                    <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="btn-secondary-dark px-3 py-2 text-xs" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
+                        <i data-lucide="dices" class="w-4 h-4"></i><span class="hidden sm:inline">תמונה אקראית</span>
+                    </button>
                     <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden btn-secondary-dark px-3 py-2 text-xs" title="בחירה מרובה">
                         <i data-lucide="list-checks" class="w-4 h-4"></i><span class="hidden sm:inline">בחירה מרובה</span>
                     </button>
@@ -238,6 +263,7 @@
                      (media-description.js), והשורה מוסתרת כשאין לאף פריט תגית. -->
                 <div id="gallerySceneFilter" class="scene-filter" role="group" aria-label="סינון לפי סוג הרגע" hidden></div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
+                <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
             </div>
 
             <div id="bulkSelectionBar" class="hidden p-3 flex-col sm:flex-row items-center justify-between gap-3" role="toolbar" aria-label="פעולות על פריטים נבחרים">
@@ -258,7 +284,7 @@
 
             <div id="tempSearchBanner" class="hidden flex p-4 justify-between items-center gap-3"></div>
 
-            <div id="photosGrid" class="grid"></div>
+            <div id="photosGrid" class="grid" data-density="comfortable" data-layout="grid"></div>
 
             <!-- זקיף העימוד: כשהוא מתקרב למסך מצוירת המנה הבאה מהזיכרון. כשכל מה
                  שנטען כבר מוצג ובענן נותרו עמודים ישנים יותר, העמוד הבא מתבקש
@@ -287,7 +313,7 @@
         <div class="bell-icon-container p-3 rounded-full flex-shrink-0"><i data-lucide="bell-ring" class="w-6 h-6"></i></div>
         <div class="flex-1">
             <h3 class="font-bold text-sm">יש עדכונים בגלריה!</h3>
-            <p class="text-[11px] leading-tight text-slate-400">נוספו תמונות חדשות בשבוע האחרון.</p>
+            <p id="newUpdatesBannerText" class="text-[11px] leading-tight text-slate-400">נוספו תמונות חדשות בשבוע האחרון.</p>
         </div>
         <div class="flex flex-col gap-2 w-full sm:w-auto">
             <button type="button" onclick="showNewUpdates()" class="btn-primary-gold px-4 py-1.5 text-[11px]">צפה עכשיו</button>
@@ -479,15 +505,23 @@
         <!-- השתקפות מטושטשת של הפריט הנוכחי; gallery.js מעדכן אותה עם כל מעבר. -->
         <img id="lightboxBackdrop" class="lightbox-backdrop" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" aria-hidden="true" hidden>
         <div class="lightbox-bar flex justify-between items-center gap-3 p-3">
-            <div class="min-w-0">
+            <div class="lightbox-heading min-w-0">
                 <h4 id="lightboxTitle" class="font-bold text-base truncate">שם התמונה</h4>
                 <p id="lightboxDetails" class="lightbox-sub text-xs">תאריך • קטגוריה</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="lightbox-actions flex items-center gap-2">
                 <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעל מצגת" aria-label="הפעל מצגת" aria-pressed="false" class="btn-secondary-dark slideshow-toggle h-11 rounded-full">
                     <i data-lucide="play" class="w-5 h-5"></i><span class="slideshow-toggle-text">הפעל מצגת</span>
                 </button>
-                <button type="button" id="lightboxDownload" title="הורדת קובץ" aria-label="הורדת קובץ המדיה" class="btn-secondary-dark w-11 h-11 rounded-full">
+                <!-- קישור ישיר לפריט המוצג (#media/<id>): חלון השיתוף של המערכת, או העתקה (gallery.js). -->
+                <button type="button" id="lightboxShare" onclick="shareLightboxItem()" title="שתף קישור לפריט" aria-label="שתף קישור לפריט הזה" class="btn-secondary-dark lightbox-share h-11 rounded-full">
+                    <i data-lucide="share-2" class="w-5 h-5"></i><span class="lightbox-share-text">שתף</span>
+                </button>
+                <!-- המועדף של הפריט הנוכחי; gallery.js מעדכן את aria-pressed בכל מעבר. -->
+                <button type="button" id="lightboxFavorite" title="מועדף (F)" aria-label="סימון כמועדף" aria-pressed="false" aria-keyshortcuts="F" class="btn-secondary-dark lightbox-fav w-11 h-11 rounded-full">
+                    <i data-lucide="heart" class="w-5 h-5"></i>
+                </button>
+                <button type="button" id="lightboxDownload" title="הורדת קובץ (D)" aria-label="הורדת קובץ המדיה" aria-keyshortcuts="D" class="btn-secondary-dark w-11 h-11 rounded-full">
                     <i data-lucide="download" class="w-5 h-5"></i>
                 </button>
                 <button type="button" onclick="closeLightbox()" class="btn-secondary-dark w-11 h-11 rounded-full" aria-label="סגירת התצוגה המלאה">
@@ -898,6 +932,18 @@
                 </div>
             </header>
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
+        </div>
+    </div>
+
+    <!-- קיצורי מקלדת: הרשימה נבנית מ-GALLERY_SHORTCUTS (gallery-navigation.js) בפתיחה
+         הראשונה. מעל התצוגה המלאה, כדי שאפשר לפתוח אותו גם ממנה. -->
+    <div id="shortcutsHelpModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="shortcutsHelpTitle">
+        <div class="modal-card modal-animate-popup max-w-md">
+            <div class="modal-head">
+                <h3 id="shortcutsHelpTitle"><i data-lucide="keyboard" class="w-5 h-5"></i> קיצורי מקלדת</h3>
+                <button type="button" onclick="closeModal('shortcutsHelpModal')" class="modal-close" aria-label="סגירת רשימת הקיצורים"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div id="shortcutsHelpList" class="modal-body shortcuts-help"></div>
         </div>
     </div>
 
