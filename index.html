@@ -191,7 +191,8 @@
             <!-- סרגל הכלים: חיפוש, מיון וכלי ה-AI במקום אחד. -->
             <div class="gallery-toolbar">
                 <!-- שדה החיפוש הוא combobox: בפוקוס נפתח מתחתיו תפריט של חיפושים
-                     שמורים ואחרונים (search-history-ui.js). -->
+                     שמורים ואחרונים, ובזמן ההקלדה גם הצעות להשלמה — באותו תפריט
+                     (search-history-ui.js, search-suggest-ui.js). -->
                 <div id="gallerySearchBox" class="gallery-search flex-1 min-w-[190px]">
                     <label class="admin-menu-search">
                         <i data-lucide="search" class="w-4 h-4"></i>
@@ -201,8 +202,8 @@
                             aria-describedby="searchHistoryHint">
                         <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
                     </label>
-                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
-                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים אחרונים ושמורים" hidden></div>
+                    <span id="searchHistoryHint" class="sr-only">חיפושים אחרונים ושמורים נפתחים מתחת לשדה, ובזמן ההקלדה גם הצעות: תיקיות, סוג הרגע, אנשים ומעלים. חץ למטה לבחירה, Enter להפעלה, Delete להסרה.</span>
+                    <div id="searchHistoryPopup" class="search-history" role="grid" aria-label="חיפושים והצעות" hidden></div>
                     <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
                 </div>
 

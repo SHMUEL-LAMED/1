@@ -28,6 +28,8 @@ const APP_SHELL = [
   "./gallery-random.js",
   "./search-history.js",
   "./search-history-ui.js",
+  "./search-suggest.js",
+  "./search-suggest-ui.js",
   "./gallery-navigation.js",
   "./gallery-navigation-ui.js",
   "./gallery-timeline.js",

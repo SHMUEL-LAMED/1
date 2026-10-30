@@ -1891,6 +1891,11 @@ body textarea { resize: vertical; min-height: 84px; }
 .search-history-clear:hover { color: var(--danger); }
 .search-history-clear-icon { flex: none; width: 16px; height: 16px; }
 .search-history-note [role="gridcell"] { padding: 6px 10px; font-size: 11px; color: var(--ink-3); }
+/* הצעות ההשלמה (search-suggest-ui.js) באותו תפריט: שורה של תא אחד, בלי כוכב והסרה.
+   הסמל בצבע הזהב מבדיל אותן מהחיפושים הקודמים שמתחתיהן. */
+.search-suggest-row { display: flex; border-radius: var(--r-sm); }
+.search-suggest-row:hover { background: var(--panel-soft); }
+.search-suggest-kind { color: var(--gold); }
 .search-history button:focus-visible { box-shadow: var(--focus-ring); }
 @media (max-width: 767px) {
     /* בטלפון סרגל הכלים אינו נצמד (static), ולכן אינו מרים את התפריט מעל
