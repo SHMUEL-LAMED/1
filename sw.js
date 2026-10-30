@@ -65,6 +65,7 @@ const APP_SHELL = [
   "./cloudflare-client.js",
   "./api-environment.js",
   "./auto-update.js",
+  "./usage-beacon.js",
   "./manifest.webmanifest",
   "./favicon-32.png",
   "./icon-192.png",

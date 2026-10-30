@@ -455,8 +455,10 @@ async function initFirebase() {
 // אם נטען), אחרת מבקר שאינו מחובר היה מדפיס את התמונות שהקודם בחר.
 // גם "מצב מהיר" באישור העלאות נסגר (pending-swipe.js, רק אם נטען), בלי לשלוח
 // את ההחלטה שבחלון הביטול: היא שייכת לחשבון שכבר אינו מחובר.
+// וגם הבחירה המרובה במסך המשתמשים וחלון ההערות הפנימיות (admin-users-bulk.js).
 function clearPrivateGalleryViews() {
     window.resetPendingSwipe?.();
+    window.resetUsersBulk?.();
     window.resetPeopleState?.();
     window.resetMediaLinkState?.();
     window.resetNewUpdatesState?.();

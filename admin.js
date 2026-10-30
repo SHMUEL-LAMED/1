@@ -257,6 +257,8 @@ window.renderManagedUsers = function() {
         const isCurrentUser = profile.uid === window.state.currentUser?.uid;
         const card = document.createElement('div');
         card.className = 'admin-row flex-col items-stretch gap-2';
+        // המזהה משמש את הבחירה המרובה ואת ההערות (admin-users-bulk.js).
+        card.dataset.uid = profile.uid;
         // הסינון שבמסך המשתמשים קורא את הדרגה מכאן, ולכן היא נשמרת על הכרטיס.
         card.dataset.userRole = profile.status === 'blocked' ? (profile.roleBeforeBlock || profile.role || '') : (profile.role || '');
 
@@ -323,6 +325,7 @@ window.renderManagedUsers = function() {
         card.append(header, controls, linkedActions);
         list.appendChild(card);
     });
+    window.decorateUserCards?.(list);
     window.scheduleIconRefresh();
 };
 
@@ -423,6 +426,7 @@ window.renderPendingUsers = function() {
     pendingUsers.forEach(profile => {
         const card = document.createElement('div');
         card.className = 'admin-row flex-col items-stretch gap-2.5';
+        card.dataset.uid = profile.uid;
 
         const header = document.createElement('div');
         header.className = 'flex items-center gap-2.5';
@@ -511,6 +515,7 @@ window.renderPendingUsers = function() {
         list.appendChild(card);
     });
 
+    window.decorateUserCards?.(list);
     window.scheduleIconRefresh();
 };
     

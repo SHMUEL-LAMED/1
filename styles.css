@@ -2093,6 +2093,39 @@ body textarea { resize: vertical; min-height: 84px; }
 .gallery-card:focus-within .gallery-media::after { opacity: 1; }
 /* על ממלא מקום של תמונה שלא נטענה אין טעם בווילון כהה. */
 .gallery-media:has(.image-fallback)::after { display: none; }
+/* הרקע המטושטש (placeholder): data URL זעיר מהרשומה, מוגדל ומטושטש מתחת
+   לתמונה עד שהיא נטענת. הוא תופס בדיוק את מסגרת הכרטיס (שגודלה נקבע מראש
+   ביחס הצלעות), ולכן אין קפיצה בפריסה; כשהתמונה מגיעה (is-loaded) הוא דוהה.
+   בלי ברק השלד מעליו — הצבעים עצמם הם הסימן שמשהו נטען. */
+/* isolation יוצר הקשר ערימה לכרטיס, וכך z-index: -1 מניח את הרקע מעל צבע
+   המשטח אבל מתחת לתמונה ולכל התגים שעל הכרטיס, בלי לשנות את סדר הציור שלהם. */
+.gallery-media.has-placeholder { animation: none; background-image: none; isolation: isolate; }
+.gallery-media.has-placeholder::before {
+    content: "";
+    position: absolute;
+    inset: -12px;
+    z-index: -1;
+    background-image: var(--media-placeholder);
+    background-size: cover;
+    background-position: center;
+    filter: blur(12px) saturate(1.1);
+    opacity: 1;
+    transition: opacity .45s var(--ease);
+    pointer-events: none;
+}
+.gallery-media.has-placeholder.is-loaded::before,
+.gallery-media.has-placeholder:has(.image-fallback)::before { opacity: 0; }
+/* בתצוגה המלאה: אותו רקע מתחת לתמונה עד שהיא נטענת (gallery.js מסיר אותו
+   בטעינה), ומתחת להשתקפות המטושטשת שבאולם. */
+#lightboxImage.has-placeholder {
+    background-image: var(--media-placeholder);
+    background-size: cover;
+    background-position: center;
+}
+.lightbox-backdrop { background-size: cover; background-position: center; }
+@media (prefers-reduced-motion: reduce) {
+    .gallery-media.has-placeholder::before { transition: none; }
+}
 .gallery-card-img {
     width: 100%;
     height: 100%;
@@ -6141,3 +6174,72 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .print-album[data-per-page="4"] .print-album-item-title { font-size: 9.5pt; }
     .print-album[data-per-page="4"] .print-album-item-caption { font-size: 8.5pt; }
 }
+
+/* ==========================================================================
+   סטטיסטיקות, אחסון ועלויות (admin-stats.js), ופעולה על כמה משתמשים והערות
+   פנימיות (admin-users-bulk.js) — לוח הניהול בלבד
+   ========================================================================== */
+
+/* הגרפים: ארבעה כרטיסים זה לצד זה במסך רחב, אחד מתחת לשני בטלפון. */
+.stats-charts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.stats-chart {
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--panel-2);
+    --chart-tone: var(--cyan);
+}
+.stats-chart[data-tone="violet"] { --chart-tone: var(--violet); }
+.stats-chart[data-tone="gold"] { --chart-tone: var(--gold); }
+.stats-chart[data-tone="green"] { --chart-tone: var(--green); }
+.stats-chart-caption { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+.stats-chart-caption strong { font-size: 13px; color: var(--ink); }
+.stats-chart-caption span { font-size: 11px; color: var(--ink-3); }
+.stats-chart-svg { display: block; width: 100%; height: 96px; }
+.stats-bar { fill: var(--chart-tone); }
+.stats-bar.is-empty { fill: var(--line-strong); }
+.stats-chart-axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--ink-4); }
+.stats-table-details { margin-top: 12px; }
+.stats-table-details summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+/* הטבלה רחבה מהטלפון: היא נגללת בתוך המסגרת שלה, לא הדף. */
+.stats-table-wrap { max-width: 100%; overflow-x: auto; margin-top: 8px; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+.stats-table caption { text-align: start; font-weight: 700; color: var(--ink-3); padding-bottom: 6px; }
+.stats-table th, .stats-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: start; white-space: nowrap; }
+.stats-table thead th { color: var(--ink-3); font-weight: 700; }
+.stats-top-grid { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.stats-top-grid h4 { font-size: 12px; font-weight: 800; color: var(--ink-2); margin-bottom: 6px; }
+.stats-rank { list-style: decimal; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.stats-rank-item { display: flex; justify-content: space-between; gap: 8px; }
+.stats-rank-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.stats-rank-value { flex: none; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.storage-quota { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.storage-quota-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.storage-quota-line.is-over { color: var(--danger); font-weight: 700; }
+.storage-quota-meter { width: 100%; height: 8px; accent-color: var(--gold); }
+.storage-quota-line.is-over .storage-quota-meter { accent-color: var(--danger); }
+.storage-budget-form { display: grid; gap: 6px 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); align-items: end; margin-top: 12px; }
+.storage-budget-form label { font-size: 11px; font-weight: 700; color: var(--ink-3); }
+
+/* הבחירה המרובה במסך המשתמשים. יעדי מגע של 40px לפחות לתיבות הבחירה. */
+.users-bulk-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--panel-2);
+}
+.users-bulk-count { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.users-bulk-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.users-bulk-result { display: flex; flex-direction: column; gap: 2px; }
+.users-bulk-result .is-failure { color: var(--danger); }
+.user-bulk-check { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; flex: none; cursor: pointer; }
+.user-bulk-check input { width: 18px; height: 18px; accent-color: var(--gold); }
+.user-notes-button { flex: none; }
+.user-notes-list { max-height: 45vh; overflow-y: auto; margin-bottom: 12px; }
+.user-note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--ink); }
+.user-note-delete { align-self: flex-start; }

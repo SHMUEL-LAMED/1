@@ -419,6 +419,26 @@
                             </select>
                             <button type="button" onclick="exportUsersCsv()" class="btn-secondary-dark"><i data-lucide="file-down" class="w-4 h-4"></i> ייצוא CSV</button>
                         </div>
+                        <!-- פעולה על כמה משתמשים (admin-users-bulk.js): התיבות בכרטיסים, והשרת בודק שוב כל משתמש. -->
+                        <div id="usersBulkBar" class="users-bulk-bar" role="group" aria-label="פעולה על כמה משתמשים">
+                            <p id="usersBulkCount" class="users-bulk-count" aria-live="polite">לא נבחרו משתמשים</p>
+                            <div class="users-bulk-controls">
+                                <button type="button" onclick="selectVisibleUsers()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">בחירת כל המוצגים</button>
+                                <button type="button" onclick="clearUserSelection()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">ניקוי הבחירה</button>
+                                <label class="sr-only" for="usersBulkRole">הדרגה לאישור או לשינוי דרגה</label>
+                                <select id="usersBulkRole" class="text-[11px] py-1.5 px-2">
+                                    <option value="viewer">דרגה 1 — צופה</option>
+                                    <option value="uploader">דרגה 2 — מעלה</option>
+                                    <option value="admin">דרגה 3 — מנהל</option>
+                                    <option value="super_admin">דרגה 4 — מנהל־על</option>
+                                </select>
+                                <button type="button" data-users-bulk-action="approve" onclick="runUsersBulkAction('approve')" disabled class="btn-primary-gold px-3 py-1.5 text-[11px]">אישור בדרגה שנבחרה</button>
+                                <button type="button" data-users-bulk-action="role" onclick="runUsersBulkAction('role')" disabled class="btn-secondary-dark px-3 py-1.5 text-[11px]">שינוי לדרגה שנבחרה</button>
+                                <button type="button" data-users-bulk-action="block" onclick="runUsersBulkAction('block')" disabled class="btn-danger-soft px-3 py-1.5 text-[11px]">חסימה</button>
+                                <button type="button" data-users-bulk-action="unblock" onclick="runUsersBulkAction('unblock')" disabled class="btn-secondary-dark px-3 py-1.5 text-[11px]">ביטול חסימה</button>
+                            </div>
+                            <div id="usersBulkResult" class="users-bulk-result" role="status" aria-live="polite"></div>
+                        </div>
                         <p class="section-label">כל המשתמשים</p>
                         <div id="managedUsersList" class="admin-list admin-list-scroll"></div>
                     </div>
@@ -542,6 +562,71 @@
                             </div>
                             <div id="advancedAnalyticsTop" class="analytics-media-grid">טוען נתונים...</div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: סטטיסטיקות ============ -->
+            <section id="view-stats" class="admin-view" data-view="stats" aria-label="סטטיסטיקות">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="chart-line"></i> שימוש לאורך זמן</h3>
+                        <div class="flex gap-2 items-center">
+                            <button type="button" onclick="loadAdminStats()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('maintenance')" data-guide-target="maintenance" aria-label="הסבר במדריך למנהלים: תקינות, גיבוי ותחזוקה" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                        </div>
+                    </div>
+                    <div class="admin-panel-body">
+                        <div id="statsRange" class="admin-filter-chips" role="group" aria-label="טווח הזמן"></div>
+                        <p id="statsCollectedSince" class="field-hint"></p>
+                        <div id="statsActiveUsers" class="admin-overview"></div>
+                        <div id="statsCharts" class="stats-charts"></div>
+                        <details class="stats-table-details">
+                            <summary>הצגת הנתונים כטבלה</summary>
+                            <div id="statsTable" class="stats-table-wrap"></div>
+                        </details>
+                        <div class="stats-top-grid">
+                            <section aria-labelledby="statsTopFoldersTitle">
+                                <h4 id="statsTopFoldersTitle">התיקיות הנצפות ביותר <span class="field-hint">(כל הזמנים)</span></h4>
+                                <ol id="statsTopFolders" class="stats-rank"></ol>
+                            </section>
+                            <section aria-labelledby="statsTopItemsTitle">
+                                <h4 id="statsTopItemsTitle">הפריטים הנצפים ביותר <span class="field-hint">(כל הזמנים)</span></h4>
+                                <ol id="statsTopItems" class="stats-rank"></ol>
+                            </section>
+                            <section aria-labelledby="statsTopUsersTitle">
+                                <h4 id="statsTopUsersTitle">הפעילים ביותר ביומן הפעילות <span class="field-hint">(בטווח שנבחר)</span></h4>
+                                <ol id="statsTopUsers" class="stats-rank"></ol>
+                            </section>
+                        </div>
+                        <p id="statsStatus" class="field-hint" role="status" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="hard-drive"></i> אחסון ועלויות</h3>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>פעם ביום התחזוקה בענן סופרת את הקבצים באחסון לפי סוג, את גודל מסד הנתונים ואת העיבודים של החודש. כשהנפח עובר את הסף שקובעים כאן, מנהלי־העל מקבלים מייל אחד ביום לכל היותר.</p>
+                        <p id="storageSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">טוען…</p>
+                        <div id="storageQuota" class="storage-quota"></div>
+                        <div class="stats-table-wrap">
+                            <table class="stats-table">
+                                <caption>האחסון לפי סוג</caption>
+                                <thead><tr><th scope="col">סוג</th><th scope="col">קבצים</th><th scope="col">נפח</th></tr></thead>
+                                <tbody id="storageTableBody"></tbody>
+                            </table>
+                        </div>
+                        <p id="storageJobs" class="field-hint"></p>
+                        <form id="storageBudgetForm" class="storage-budget-form" onsubmit="event.preventDefault(); saveStorageBudget();">
+                            <label for="storageR2QuotaGb">מכסת האחסון (GB, ריק = בלי)</label>
+                            <input id="storageR2QuotaGb" type="number" min="0" step="0.1" inputmode="decimal">
+                            <label for="storageD1QuotaMb">מכסת מסד הנתונים (MB, ריק = בלי)</label>
+                            <input id="storageD1QuotaMb" type="number" min="0" step="1" inputmode="numeric">
+                            <label for="storageWarnPercent">אזהרה מ־(%)</label>
+                            <input id="storageWarnPercent" type="number" min="10" max="100" step="1" value="80" inputmode="numeric">
+                            <button type="submit" class="btn-primary-gold py-2 text-xs">שמירת הסף</button>
+                        </form>
                     </div>
                 </div>
             </section>
@@ -741,6 +826,14 @@
                             <button type="button" id="variantsStopBtn" onclick="stopMediaVariantsJob()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
                         </div>
                         <div id="variantsFailures" class="admin-list"></div>
+                        <p class="section-label">רקע מטושטש בזמן הטעינה</p>
+                        <p>לכל פריט נשמר גם רקע זעיר ומטושטש שמוצג בכרטיס ובתצוגה המלאה עד שהתמונה נטענת. פריט חדש מקבל אותו יחד עם התצוגות; כאן משלימים אותו לפריטים שכבר יש להם תצוגות. רק התצוגה הקטנה יורדת, והריצה מוגבלת בכל הפעלה.</p>
+                        <p id="placeholdersSummary" class="field-hint">בודק אילו פריטים חסר להם רקע מטושטש…</p>
+                        <p id="placeholdersStatusText" class="field-hint" role="status" aria-live="polite">ההשלמה עדיין לא הופעלה.</p>
+                        <div class="flex gap-2">
+                            <button type="button" id="placeholdersStartBtn" onclick="startPlaceholdersJob()" class="btn-secondary-dark flex-1 py-2.5 text-xs">השלם רקע מטושטש</button>
+                            <button type="button" id="placeholdersStopBtn" onclick="stopPlaceholdersJob()" disabled class="btn-secondary-dark px-5 py-2.5 text-xs">עצור</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1111,6 +1204,27 @@
     </div>
 
     <!-- אישור פעולה -->
+    <!-- הערות פנימיות על משתמש (admin-users-bulk.js): רק מנהלים, לעולם לא המשתמש עצמו. -->
+    <div id="userNotesModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="userNotesTitle" aria-describedby="userNotesHint" aria-hidden="true">
+        <div class="modal-card modal-animate-popup max-w-lg">
+            <div class="modal-head">
+                <h3 id="userNotesTitle">הערות פנימיות</h3>
+                <button type="button" onclick="closeUserNotes()" class="btn-secondary-dark w-9 h-9 rounded-full" aria-label="סגירת ההערות"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="userNotesHint" class="field-hint">ההערות גלויות למנהלים בלבד. המשתמש עצמו — וגם מנהל שההערה עליו — לעולם אינו רואה אותן.</p>
+                <div id="userNotesList" class="admin-list user-notes-list"></div>
+                <label for="userNoteInput" class="section-label">הערה חדשה</label>
+                <textarea id="userNoteInput" rows="3" maxlength="2000" class="w-full"></textarea>
+                <p id="userNotesStatus" class="field-hint" role="status" aria-live="polite"></p>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeUserNotes()" class="btn-secondary-dark">סגירה</button>
+                <button type="button" onclick="addUserNote()" class="btn-primary-gold">שמירת ההערה</button>
+            </div>
+        </div>
+    </div>
+
     <div id="confirmModal" class="fixed inset-0 z-[130] flex items-center justify-center p-4 hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
         <div class="modal-card modal-animate-popup max-w-md">
             <div class="modal-head">
