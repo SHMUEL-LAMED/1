@@ -1442,15 +1442,19 @@ body textarea { resize: vertical; min-height: 84px; }
 
 /* ---- פסיפס התמונות בפוסטר ---- */
 
+/* קופסה בגודל קבוע: שלוש שורות קבועות, כך שגובה הפסיפס זהה כשהוא ריק
+   (המשטח הדקורטיבי) וכשהאריחים נכנסים אליו — בלי תלות במספר התמונות. בלי
+   זה הפסיפס גדל ב-42px בטלפון כשהגיעו התמונות, וכל מה שמתחתיו קפץ (CLS). */
 .hero-mosaic {
+    --mosaic-gap: 8px;
     grid-area: mosaic;
     position: relative;
     z-index: 1;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-rows: minmax(74px, 1fr);
-    gap: 8px;
-    min-height: 236px;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    gap: var(--mosaic-gap);
+    min-height: 238px;
     align-self: stretch;
 }
 .hero-mosaic > * {
@@ -1527,7 +1531,9 @@ body textarea { resize: vertical; min-height: 84px; }
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas: "top" "mosaic" "facts";
     }
-    .hero-mosaic { min-height: 180px; grid-auto-rows: minmax(60px, 1fr); }
+    /* בפריסה הצרה הפסיפס בשורה משלו ואינו נמתח לגובה הטקסט, ולכן גובהו
+       קבוע במפורש: שלוש שורות של 60px והרווחים ביניהן. */
+    .hero-mosaic { --mosaic-row: 60px; min-height: 0; height: calc(var(--mosaic-row) * 3 + var(--mosaic-gap) * 2); }
 }
 
 @media (max-width: 640px) {
@@ -1536,7 +1542,7 @@ body textarea { resize: vertical; min-height: 84px; }
     .entry-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
     .entry-facts > div { padding: 10px 10px; }
     .entry-facts dd { font-size: 19px; }
-    .hero-mosaic { gap: 6px; min-height: 150px; }
+    .hero-mosaic { --mosaic-gap: 6px; }
     .hero-mosaic > * { border-radius: 12px; }
 }
 

@@ -50,6 +50,8 @@ import {
     parseMediaRoute, mediaHash, mediaShareUrl, mediaShareData, canUseNativeShare,
     isShareCancel, hashToRestore, findRecordById, withRecord
 } from './media-link.js';
+// הטעינה הראשונה: אילו תמונות יורדות מיד ובעדיפות גבוהה (first-load.js).
+import { aboveFoldCardCount, heroTileLoading, MAX_EAGER_CARDS } from './first-load.js';
 
 let currentFilteredImages = [];
 
@@ -1419,9 +1421,12 @@ function renderHeroMosaic() {
     const key = tiles.map(tile => tile.id).join('|');
     if (mosaic.dataset.mosaicKey === key) return;
     mosaic.dataset.mosaicKey = key;
-    mosaic.innerHTML = tiles.map((tile, index) =>
-        `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="lazy" decoding="async" onerror="this.parentElement.remove()"></span>`
-    ).join('');
+    // הפוסטר תמיד בראש הדף, ולכן האריחים אינם עצלים; הראשון, הגדול, הוא
+    // התמונה הראשונה שהמבקר רואה ויורד בעדיפות גבוהה (first-load.js).
+    mosaic.innerHTML = tiles.map((tile, index) => {
+        const { loading, fetchPriority } = heroTileLoading(index);
+        return `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" onerror="this.parentElement.remove()"></span>`;
+    }).join('');
 }
 
 // „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.
@@ -1661,7 +1666,8 @@ window._doRenderImages = function() {
     const keep = typeof IntersectionObserver !== 'function'
         ? Infinity
         : (sameView ? Math.max(GALLERY_FIRST_BATCH, galleryRenderedCards.length) : GALLERY_FIRST_BATCH);
-    syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
+    const headRebuilt = syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
+    if (headRebuilt) prioritizeAboveFoldCards();
     if (galleryRevealPending) {
         galleryRevealPending = false;
         revealGalleryStart(grid);
@@ -1672,6 +1678,23 @@ window._doRenderImages = function() {
     // זיכרון הגלילה (gallery-navigation-ui.js): חזרה מאלבום של אדם למקום בגלריה.
     window.noteGalleryRendered?.();
 };
+
+// השורה הראשונה של הרשת, כשהיא בתוך המסך, יורדת מיד ובעדיפות גבוהה; כל
+// השאר נשארים עצלים. הכרטיסים נבנים עם loading="lazy" (המרקאפ שמושווה אינו
+// תלוי במיקום), והתמונות שבשורה מתעדכנות כאן לפני שהדפדפן התחיל להוריד
+// אותן. רץ רק כשנבנה כרטיס חדש בראש הרשת — הקריאה של המיקומים מחייבת layout,
+// ורינדור שלא נגע בראש הרשת אינו צריך אותה.
+function prioritizeAboveFoldCards() {
+    const cards = galleryRenderedCards.slice(0, MAX_EAGER_CARDS).map(card => card.node).filter(node => node?.isConnected);
+    if (!cards.length || typeof cards[0].getBoundingClientRect !== 'function') return;
+    const count = aboveFoldCardCount(cards.map(node => node.getBoundingClientRect()), window.innerHeight);
+    for (const node of cards.slice(0, count)) {
+        const image = node.querySelector('img.gallery-card-img');
+        if (!image) continue;
+        image.loading = 'eager';
+        image.fetchPriority = 'high';
+    }
+}
 
 // הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
 function galleryCounterLabel(shownCount) {
@@ -1732,6 +1755,9 @@ function syncGalleryCards(grid, items) {
     const isEditBlocked = galleryEditBlocked();
     const previous = new Map(galleryRenderedCards.map(card => [card.id, card]));
     const next = [];
+    // האם נבנה כרטיס חדש בראש הרשת — שם אולי צריך להעלות עדיפות (ראו
+    // prioritizeAboveFoldCards). כרטיס שנשמר כפי שהיה כבר קיבל את שלו.
+    let headRebuilt = false;
     items.forEach((img, index) => {
         const id = window.safeRecordId(img.id);
         const html = buildGalleryCard(img, isEditBlocked);
@@ -1748,6 +1774,7 @@ function syncGalleryCards(grid, items) {
             node = insertGalleryCard(grid, html, grid.children[index] || null);
             if (measuredRatio) node.style.setProperty('--media-ratio', measuredRatio.trim());
             window.scheduleIconRefresh(node);
+            if (index < MAX_EAGER_CARDS) headRebuilt = true;
         } else if (grid.children[index] !== node) {
             grid.insertBefore(node, grid.children[index] || null);
         }
@@ -1757,6 +1784,7 @@ function syncGalleryCards(grid, items) {
     for (const stale of previous.values()) stale.node.remove();
     while (grid.children.length > items.length) grid.lastElementChild.remove();
     galleryRenderedCards = next;
+    return headRebuilt;
 }
 
 // מוסיפה מנה שלמה בסוף הרשת בפעולת DOM אחת, ומרעננת אייקונים רק על מה שנוסף.

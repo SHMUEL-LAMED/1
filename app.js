@@ -15,6 +15,8 @@ import { installErrorMonitor } from './error-monitor.js';
 import { resolveApiBaseUrl, resolveApiEnvironment } from './api-environment.js';
 import { installSiteUpdateWatcher } from './auto-update.js';
 import { readCaptureDateFromBlob, captureFields, hasCaptureDate } from './capture-date.js';
+// הטעינה הראשונה: חיבור מראש ל-Worker (first-load.js).
+import { preconnectHints } from './first-load.js';
 // חיפושים אחרונים ושמורים: התפריט שמתחת לשדה החיפוש של הגלריה.
 import { initSearchHistory } from './search-history-ui.js';
 // גודל הכרטיסים ופריסת הרשת (רשת / פסיפס): נרמול והעדפה שמורה לכל צופה.
@@ -133,16 +135,27 @@ window.refreshChatUI = function() {
 // מוגבלת אליו בלבד — קריאה ללא container גורמת לסריקת כל ה-DOM.
 let _iconRefreshPending = false;
 let _iconRefreshNodes = new Set();
+// קריאה בלי container מבקשת סריקה מלאה, וזו אינה הולכת לאיבוד כשבאותו frame
+// נוספו גם containers. כל עוד lucide לא ירדה (היא נטענת async, ראו index.html)
+// אין מה לצייר: הבקשות מתאחדות לסריקה מלאה אחת כשהספרייה מגיעה.
+let _iconRefreshAll = false;
 function scheduleIconRefresh(node) {
     if (node instanceof Element) _iconRefreshNodes.add(node);
+    else _iconRefreshAll = true;
     if (_iconRefreshPending) return;
     _iconRefreshPending = true;
     requestAnimationFrame(() => {
         _iconRefreshPending = false;
-        if (typeof lucide === 'undefined' || !lucide.createIcons) return;
+        if (typeof lucide === 'undefined' || !lucide.createIcons) {
+            _iconRefreshNodes = new Set();
+            _iconRefreshAll = true;
+            return;
+        }
         const nodes = _iconRefreshNodes;
+        const all = _iconRefreshAll;
         _iconRefreshNodes = new Set();
-        if (nodes.size === 0) {
+        _iconRefreshAll = false;
+        if (all) {
             lucide.createIcons();
         } else {
             for (const n of nodes) lucide.createIcons({ node: n });
@@ -150,6 +163,9 @@ function scheduleIconRefresh(node) {
     });
 }
 window.scheduleIconRefresh = scheduleIconRefresh;
+// lucide שהגיעה אחרי הציור הראשון: סריקה מלאה אחת מציירת את כל מה שחיכה לה.
+// אם היא הגיעה עוד לפני שהקוד הזה רץ, הסריקה של DOMContentLoaded מכסה אותה.
+document.getElementById('lucideScript')?.addEventListener('load', () => scheduleIconRefresh());
 
 // פונקציה לניקוי טקסט ומניעת הזרקות קוד (XSS)
 function escapeHtml(text) {
@@ -657,6 +673,22 @@ const API_ENVIRONMENT = resolveApiEnvironment();
 const R2_WORKER_BASE_URL = resolveApiBaseUrl();
 // הסימון על html מציג את רצועת "סביבת ניסוי" שבכותרת (ראה styles.css).
 document.documentElement.dataset.apiEnvironment = API_ENVIRONMENT;
+
+// חיבור מראש ל-Worker. של הייצור כתוב כבר ב-index.html, כדי שייפתח עוד לפני
+// שהקוד הזה ירד; כאן מתווסף רק מה שחסר — סביבת הניסוי, או ‎?api= שבחר
+// Worker אחר. כך התמונות הראשונות, שיוצאות אחרי הנתונים, מוצאות חיבור פתוח.
+function addPreconnectHints(apiBaseUrl) {
+    const existing = [...document.querySelectorAll('link[rel="preconnect"]')]
+        .map(link => ({ href: link.href, crossOrigin: link.crossOrigin }));
+    for (const hint of preconnectHints(apiBaseUrl, existing)) {
+        const link = document.createElement('link');
+        link.rel = 'preconnect';
+        link.href = hint.href;
+        if (hint.crossOrigin) link.crossOrigin = hint.crossOrigin;
+        document.head.appendChild(link);
+    }
+}
+addPreconnectHints(R2_WORKER_BASE_URL);
 
 // ניטור השגיאות מותקן כאן, לפני אתחול ההתחברות והגלריה, כדי שגם תקלה
 // בטעינה הראשונה תירשם. משתמש מחובר מזוהה בשרת לפי האסימון; מי שאינו
@@ -1623,6 +1655,9 @@ document.addEventListener('DOMContentLoaded', () => {
         initGalleryNavigation();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
+        // הרישום נשאר כאן בכוונה: דחייה שלו אחרי load ואחרי התמונה הראשונה
+        // נמדדה (scripts/measure-first-load.mjs) ולא קיצרה את הטעינה הראשונה —
+        // קובצי המעטפת כבר במטמון ה-HTTP מהטעינה עצמה, וההתקנה זולה.
         const serviceWorkerRegistration = 'serviceWorker' in navigator
             ? navigator.serviceWorker.register('./sw.js').catch(error => {
                 console.warn('Service worker registration failed:', error);

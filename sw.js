@@ -26,6 +26,7 @@ const APP_SHELL = [
   "./gallery-feed.js",
   "./gallery-layout.js",
   "./gallery-random.js",
+  "./first-load.js",
   "./search-history.js",
   "./search-history-ui.js",
   "./search-suggest.js",

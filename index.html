@@ -24,6 +24,11 @@
         })();
     </script>
 
+    <!-- חיבור מראש ל-Worker של הייצור: הנתונים (fetch, crossorigin) והתמונות
+         (<img>, בלי) יוצאים בשני מאגרי חיבורים נפרדים. סביבת הניסוי מקבלת את
+         שלה מ-app.js, לפי api-environment.js. -->
+    <link rel="preconnect" href="https://simchas-gallery-api.0534169095.workers.dev" crossorigin>
+    <link rel="preconnect" href="https://simchas-gallery-api.0534169095.workers.dev">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Assistant לטקסט רץ, Frank Ruhl Libre לכותרות ולמספרים הגדולים. -->
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&family=Frank+Ruhl+Libre:wght@700;900&display=swap" rel="stylesheet">
@@ -34,8 +39,10 @@
     <link rel="stylesheet" href="./tailwind.generated.css">
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- גרסה נעוצה במקום @latest: @latest מוסיף הפניה בכל טעינה ומונע מטמון. -->
-    <script src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.min.js" defer></script>
+    <!-- גרסה נעוצה במקום @latest: @latest מוסיף הפניה בכל טעינה ומונע מטמון.
+         async ולא defer: סקריפט defer שלפני app.js מעכב אותו עד שהספרייה ירדה,
+         והגלריה כולה חיכתה לאייקונים. app.js מצייר את האייקונים כשהיא מגיעה. -->
+    <script id="lucideScript" src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.min.js" async></script>
     <script type="module" src="./app.js"></script>
 </head>
 <body class="app-shell min-h-screen flex flex-col">
