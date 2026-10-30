@@ -1823,6 +1823,10 @@ function buildGalleryCard(img, isEditBlocked) {
     const isFavorite = window.state.favorites.has(imageId);
     const isSelected = window.state.selectedMediaIds.has(imageId);
     const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
+    // ה-aria-label של כפתור התמונה גובר על ה-alt שבתוכו, ולכן קורא מסך שומע
+    // רק אותו: גם בו הכיתוב, אחרת השם, אחרת התאריך העברי (media-alt.js) —
+    // בלי זה הכיתוב שב-alt לא היה מוקרא ברשת בכלל.
+    const altText = window.escapeHtml(mediaAltText(img));
     // הכרטיס מציג את התצוגה הקטנה (thumb) כשקיימת; סרטון מקבל אותה כפוסטר
     // במקום ריבוע שחור. אם התצוגה לא נטענת — נופלים אל המקור.
     const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
@@ -1837,13 +1841,13 @@ function buildGalleryCard(img, isEditBlocked) {
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i><span class="gallery-badge-label">סרטון${durationLabel ? ' ·' : ''}</span>${durationLabel ? `<span class="gallery-badge-duration">${durationLabel}</span>` : ''}</span>`
-        : buildCardPicture(cardSource, window.escapeHtml(mediaAltText(img)));
+        : buildCardPicture(cardSource, altText);
     // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
     // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
     const mediaRatio = mediaAspectRatio(img);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}${isNew ? ' (חדש)' : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}">
                 ${mediaHtml}
                 ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 <span class="gallery-number">01</span>

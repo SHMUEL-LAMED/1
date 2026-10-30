@@ -239,6 +239,12 @@ test('הטקסט החלופי של תמונה: הכיתוב, אחרת השם, ו
     await expect(cardImage('img_e2e_3')).toHaveAttribute('alt', 'תמונה שצולמה בי״ז בתשרי תשפ״ז');
     // הכותרת שבכרטיס נשארת כמו שהייתה.
     await expect(page.locator('.gallery-card[data-media-id="img_e2e_3"] .gallery-title')).toHaveText('תמונה ללא שם');
+    // ה-aria-label של כפתור התמונה גובר על ה-alt שבתוכו: גם הוא מהכיתוב, מהשם
+    // או מהתאריך, אחרת קורא מסך לא היה שומע את הכיתוב ברשת.
+    const cardButton = id => page.locator(`.gallery-card[data-media-id="${id}"] .gallery-media`);
+    await expect(cardButton('img_e2e_1')).toHaveAccessibleName('פתיחת ריקוד במעגל סביב הבימה');
+    await expect(cardButton('img_e2e_2')).toHaveAccessibleName('פתיחת שם עם "מירכאות" & <סוגריים>');
+    await expect(cardButton('img_e2e_3')).toHaveAccessibleName('פתיחת תמונה שצולמה בי״ז בתשרי תשפ״ז');
 
     const lightboxImage = page.locator('#lightboxImage');
     await page.locator('.gallery-card[data-media-id="img_e2e_1"] .gallery-media').click();

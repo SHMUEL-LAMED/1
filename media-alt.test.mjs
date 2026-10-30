@@ -54,7 +54,10 @@ test("טקסט ארוך נחתך במקום טבעי, עד התקרה", () => {
 test("הטקסט חוזר כפי שהוא: ההברחה היא של gallery.js, במרקאפ של הכרטיס", () => {
     assert.equal(mediaAltText({ title: 'תמונה "עם" <מרכאות> & סימנים' }), 'תמונה "עם" <מרכאות> & סימנים');
     const gallery = read("./gallery.js");
-    assert.match(gallery, /buildCardPicture\(cardSource, window\.escapeHtml\(mediaAltText\(img\)\)\)/);
+    assert.match(gallery, /const altText = window\.escapeHtml\(mediaAltText\(img\)\);/);
+    assert.match(gallery, /buildCardPicture\(cardSource, altText\)/);
+    // ה-aria-label של כפתור התמונה גובר על ה-alt, ולכן גם הוא נבנה ממנו.
+    assert.match(gallery, /aria-label="\$\{window\.state\.bulkSelectionMode \? 'בחירת' : 'פתיחת'\} \$\{altText\}/);
     assert.match(gallery, /lbImage\.alt = mediaAltText\(img\)/);
 });
 
