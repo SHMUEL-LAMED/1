@@ -8,7 +8,7 @@ import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
 import { installVideoHoverPreview } from './video-hover-preview.js';
 // פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
-import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
+import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate, readGalleryPreference, writeGalleryPreference } from './gallery-layout.js';
 // "חדש מאז הביקור הקודם" (לכל משתמש), והתמונות האחרונות של תיקייה בריחוף.
 import {
     beginVisit, touchVisit, isNewSince, newSinceSummary, pickFolderPreviewFrames,
@@ -28,7 +28,6 @@ import {
     normalizeVideoLength, recordDuration, videoLengthBucket, createDurationProbe, parseDurationCache,
     serializeDurationCache, DURATION_CACHE_KEY, DURATION_PROBE_TIMEOUT_MS
 } from './video-length.js';
-import { readGalleryPreference, writeGalleryPreference } from './gallery-layout.js';
 // מחוות התצוגה המלאה (זום, החלקה) והמצגת — כל אחד במודול משלו.
 import { initLightboxGestures, resetLightboxZoom } from './lightbox-gestures.js';
 import {
