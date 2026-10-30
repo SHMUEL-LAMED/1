@@ -149,7 +149,15 @@ test('עמוד האירוע: הסגירה מחזירה את הגלילה ואת 
     await openGallery(page, worker, 60);
     const opener = page.locator('[data-event-folder="1"]');
     await opener.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await settle(page);
     const before = await scrollY(page);
+    // הכרטיס הראשון שבתוך המסך הוא העוגן: הגלריה חוזרת אליו, גם אם משהו מעל
+    // הרשת שינה גובה בינתיים (תמונות בראש הדף שנטענו או נכשלו).
+    const anchorId = await page.evaluate(() => Array.from(document.querySelectorAll('#photosGrid .gallery-card[data-media-id]'))
+        .find(node => node.getBoundingClientRect().top >= 0)?.dataset.mediaId);
+    expect(anchorId).toBeTruthy();
+    const anchor = page.locator(`#photosGrid .gallery-card[data-media-id="${anchorId}"]`);
+    const anchorTop = await topOf(anchor);
 
     await opener.click();
     const eventPage = page.getByRole('dialog', { name: 'אירועים ופעילויות' });
@@ -160,11 +168,23 @@ test('עמוד האירוע: הסגירה מחזירה את הגלילה ואת 
     // הדף שמאחור נגלל בזמן שהעמוד פתוח.
     await page.evaluate(() => window.scrollBy({ top: 1400, behavior: 'instant' }));
     await expect.poll(() => scrollY(page)).toBeGreaterThan(before + 500);
+    // ומשהו מעל הרשת גדל בינתיים: הכרטיס שהיה בראש המסך חוזר לאותו מקום,
+    // ולכן הגלילה גדלה (בגובה שנוסף, כולל הרווח של הפריסה).
+    await page.evaluate(() => {
+        const spacer = document.createElement('div');
+        spacer.id = 'e2eLayoutShift';
+        spacer.style.height = '150px';
+        document.getElementById('photosGrid').before(spacer);
+    });
 
     await page.keyboard.press('Escape');
     await expect(eventPage).toBeHidden();
     await expect(opener).toBeFocused();
-    await expect.poll(() => scrollY(page)).toBe(before);
+    // הכרטיס עשוי להיבנות מחדש (המעקב מצייר את הרשת) ולעלות למקומו באנימציה.
+    await settle(page);
+    await expect.poll(async () => Math.abs(await topOf(anchor) - anchorTop)).toBeLessThanOrEqual(1);
+    expect(await scrollY(page)).toBeGreaterThanOrEqual(before + 150);
+    await page.evaluate(() => document.getElementById('e2eLayoutShift').remove());
 
     // "פתח את תמונות האירוע" עובר לתיקייה: אין חזרה למקום הישן.
     await opener.click();
