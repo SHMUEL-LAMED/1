@@ -71,7 +71,7 @@ function loadedGalleryLists() {
 function galleryNewSinceSummary() {
     const lists = loadedGalleryLists();
     const since = lists.some(list => list.length) ? newSinceBaseline() : 0;
-    return newSinceSummary(since ? lists : [], since, { latest: window.state.latestImages });
+    return newSinceSummary(since ? lists : [], since, { latest: window.state.latestImages, latestHasMore: window.state.latestImagesHasMore });
 }
 
 function readLastSeenUpdate() {

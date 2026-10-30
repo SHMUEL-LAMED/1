@@ -17,6 +17,7 @@
 //   state.folderCounts / state.imagesTotal — מוני התיקיות מהשרת
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
 //   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
+//   state.latestImagesHasMore   — האם יש בארכיון עוד מעבר להן
 //   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
@@ -258,6 +259,8 @@ async function refreshLatestImages() {
     }
     knownLatestIds = latestIds;
     window.state.latestImages = latest;
+    // אין אחריהן עוד — הארכיון כולו; "חדש מאז הביקור הקודם" סופר אז בדיוק.
+    window.state.latestImagesHasMore = Boolean(page.hasMore);
     window.renderFolders?.();
     window.checkNewUpdates?.();
 }
@@ -291,6 +294,7 @@ function resetGalleryFeed() {
         window.state.imagesLoading = false;
         window.state.imagesLoadingMore = false;
         window.state.latestImages = [];
+        window.state.latestImagesHasMore = true;
         window.state.folderCounts = null;
         window.state.imagesTotal = null;
     }

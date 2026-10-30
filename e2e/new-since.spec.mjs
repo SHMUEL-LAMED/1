@@ -103,6 +103,20 @@ test('ביקור חוזר: כרטיסים ותיקיות חדשים מסומני
     await expect(page.locator('#photosGrid .gallery-new-badge')).toHaveCount(2);
 });
 
+test('ארכיון קטן שכולו חדש: הבאנר מונה בדיוק, בלי "ויותר"', async ({ page, worker }) => {
+    const now = Date.now();
+    worker.seedFolders().seedImages([
+        imageRecord(1, { createdAt: now - HOUR, folderId: '1' }),
+        imageRecord(2, { createdAt: now - 30 * 60_000, folderId: '2' })
+    ]);
+    await seedVisit(page, { [VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 2 * HOUR } });
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    await expect(page.locator('#photosGrid .gallery-new-badge')).toHaveCount(2);
+    await expect(page.locator('#newUpdatesBannerText')).toHaveText('נוספו 2 פריטים מאז הביקור הקודם שלך.');
+});
+
 // 125 תמונות חדשות בתיקייה הראשונה ממלאות את העמוד הראשון של "כל הארכיון",
 // ולכן מהתיקייה השנייה עוד לא נטען דבר.
 function previewGallery(now) {

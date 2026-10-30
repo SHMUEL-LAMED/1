@@ -130,8 +130,9 @@ export function isNewSince(item, since) {
 
 // כמה פריטים חדשים יש ברשימות שהתקבלו (פריט שמופיע בכמה מהן נספר פעם אחת),
 // ובאילו תיקיות. complete=false כשכל הרשימה הראשונה — "החדשות ביותר" בארכיון,
-// שאילתת limit — חדשה כולה: ייתכן שיש עוד פריטים חדשים מעבר לה.
-export function newSinceSummary(lists, since, { latest = null } = {}) {
+// שאילתת limit — חדשה כולה: ייתכן שיש עוד פריטים חדשים מעבר לה. אלא אם השרת
+// אמר שאין אחריה עוד (latestHasMore=false): בארכיון קטן שכולו חדש אין "ויותר".
+export function newSinceSummary(lists, since, { latest = null, latestHasMore = true } = {}) {
     const baseline = finiteTime(since);
     const seen = new Set();
     const folderIds = new Set();
@@ -150,7 +151,9 @@ export function newSinceSummary(lists, since, { latest = null } = {}) {
         }
     }
     const latestList = Array.isArray(latest) ? latest : [];
-    const complete = !latestList.length || !latestList.every(item => isNewSince(item, baseline));
+    const complete = !latestList.length
+        || latestHasMore === false
+        || !latestList.every(item => isNewSince(item, baseline));
     return { count, folderIds, newest, complete };
 }
 

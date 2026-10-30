@@ -115,6 +115,9 @@ test("הסיכום: ספירה בלי כפילויות, תיקיות, והאם �
   // כל "החדשות ביותר" חדשות — ייתכן שיש עוד מעבר לגבול השאילתה.
   const allNew = [item("n1", T0 + 3), item("n2", T0 + 2)];
   assert.equal(newSinceSummary([allNew], since, { latest: allNew }).complete, false);
+  // ...אלא אם השרת אמר שאין אחריה עוד: ארכיון קטן שכולו חדש.
+  assert.equal(newSinceSummary([allNew], since, { latest: allNew, latestHasMore: false }).complete, true);
+  assert.equal(newSinceSummary([allNew], since, { latest: allNew, latestHasMore: true }).complete, false);
   // בלי נקודת ייחוס — אפס.
   const none = newSinceSummary([latest], 0, { latest });
   assert.equal(none.count, 0);
