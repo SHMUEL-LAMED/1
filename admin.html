@@ -344,6 +344,38 @@
                 </div>
             </section>
 
+            <!-- ============ מסך: הורדות ופרטיות ============ -->
+            <section id="view-downloads" class="admin-view" data-view="downloads" aria-label="הורדות ופרטיות">
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head"><h3><i data-lucide="shield-check"></i> הורדות ופרטיות</h3></div>
+                    <form id="downloadPrivacyForm" class="admin-panel-body" onsubmit="event.preventDefault(); window.saveDownloadPrivacySettings()">
+                        <p>בכל הורדה מהגלריה — קובץ בודד או ZIP — המיקום (GPS) יוצא מתמונות JPEG בדפדפן של הצופה, בלי לקודד את התמונה מחדש. PNG, WebP, HEIC וסרטונים יורדים כפי שהם.</p>
+
+                        <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
+                            <input type="checkbox" id="downloadStripAllMetadata" aria-describedby="downloadStripAllHint">
+                            <span class="text-[12px] font-semibold">להסיר את כל נתוני המצלמה, ולא רק את המיקום</span>
+                        </label>
+                        <p id="downloadStripAllHint" class="field-hint">יוצאים גם דגם המצלמה, תאריך הצילום, XMP והערות. כיוון התמונה נשמר, כדי שלא תתהפך.</p>
+
+                        <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 cursor-pointer">
+                            <input type="checkbox" id="downloadWatermarkEnabled" aria-describedby="downloadWatermarkHint" onchange="window.updateDownloadWatermarkPreview()">
+                            <span class="text-[12px] font-semibold">סימן מים בתמונות שיורדות</span>
+                        </label>
+                        <p id="downloadWatermarkHint" class="field-hint">טקסט עדין בפינה התחתונה של תמונות JPEG, PNG ו־WebP. התמונה מקודדת מחדש באיכות גבוהה ובלי שום EXIF. מנהלים מורידים בלי סימן מים.</p>
+
+                        <label class="block"><span class="field-label">טקסט סימן המים</span>
+                            <input type="text" id="downloadWatermarkText" maxlength="60" dir="rtl" autocomplete="off" placeholder="גלריית שמחת התורה" oninput="window.updateDownloadWatermarkPreview()">
+                        </label>
+                        <div class="download-watermark-preview" aria-hidden="true">
+                            <span id="downloadWatermarkPreview"></span>
+                        </div>
+
+                        <button type="submit" id="downloadPrivacySaveButton" class="btn-primary-gold w-full py-2.5 text-xs">שמור</button>
+                        <p id="downloadPrivacyStatus" class="field-hint text-center min-h-4" role="status" aria-live="polite"></p>
+                    </form>
+                </div>
+            </section>
+
             <!-- ============ מסך: משתמשים ============ -->
             <section id="view-users" class="admin-view" data-view="users" aria-label="ניהול משתמשים">
                 <div id="superAdminUsersCard" class="hidden super-admin-only admin-panel">

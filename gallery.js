@@ -405,8 +405,22 @@ function galleryDownloadName(item, blob, fallbackName = 'תמונה') {
     return withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
 }
 
+// לפני השמירה הקובץ עובר את download-privacy-ui.js: המיקום (GPS) יוצא מ-JPEG,
+// וסימן המים מצויר כשהוא מופעל. המודול נטען רק בהורדה הראשונה; אם הטעינה
+// עצמה נכשלה (למשל אין רשת אחרי עדכון גרסה), ההורדה אינה ממשיכה עם הקובץ
+// המקורי — המיקום שבו הוא בדיוק מה שאסור שיֵצא.
+let downloadPrivacyModulePromise = null;
+async function prepareGalleryDownload(blob, item) {
+    downloadPrivacyModulePromise ||= import('./download-privacy-ui.js').catch(error => {
+        downloadPrivacyModulePromise = null;
+        throw error;
+    });
+    const { prepareDownloadBlob } = await downloadPrivacyModulePromise;
+    return prepareDownloadBlob(blob, item);
+}
+
 async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
-    const blob = await fetchGalleryMediaBlob(item);
+    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
     saveBlobAs(blob, galleryDownloadName(item, blob, fallbackName));
 }
 
@@ -456,7 +470,7 @@ window.downloadSelectedMedia = async function(button) {
                 const index = next++;
                 const item = selected[index];
                 try {
-                    const blob = await fetchGalleryMediaBlob(item);
+                    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
                     files[index] = { item, blob, data: new Uint8Array(await blob.arrayBuffer()) };
                 } catch (error) {
                     console.error('Bulk media download failed:', error);

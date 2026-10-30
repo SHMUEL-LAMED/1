@@ -4816,6 +4816,34 @@ body textarea { resize: vertical; min-height: 84px; }
 .admin-filter-chip.is-active,
 .admin-filter-chip:has(input:checked) { background: var(--gold-tint); border-color: var(--gold-line); color: var(--gold); }
 
+/* ---- תצוגה מקדימה של סימן המים (download-privacy-admin.js) ----
+   ריבוע "תמונה" אפור ועליו הטקסט בפינה התחתונה השמאלית, באותו לבן שקוף ובאותו
+   צל שה-Canvas מצייר. הצבעים קבועים: הם מדמים תמונה, שאינה מתחלפת עם המצב. */
+.download-watermark-preview {
+    position: relative;
+    height: 96px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: linear-gradient(135deg, #5b6472, #2c323c);
+    overflow: hidden;
+}
+.download-watermark-preview span {
+    position: absolute;
+    inset-inline-end: 12px;
+    bottom: 10px;
+    max-width: calc(100% - 24px);
+    direction: rtl;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, .72);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.download-watermark-preview.is-off span { opacity: .3; }
+
 /* ---- תוצאות חיפוש בתפריט ---- */
 
 .admin-menu-results {

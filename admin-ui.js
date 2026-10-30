@@ -74,6 +74,15 @@ const ADMIN_VIEWS = [
         keywords: 'אשפה שחזור מחיקה סופית'
     },
     {
+        id: 'downloads',
+        group: 'תוכן הגלריה',
+        title: 'הורדות ופרטיות',
+        description: 'הסרת המיקום ונתוני המצלמה מקבצים שיורדים, וסימן מים לצופים.',
+        icon: 'shield-check',
+        superAdminOnly: true,
+        keywords: 'הורדה מיקום gps exif פרטיות סימן מים watermark zip'
+    },
+    {
         id: 'users',
         group: 'תקשורת ואנשים',
         title: 'משתמשים והרשאות',
@@ -330,6 +339,7 @@ function runViewHook(viewId) {
     }
     if (viewId === 'messages') window.renderAdminMessageReplies?.();
     if (viewId === 'popup') window.renderPopupAnnouncementAdmin?.();
+    if (viewId === 'downloads') window.renderDownloadPrivacyAdmin?.();
     if (viewId === 'drive') {
         window.restoreDriveConnection?.()
             .then(() => window.loadDriveFolders?.())
