@@ -271,7 +271,7 @@ test("הגיבוי היומי: כל הטבלאות בעמודים, דחוס, ב�
   assert.ok(!text.includes("super-secret-value"), "מפתח החתימה אסור בגיבוי");
   const backup = JSON.parse(text);
   assert.equal(backup.format, "simchas-gallery-d1-backup");
-  assert.equal(backup.schemaVersion, 8);
+  assert.equal(backup.schemaVersion, 9);
   const names = backup.tables.map(table => table.name);
   for (const name of ["gallery_documents", "client_errors", "face_persons", "media_variant_files", "upload_sessions", "gallery_schema_meta"]) assert.ok(names.includes(name), name);
   assert.ok(!names.includes("auth_secrets") && !names.includes("request_rate_limits"));

@@ -118,7 +118,7 @@ async function call(env, path, method = "GET", body, token = "viewer-token") {
   return { status: response.status, text, payload: JSON.parse(text || "{}") };
 }
 
-test("מסד בגרסה 7 עולה ל-8: טבלאות האנשים נוצרות, הנתונים הקיימים לא משתנים, והקבוצה הידנית ממשיכה לעבוד", async () => {
+test("מסד בגרסה 7 עולה ל-8 (ומשם לגרסה הנוכחית, 9): טבלאות האנשים נוצרות, הנתונים הקיימים לא משתנים, והקבוצה הידנית ממשיכה לעבוד", async () => {
   const d1 = databaseAtVersion7();
   const db = d1.database;
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: { async list() { return { objects: [] }; } } };
@@ -138,7 +138,7 @@ test("מסד בגרסה 7 עולה ל-8: טבלאות האנשים נוצרות,
   assert.ok(columns("face_people").includes("assigned_at"));
   assert.ok(columns("image_face_descriptors").includes("box_json"));
 
-  assert.equal(meta("gallery"), 8);
+  assert.equal(meta("gallery"), 9);
   assert.equal(meta("data_version:images"), 1000);
   assert.equal(meta("data_version:userProfiles"), 2000);
 

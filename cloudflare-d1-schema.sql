@@ -192,3 +192,26 @@ CREATE TABLE IF NOT EXISTS stream_videos (
   hls_url TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
+
+-- גרסה 9: סטטיסטיקות שימוש — שורה אחת לכל יום (UTC) ומדד, עם מונה בלבד.
+-- אין כאן מזהה משתמש, כתובת או תוכן; כל הוספה היא UPSERT אחד.
+CREATE TABLE IF NOT EXISTS usage_daily (
+  day TEXT NOT NULL,
+  metric TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (day, metric)
+);
+
+-- גרסה 9: הערות פנימיות של מנהלים על משתמש. מחוץ ל-userProfiles, כי משתמש
+-- קורא את הפרופיל של עצמו; נקראות רק דרך /admin/user-notes, לעולם לא ב-/data.
+CREATE TABLE IF NOT EXISTS admin_user_notes (
+  note_id TEXT PRIMARY KEY,
+  target_uid TEXT NOT NULL,
+  author_uid TEXT NOT NULL,
+  author_name TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_user_notes_target
+  ON admin_user_notes (target_uid, created_at);

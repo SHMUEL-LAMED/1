@@ -87,9 +87,12 @@ const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 //       face_user_descriptors ("זכור אותי" של "התמונות שלי", רק בהסכמה),
 //       ועמודות חדשות: face_people.source / assigned_at ו-image_face_descriptors.box_json.
 //       השיוכים הידניים הקיימים נשארים כפי שהם, ולכל קבוצה קיימת נוצרת רשומת אדם.
+//   9 — usage_daily (מוני שימוש מצטברים: שורה לכל יום ומדד, מספרים בלבד)
+//       ו-admin_user_notes (הערות פנימיות של מנהלים על משתמש, מחוץ ל-userProfiles).
+//       שתי טבלאות חדשות בלבד; אף טבלה או עמודה קיימת אינה משתנה.
 // גרסאות הנתונים של שכבת הנתונים (data_version:<אוסף>, ראו bumpDataVersion)
 // נשמרות באותה טבלה תחת מפתחות אחרים, והעלאת הסכימה אינה נוגעת בהן.
-const DATABASE_SCHEMA_VERSION = 8;
+const DATABASE_SCHEMA_VERSION = 9;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -925,6 +928,33 @@ async function ensureDatabaseSchema(env) {
         created_at INTEGER NOT NULL
       )`
     ).run();
+    // סטטיסטיקות שימוש: שורה אחת לכל יום (UTC) ומדד, עם מונה בלבד — בלי מזהה
+    // משתמש, כתובת או תוכן. כל הוספה היא UPSERT אחד (ראו recordUsage).
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS usage_daily (
+        day TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (day, metric)
+      )`
+    ).run();
+    // הערות פנימיות של מנהלים על משתמש. טבלה נפרדת ולא שדה בפרופיל: משתמש
+    // קורא את userProfiles של עצמו, וההערות לעולם אינן מגיעות אליו. הן אינן
+    // אוסף של /data, ונקראות רק דרך /admin/user-notes (ראו adminUserNotes).
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS admin_user_notes (
+        note_id TEXT PRIMARY KEY,
+        target_uid TEXT NOT NULL,
+        author_uid TEXT NOT NULL,
+        author_name TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_admin_user_notes_target ON admin_user_notes (target_uid, created_at)"
+    ).run();
     await env.GALLERY_DB.prepare(
       "CREATE INDEX IF NOT EXISTS idx_image_face_descriptors_model ON image_face_descriptors (model_version, image_id, face_index)"
     ).run();
@@ -1221,7 +1251,9 @@ const SYSTEM_META_SUPER_ADMIN_WRITE_IDS = new Set(["downloadPrivacy", "popupAnno
 // סיבה לקרוא אותם (רשימת הקישורים השבורים, מצב ההתראות, תור Drive), ולכן הם
 // פתוחים דרך /data רק למנהל־על — וגם אינם מופיעים ברשימת האוסף של אחרים.
 // ה-Worker עצמו כותב אותם ב-SQL ישיר, לא דרך הנתיב הזה.
-const SYSTEM_META_PRIVATE_IDS = new Set(["backgroundJobs", "backgroundState", "maintenanceBrokenLinks", "maintenanceAlert"]);
+// maintenanceStorage (סיכום הנפח היומי) ו-storageBudget (סף האזהרה שמנהל־העל
+// קובע) שייכים למסך "סטטיסטיקות" → "אחסון ועלויות", ופתוחים רק לו.
+const SYSTEM_META_PRIVATE_IDS = new Set(["backgroundJobs", "backgroundState", "maintenanceBrokenLinks", "maintenanceAlert", "maintenanceStorage", "storageBudget"]);
 
 function assertDataPermission(actor, collectionName, method, documentId = "") {
   const approved = actor.status === "approved" || actor.initialAdmin;
@@ -1830,6 +1862,14 @@ async function handleDataRequest(request, env, url, ctx) {
     if (["images", "pendingImages"].includes(collectionName) && existing.variants && nextData.variants === undefined) {
       nextData = { ...nextData, variants: existing.variants, variantsVersion: existing.variantsVersion };
     }
+    // הרקע המטושטש (placeholder): אותו כלל — עותק ישן בלי השדה אינו מוחק אותו —
+    // וערך שאינו data URL קטן ותקין לעולם אינו נשמר (הוא מוצב כ-CSS בגלריה).
+    if (["images", "pendingImages"].includes(collectionName)) {
+      if (nextData.placeholder === undefined && existing.placeholder) nextData = { ...nextData, placeholder: existing.placeholder };
+      const placeholder = normalizeMediaPlaceholder(nextData.placeholder);
+      if (placeholder) nextData.placeholder = placeholder;
+      else delete nextData.placeholder;
+    }
     if (["images", "pendingImages"].includes(collectionName)) {
       nextData = normalizeCaptureFields(nextData, existing);
       // כיתוב ותגיות: רק מנהל משנה אותם, ועותק ישן בלי השדות אינו מוחק אותם.
@@ -1847,6 +1887,8 @@ async function handleDataRequest(request, env, url, ctx) {
       // תוכן Drive שהוחלף חייב להיבדק מחדש, ולא לרשת את תוצאות הקובץ הקודם.
       nextData.variants = {};
       nextData.variantsVersion = 0;
+      // הרקע המטושטש תיאר את הקובץ הקודם; ריצת התצוגות הבאה יוצרת חדש.
+      delete nextData.placeholder;
       nextData.aiTitleVersion = 0;
       nextData.aiTitleGeneratedAt = null;
       nextData.title = String(payload.data.originalTitle || payload.data.title || "").replace(/\.[^.]+$/, "");
@@ -1896,6 +1938,11 @@ async function handleDataRequest(request, env, url, ctx) {
     if (collectionName === "userProfiles" && actor.initialAdmin && documentId === actor.uid) {
       nextData = { ...nextData, uid: actor.uid, email: actor.email, status: "approved", role: "super_admin" };
     }
+    // מנהל־על אינו מוריד את עצמו מדרגה 4 ואינו חוסם את עצמו, ואף אחד אינו
+    // מוריד או חוסם את מנהל־העל המאושר האחרון — גם לא בכתיבה ישירה ל-/data.
+    if (collectionName === "userProfiles" && existingRow) {
+      await assertSuperAdminRetained(env, actor, documentId, existing, nextData);
+    }
 
     const now = Date.now();
     const ownerUid = String(nextData.uid || nextData.uploadedBy || nextData.requestedBy || nextData.actorUid || actor.uid).slice(0, 120);
@@ -1938,6 +1985,16 @@ async function handleDataRequest(request, env, url, ctx) {
   }
 
   if (request.method === "DELETE" && documentId) {
+    // מחיקת פרופיל היא גם הסרת הגישה: אותם כללים כמו בחסימה (ראו assertSuperAdminRetained).
+    let deletedPendingStatus = "";
+    if (collectionName === "userProfiles") {
+      const existingRow = await readGalleryDocumentRow(env, collectionName, documentId);
+      if (existingRow) await assertSuperAdminRetained(env, actor, documentId, parseDocumentData(existingRow), {});
+    } else if (collectionName === "pendingImages") {
+      // רק פריט שעדיין המתין נספר כ"נדחה" בסטטיסטיקות; רשומת תיעוד של פריט שאושר אינה.
+      const pendingRow = await readGalleryDocumentRow(env, collectionName, documentId);
+      deletedPendingStatus = pendingRow ? String(parseDocumentData(pendingRow).status || "pending") : "";
+    }
     await env.GALLERY_DB.prepare(
       "DELETE FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
     ).bind(collectionName, documentId).run();
@@ -1946,6 +2003,8 @@ async function handleDataRequest(request, env, url, ctx) {
       await env.GALLERY_DB.prepare("DELETE FROM user_email_index WHERE document_id = ?").bind(documentId).run();
       // משתמש שנמחק אינו משאיר אחריו את טביעת "זכור אותי" שלו.
       await env.GALLERY_DB.prepare("DELETE FROM face_user_descriptors WHERE uid = ?").bind(documentId).run();
+      // וגם לא הערות פנימיות עליו: אין להן עוד משתמש לשייך אליו.
+      await env.GALLERY_DB.prepare("DELETE FROM admin_user_notes WHERE target_uid = ?").bind(documentId).run();
     }
     // מחיקת תמונה מוחקת גם את כל טביעות הפנים שלה, כדי שחיפוש לא יחזיר מזהה שנמחק,
     // וגם את קובצי התצוגות המקדימות שלה.
@@ -1957,6 +2016,7 @@ async function handleDataRequest(request, env, url, ctx) {
       // הממתינה שלה אינו אמור למחוק את הטביעות של התמונה הפעילה.
       await deleteFaceIndexForImage(env, documentId);
       await deleteMediaVariantsForImage(env, documentId);
+      if (deletedPendingStatus === "pending") await recordUsage(env, { rejections: 1 });
     }
     return json(request, { success: true, id: documentId });
   }
@@ -2301,6 +2361,8 @@ async function uploadImage(request, env) {
   const mediaType = isImage ? "image" : (isVideo ? "video" : (mimeType.startsWith("audio/") ? "audio" : "file"));
   // התצוגות המקדימות נבדקות לפני שנשמר דבר, כדי שבקשה פסולה לא תשאיר קובץ חלקי.
   const variantParts = isChatAttachment ? [] : readVariantParts(form);
+  // הרקע המטושטש אינו חלק חובה: ערך פסול פשוט אינו נשמר, וההעלאה ממשיכה.
+  const placeholder = isChatAttachment ? "" : normalizeMediaPlaceholder(form.get("placeholder"));
   const capturedAt = isChatAttachment ? "" : sanitizeCapturedAt(form.get("capturedAt"));
 
   await env.GALLERY_BUCKET.put(key, await file.arrayBuffer(), {
@@ -2330,8 +2392,9 @@ async function uploadImage(request, env) {
     variants = await storeMediaVariants(request, env, imageId, variantParts, { ownerUid: user.uid, state });
     // בהעלאה חדשה הרשומה עדיין לא קיימת: הלקוח מעתיק את variants מהתשובה
     // אל הרשומה שהוא כותב. רשומה שכבר קיימת (העלאה חוזרת) מתעדכנת כאן.
-    await attachVariantsToRecords(env, imageId, variants);
+    await attachVariantsToRecords(env, imageId, variants, { placeholder });
   }
+  if (!isChatAttachment) await recordUsage(env, { uploads: 1, uploadsPending: state === "pending" ? 1 : 0 });
   // Cloudflare Stream (רשות): סרטון מאושר נשלח גם לשם. בלי הסודות — null.
   const stream = !isChatAttachment && isVideo && state === "approved"
     ? await sendVideoToStream(request, env, { imageId, key, title })
@@ -2347,6 +2410,7 @@ async function uploadImage(request, env) {
     size: file.size,
     url: mediaUrl(request, key, env),
     ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {}),
+    ...(placeholder ? { placeholder } : {}),
     ...(stream ? { stream } : {})
   }, 201);
 }
@@ -2594,6 +2658,7 @@ async function completeMultipartUpload(request, env) {
   }
   // התצוגות נבדקות לפני ההשלמה, כדי שבקשה פסולה לא תשאיר קובץ בלי תשובה.
   const variantParts = readVariantParts(form);
+  const placeholder = normalizeMediaPlaceholder(form.get("placeholder"));
   const key = String(session.object_key);
   const imageId = String(session.image_id);
   const state = String(session.state);
@@ -2604,8 +2669,9 @@ async function completeMultipartUpload(request, env) {
   let variants = null;
   if (variantParts.length) {
     variants = await storeMediaVariants(request, env, imageId, variantParts, { ownerUid: user.uid, state });
-    await attachVariantsToRecords(env, imageId, variants);
+    await attachVariantsToRecords(env, imageId, variants, { placeholder });
   }
+  await recordUsage(env, { uploads: 1, uploadsPending: state === "pending" ? 1 : 0 });
   const mimeType = String(session.mime_type);
   const mediaType = ALLOWED_VIDEO_TYPES.has(mimeType) ? "video" : "image";
   const stream = mediaType === "video" && state === "approved"
@@ -2622,6 +2688,7 @@ async function completeMultipartUpload(request, env) {
     url: mediaUrl(request, key, env),
     uploadMode: "multipart",
     ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {}),
+    ...(placeholder ? { placeholder } : {}),
     ...(stream ? { stream } : {})
   };
   // החלקים כבר אינם נחוצים; השורה נשארת "הושלמה" עד שתתיישן, לטובת השלמה חוזרת.
@@ -2880,6 +2947,7 @@ async function approveImage(request, env) {
   await markMediaVariantsApproved(env, faceImageIdFromObjectKey(approvedKey));
   await ensureDatabaseSchema(env);
   await bumpDataVersions(env, ["images", "pendingImages"]);
+  await recordUsage(env, { approvals: 1 });
   // סרטון שאושר נשלח עכשיו ל-Stream (כשהוא מוגדר) — לא לפני כן, כשהיה פרטי.
   const stream = (source.customMetadata?.mediaType || source.customMetadata?.mediatype) === "video"
     ? await sendVideoToStream(request, env, {
@@ -3084,19 +3152,25 @@ async function readGalleryDocumentRow(env, collectionName, documentId) {
 
 // רושם את התצוגות ברשומות הקיימות של הפריט — images וגם pendingImages, שכן
 // רשומה ממתינה נשמרת כתיעוד גם אחרי האישור. תצוגות קודמות שלא נשלחו שוב נשמרות.
-async function attachVariantsToRecords(env, imageId, variants) {
+// placeholder (רשות) הוא הרקע המטושטש שנוצר יחד עם התצוגות; בקשה שיש בה רק
+// אותו (השלמה לפריט שכבר יש לו תצוגות) אינה נוגעת ב-variants.
+async function attachVariantsToRecords(env, imageId, variants, { placeholder = "" } = {}) {
   const updated = [];
   let merged = variants;
+  const hasVariants = Object.keys(variants || {}).length > 0;
   for (const collectionName of ["images", "pendingImages"]) {
     const row = await readGalleryDocumentRow(env, collectionName, imageId);
     if (!row) continue;
     const data = parseDocumentData(row);
     const existing = data.variants && typeof data.variants === "object" ? data.variants : {};
     merged = { ...existing, ...variants };
+    const next = hasVariants ? { ...data, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION } : { ...data };
+    if (placeholder) next.placeholder = placeholder;
+    if (!hasVariants && !placeholder) continue;
     const updatedAt = Math.max(Date.now(), (Number(row.updated_at) || 0) + 1);
     await env.GALLERY_DB.prepare(
       "UPDATE gallery_documents SET data_json = ?, updated_at = ? WHERE collection_name = ? AND document_id = ?"
-    ).bind(JSON.stringify({ ...data, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION }), updatedAt, collectionName, imageId).run();
+    ).bind(JSON.stringify(next), updatedAt, collectionName, imageId).run();
     updated.push(collectionName);
   }
   // הרשומה השתנתה: רשימות שבמטמון הקצה וב-ETag חייבות להתיישן מיד.
@@ -3180,18 +3254,25 @@ async function attachMediaVariants(request, env) {
   }
 
   const parts = readVariantParts(form);
-  if (!parts.length) throw apiError("לא צורפה אף תצוגה מקדימה.", 400, "variant_missing");
+  // הרקע המטושטש: כאן — בניגוד להעלאה — ערך פסול מכשיל את הבקשה, כמו תצוגה פסולה.
+  const rawPlaceholder = form.get("placeholder");
+  const placeholder = normalizeMediaPlaceholder(rawPlaceholder);
+  if (rawPlaceholder !== null && rawPlaceholder !== undefined && rawPlaceholder !== "" && !placeholder) {
+    throw apiError("הרקע המטושטש אינו תקין.", 400, "invalid_placeholder");
+  }
+  if (!parts.length && !placeholder) throw apiError("לא צורפה אף תצוגה מקדימה.", 400, "variant_missing");
 
-  const variants = await storeMediaVariants(request, env, imageId, parts, {
+  const variants = parts.length ? await storeMediaVariants(request, env, imageId, parts, {
     ownerUid: ownerUid || user.uid,
     state: activeRow ? "approved" : "pending"
-  });
-  const attached = await attachVariantsToRecords(env, imageId, variants);
+  }) : {};
+  const attached = await attachVariantsToRecords(env, imageId, variants, { placeholder });
   return json(request, {
     success: true,
     imageId,
     variants: attached.variants,
     variantsVersion: MEDIA_VARIANTS_VERSION,
+    ...(placeholder ? { placeholder } : {}),
     updated: attached.updated
   });
 }
@@ -5976,7 +6057,7 @@ function backgroundAllowedPath(method, path) {
     ["/background/config", "/background/status", "/face/index/summary", "/media/variants/stats"].includes(path) || path.startsWith("/face-assets/") ||
     /^\/media\/(probe\/[^/]+|(approved|pending|variants)\/)/.test(path);
   if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/background/ai-check", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort",
-    "/maintenance/backup", "/maintenance/trash-purge", "/maintenance/alert-check", "/maintenance/broken-links"].includes(path);
+    "/maintenance/backup", "/maintenance/trash-purge", "/maintenance/alert-check", "/maintenance/broken-links", "/maintenance/storage-scan"].includes(path);
   if (method === "PUT") return path === "/upload/multipart/part" || /^\/data\/(images\/driveimage|folders\/drivefolder)_[A-Za-z0-9_-]+$/.test(path);
   return false;
 }
@@ -6544,7 +6625,14 @@ function maintenanceAlertText(env, reasons, metrics) {
   if (reasons.includes("errors")) {
     lines.push(`- בשעה האחרונה נרשמו ${metrics.occurrences} מופעי שגיאה ו-${metrics.newKinds} סוגי שגיאה חדשים.`);
   }
-  lines.push("", `לפרטים בלוח הניהול: ${maintenanceAdminUrl(env, reasons.includes("errors") ? "#errors" : "#health")}`, "",
+  if (reasons.includes("storage")) {
+    const parts = [];
+    if (Number.isFinite(metrics.storage?.r2Percent)) parts.push(`האחסון (R2) ב-${metrics.storage.r2Percent}% מהמכסה`);
+    if (Number.isFinite(metrics.storage?.d1Percent)) parts.push(`מסד הנתונים (D1) ב-${metrics.storage.d1Percent}% מהמכסה`);
+    lines.push(`- ${parts.join(", ") || "האחסון"} — מעל סף האזהרה (${metrics.storage?.warnPercent}%).`);
+  }
+  const hash = reasons.includes("errors") ? "#errors" : reasons.includes("health") ? "#health" : "#stats";
+  lines.push("", `לפרטים בלוח הניהול: ${maintenanceAdminUrl(env, hash)}`, "",
     `התראה נוספת תישלח לכל היותר בעוד ${Math.round(MAINTENANCE_ALERT_INTERVAL_MS / 3600000)} שעות.`);
   return lines.join("\n");
 }
@@ -6574,6 +6662,10 @@ async function maintenanceAlertCheck(request, env) {
   const reasons = [];
   if (!healthOk) reasons.push("health");
   if (occurrences >= MAINTENANCE_ALERT_ERROR_OCCURRENCES || newKinds >= MAINTENANCE_ALERT_NEW_ERROR_KINDS) reasons.push("errors");
+  // אחסון מעל הסף שמנהל־העל קבע: לכל היותר התראה אחת לכל דוח נפח (פעם ביום),
+  // ובנוסף כפוף לנעילה של שש השעות כמו שאר הסיבות.
+  const storage = await storageAlertState(env);
+  if (storage && Number(state.lastStorageAlertReportAt) !== storage.reportAt) reasons.push("storage");
   const next = { ...state };
   let changed = false;
   if (!baselineFresh || baselineAt <= now - MAINTENANCE_ALERT_WINDOW_MS || total < baselineTotal) {
@@ -6581,7 +6673,8 @@ async function maintenanceAlertCheck(request, env) {
     next.baselineTotal = total;
     changed = true;
   }
-  const metrics = { occurrences, newKinds, healthOk, healthStatus };
+  const metrics = { occurrences, newKinds, healthOk, healthStatus,
+    ...(reasons.includes("storage") ? { storage: { r2Percent: storage.r2.percent, d1Percent: storage.d1.percent, warnPercent: storage.warnPercent } } : {}) };
   let result = { alerted: false, reasons, metrics };
   const lastAlertAt = Number(state.lastAlertAt) || 0;
   if (reasons.length && lastAlertAt > now - MAINTENANCE_ALERT_INTERVAL_MS) {
@@ -6595,7 +6688,8 @@ async function maintenanceAlertCheck(request, env) {
     } else {
       // קודם נרשם שההתראה יוצאת, ורק אז היא נשלחת: אם הרישום נכשל לא נשלח
       // כלום, וכך לעולם לא נשלח מייל בכל ריצה.
-      const claimed = { ...next, lastAlertAt: now, lastAlertReasons: reasons };
+      const claimed = { ...next, lastAlertAt: now, lastAlertReasons: reasons,
+        ...(reasons.includes("storage") ? { lastStorageAlertReportAt: storage.reportAt } : {}) };
       await saveBackgroundDocument(env, MAINTENANCE_ALERT_DOC_ID, claimed);
       changed = false;
       const response = await fetch("https://api.resend.com/emails", {
@@ -6617,7 +6711,10 @@ async function maintenanceAlertCheck(request, env) {
       if (!response?.ok || !sent?.id) {
         console.error("Maintenance alert email failed", response?.status || 0);
         // ההתראה לא יצאה: הנעילה של שש השעות משתחררת, והריצה הבאה תנסה שוב.
-        await saveBackgroundDocument(env, MAINTENANCE_ALERT_DOC_ID, { ...claimed, lastAlertAt, lastAlertReasons: state.lastAlertReasons || [] }).catch(() => {});
+        await saveBackgroundDocument(env, MAINTENANCE_ALERT_DOC_ID, {
+          ...claimed, lastAlertAt, lastAlertReasons: state.lastAlertReasons || [],
+          lastStorageAlertReportAt: state.lastStorageAlertReportAt ?? null
+        }).catch(() => {});
         result = { ...result, failed: "email_send_failed", providerStatus: response?.status || 0 };
       } else {
         result = { ...result, alerted: true, recipients: recipients.length };
@@ -6817,6 +6914,622 @@ async function readBrokenLinksReport(request, env) {
   return response;
 }
 
+// --- ניהול: סטטיסטיקות שימוש, אחסון ועלויות, פעולות על כמה משתמשים והערות פנימיות ---
+// כל מה שכאן נוסף בלי לשנות רשומה קיימת: המונים בטבלה usage_daily, ההערות
+// בטבלה admin_user_notes, וסיכום הנפח במסמך systemMeta פנימי. מסכי הלוח
+// (admin-stats.js, admin-users-bulk.js) הם הצרכנים היחידים.
+
+// --- סטטיסטיקות שימוש ---
+// המדדים סגורים ברשימה: שם מדד מהדפדפן לעולם אינו נכנס לטבלה כמות שהוא.
+// visits — משתמשים מחוברים שונים ביום; views — פתיחת פריט בתצוגה המלאה (פעם
+// אחת לפריט בביקור, כמו mediaStats); downloads / zipDownloads / zipItems —
+// הורדה בודדת, הורדת ZIP ומספר הפריטים בה; uploads / uploadsPending —
+// העלאות לגלריה וכמה מהן ממתינות לאישור; approvals / rejections — החלטות על
+// פריטים ממתינים. ארבעת הראשונים מגיעים מהדפדפן, השאר נספרים בשרת.
+const USAGE_METRICS = ["visits", "views", "downloads", "zipDownloads", "zipItems", "uploads", "uploadsPending", "approvals", "rejections"];
+// התקרה של כל מונה שהדפדפן שולח בבקשה אחת. ערך גבוה יותר נחתך, כך שדפדפן
+// אחד אינו יכול לנפח את הגרף.
+const USAGE_BEACON_LIMITS = Object.freeze({ views: 500, downloads: 200, zipDownloads: 50, zipItems: 2000 });
+// כמה דיווחים ביום מכל משתמש נספרים. הדפדפן שולח אחד בתחילת הביקור ולכל היותר
+// אחד בעשר דקות אחר כך; מעבר לתקרה הדיווח מתקבל ואינו כותב דבר.
+const USAGE_BEACONS_PER_DAY = 48;
+const USAGE_BEACON_MAX_BYTES = 2048;
+// שורה אחת לכל משתמש ב-request_rate_limits: תחילת היום האחרון שבו דיווח, ומספר
+// הדיווחים באותו יום. ממנה נקבע אם זה הביקור הראשון היום (visits), ומאותה
+// שורה נספרים המשתמשים הפעילים ב-7 וב-30 הימים האחרונים — בלי טבלה נוספת.
+// הטבלה הזו אינה נכנסת לגיבוי (D1_BACKUP_EXCLUDED_TABLES).
+const USAGE_DAY_BUCKET_PREFIX = "usage-day:";
+const USAGE_DAY_BUCKET_END = "usage-day;";
+const USAGE_RANGE_DEFAULT_DAYS = 90;
+const USAGE_RANGE_MAX_DAYS = 400;
+
+function usageDay(time = Date.now()) {
+  return new Date(time).toISOString().slice(0, 10);
+}
+
+function usageDayStart(time = Date.now()) {
+  const date = new Date(time);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function usageIncrementStatement(env, day, metric, amount, now) {
+  return env.GALLERY_DB.prepare(
+    `INSERT INTO usage_daily (day, metric, count, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(day, metric) DO UPDATE SET
+       count = usage_daily.count + excluded.count,
+       updated_at = excluded.updated_at`
+  ).bind(day, metric, amount, now);
+}
+
+// מונה בצד השרת (העלאה, אישור, דחייה): UPSERT אחד לכל מדד. כשל כאן לעולם
+// אינו מכשיל את הפעולה עצמה — הסטטיסטיקה היא תוספת, לא חלק מהשמירה.
+async function recordUsage(env, counts, now = Date.now()) {
+  try {
+    await ensureDatabaseSchema(env);
+    const day = usageDay(now);
+    const statements = Object.entries(counts || {})
+      .filter(([metric, amount]) => USAGE_METRICS.includes(metric) && Number.isInteger(amount) && amount > 0)
+      .map(([metric, amount]) => usageIncrementStatement(env, day, metric, amount, now));
+    await runDatabaseStatements(env, statements);
+  } catch (error) {
+    console.warn("Usage counter failed", error?.message || error);
+  }
+}
+
+export function normalizeUsageCounts(value) {
+  const counts = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return counts;
+  for (const [metric, limit] of Object.entries(USAGE_BEACON_LIMITS)) {
+    const amount = Math.trunc(Number(value[metric]));
+    if (Number.isFinite(amount) && amount > 0) counts[metric] = Math.min(limit, amount);
+  }
+  return counts;
+}
+
+// POST /stats/beacon — { counts: { views, downloads, zipDownloads, zipItems } }.
+// כל משתמש מאושר. כתיבה אחת לשורת המשתמש, ועוד אחת לכל מדד שאינו אפס (ולביקור
+// הראשון היום). אין כאן מזהה פריט, כתובת דף או כל תוכן — רק מספרים.
+async function receiveUsageBeacon(request, env) {
+  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
+  const text = await request.text();
+  if (text.length > USAGE_BEACON_MAX_BYTES) throw apiError("הדיווח גדול מדי.", 413, "usage_beacon_too_large");
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    throw apiError("הדיווח אינו תקין.", 400, "invalid_usage_beacon");
+  }
+  const counts = normalizeUsageCounts(payload?.counts);
+  await ensureDatabaseSchema(env);
+  const now = Date.now();
+  const row = await env.GALLERY_DB.prepare(
+    `INSERT INTO request_rate_limits (bucket_key, window_started_at, request_count)
+     VALUES (?, ?, 1)
+     ON CONFLICT(bucket_key) DO UPDATE SET
+       request_count = CASE
+         WHEN request_rate_limits.window_started_at < excluded.window_started_at THEN 1
+         ELSE request_rate_limits.request_count + 1
+       END,
+       window_started_at = MAX(request_rate_limits.window_started_at, excluded.window_started_at)
+     RETURNING request_count`
+  ).bind(`${USAGE_DAY_BUCKET_PREFIX}${user.uid}`, usageDayStart(now)).first();
+  const beaconNumber = Number(row?.request_count) || 0;
+  let accepted = false;
+  const firstToday = beaconNumber === 1;
+  if (beaconNumber > 0 && beaconNumber <= USAGE_BEACONS_PER_DAY) {
+    const day = usageDay(now);
+    const statements = [];
+    if (firstToday) statements.push(usageIncrementStatement(env, day, "visits", 1, now));
+    for (const [metric, amount] of Object.entries(counts)) statements.push(usageIncrementStatement(env, day, metric, amount, now));
+    await runDatabaseStatements(env, statements);
+    accepted = true;
+  }
+  const response = json(request, { success: true, accepted, visit: accepted && firstToday });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+function usageRangeDays(url) {
+  const days = Math.trunc(Number(url.searchParams.get("days")) || USAGE_RANGE_DEFAULT_DAYS);
+  return Math.max(1, Math.min(USAGE_RANGE_MAX_DAYS, days));
+}
+
+// GET /stats/usage?days=90 — מנהל־על אנושי בלבד, כמו "ניתוח נתונים". מחזיר
+// שורה לכל יום שיש בו נתונים, ואת מספר המשתמשים הפעילים — מספרים בלבד.
+async function readUsageStats(request, env, url) {
+  await requireMaintenanceViewer(request, env);
+  await ensureDatabaseSchema(env);
+  const now = Date.now();
+  const days = usageRangeDays(url);
+  const todayStart = usageDayStart(now);
+  const from = usageDay(todayStart - (days - 1) * MAINTENANCE_DAY_MS);
+  const to = usageDay(now);
+  const rows = await env.GALLERY_DB.prepare(
+    "SELECT day, metric, count FROM usage_daily WHERE day >= ? AND day <= ? ORDER BY day"
+  ).bind(from, to).all();
+  const byDay = new Map();
+  for (const row of rows.results || []) {
+    const metric = String(row.metric);
+    if (!USAGE_METRICS.includes(metric)) continue;
+    const day = String(row.day);
+    if (!byDay.has(day)) byDay.set(day, { day });
+    byDay.get(day)[metric] = Number(row.count) || 0;
+  }
+  const active = await env.GALLERY_DB.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN window_started_at >= ? THEN 1 ELSE 0 END), 0) AS today,
+       COALESCE(SUM(CASE WHEN window_started_at >= ? THEN 1 ELSE 0 END), 0) AS last7,
+       COALESCE(SUM(CASE WHEN window_started_at >= ? THEN 1 ELSE 0 END), 0) AS last30
+     FROM request_rate_limits WHERE bucket_key >= ? AND bucket_key < ?`
+  ).bind(todayStart, todayStart - 6 * MAINTENANCE_DAY_MS, todayStart - 29 * MAINTENANCE_DAY_MS, USAGE_DAY_BUCKET_PREFIX, USAGE_DAY_BUCKET_END).first();
+  const first = await env.GALLERY_DB.prepare("SELECT MIN(day) AS day FROM usage_daily").first();
+  const response = json(request, {
+    success: true,
+    from,
+    to,
+    metrics: USAGE_METRICS,
+    days: [...byDay.values()],
+    collectedSince: first?.day ? String(first.day) : null,
+    activeUsers: {
+      today: Number(active?.today) || 0,
+      last7: Number(active?.last7) || 0,
+      last30: Number(active?.last30) || 0
+    }
+  });
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+// --- אחסון ועלויות ---
+// פעם ביום תהליך התחזוקה עובר על כל הדלי ב-R2 בעמודים של 1,000 (הסמן נשמר
+// במסמך, כך שהריצה הבאה ממשיכה), ובסוף שומר סיכום: נפח ומספר קבצים לפי
+// קידומת, גודל מסד D1, ומספר העיבודים (AI ופנים) בחודש הנוכחי. כתיבה אחת
+// ל-D1 לכל צעד; דבר אינו נמחק.
+const STORAGE_DOC_ID = "maintenanceStorage";
+const STORAGE_BUDGET_DOC_ID = "storageBudget";
+const STORAGE_OBJECTS_PER_CALL = 1000;
+const STORAGE_RESCAN_MS = MAINTENANCE_DAY_MS;
+const STORAGE_PREFIX_GROUPS = ["approved", "pending", "variants", "backups", "chat"];
+const STORAGE_OTHER_GROUP = "other";
+const STORAGE_WARN_PERCENT_DEFAULT = 80;
+const STORAGE_QUOTA_MAX_GB = 100000;
+const GIGABYTE = 1024 * 1024 * 1024;
+const MEGABYTE = 1024 * 1024;
+
+function storageGroup(key) {
+  const first = String(key || "").split("/")[0];
+  return STORAGE_PREFIX_GROUPS.includes(first) ? first : STORAGE_OTHER_GROUP;
+}
+
+function storageEmptyScan(now) {
+  return {
+    startedAt: now,
+    objects: 0,
+    bytes: 0,
+    byPrefix: Object.fromEntries([...STORAGE_PREFIX_GROUPS, STORAGE_OTHER_GROUP].map(group => [group, { objects: 0, bytes: 0 }]))
+  };
+}
+
+// סף האזהרה שמנהל־העל שומר ב-systemMeta/storageBudget. הערכים נבדקים כאן,
+// בקריאה: מסמך פגום פשוט מכבה את האזהרה. 0 = אין מכסה.
+export function normalizeStorageBudget(value) {
+  const data = value && typeof value === "object" ? value : {};
+  const quota = (raw, max) => {
+    const number = Number(raw);
+    return Number.isFinite(number) && number > 0 ? Math.min(max, Math.round(number * 1000) / 1000) : 0;
+  };
+  const percent = Math.trunc(Number(data.warnPercent));
+  return {
+    r2QuotaGb: quota(data.r2QuotaGb, STORAGE_QUOTA_MAX_GB),
+    d1QuotaMb: quota(data.d1QuotaMb, STORAGE_QUOTA_MAX_GB * 1024),
+    warnPercent: Number.isFinite(percent) && percent >= 10 && percent <= 100 ? percent : STORAGE_WARN_PERCENT_DEFAULT
+  };
+}
+
+export function storageBudgetStatus(report, budget) {
+  const measure = (bytes, quotaBytes) => {
+    const used = bytes === null || bytes === undefined ? NaN : Number(bytes);
+    if (!Number.isFinite(used) || used < 0) return { bytes: null, quotaBytes, percent: null, over: false };
+    if (!quotaBytes) return { bytes: used, quotaBytes, percent: null, over: false };
+    const percent = Math.round((used / quotaBytes) * 1000) / 10;
+    return { bytes: used, quotaBytes, percent, over: percent >= budget.warnPercent };
+  };
+  const r2 = measure(report?.bytes, budget.r2QuotaGb * GIGABYTE);
+  const d1 = measure(report?.d1Bytes, budget.d1QuotaMb * MEGABYTE);
+  return { r2, d1, over: Boolean(report?.completedAt) && (r2.over || d1.over), warnPercent: budget.warnPercent };
+}
+
+// גודל מסד D1: D1 מחזיר size_after במטא-דאטה של כל שאילתה; בלעדיו (סביבה
+// אחרת) — page_count * page_size. כשאף אחד אינו זמין: null, והמסך כותב "לא ידוע".
+async function d1DatabaseBytes(env) {
+  try {
+    const result = await env.GALLERY_DB.prepare("SELECT 1 AS probe").all();
+    const size = Number(result?.meta?.size_after);
+    if (Number.isFinite(size) && size > 0) return size;
+  } catch { /* ממשיכים לחלופה */ }
+  try {
+    const pages = await env.GALLERY_DB.prepare("PRAGMA page_count").first();
+    const pageSize = await env.GALLERY_DB.prepare("PRAGMA page_size").first();
+    const size = Number(pages?.page_count) * Number(pageSize?.page_size);
+    if (Number.isFinite(size) && size > 0) return size;
+  } catch { /* PRAGMA חסום */ }
+  return null;
+}
+
+// כמה עיבודים נעשו מתחילת החודש (UTC): תמונות שקיבלו שם או כיתוב מה-AI,
+// ותמונות שעברו אינדוקס פנים. קריאה בלבד, פעם אחת בסוף כל סריקה.
+async function monthlyJobCounts(env, now) {
+  const date = new Date(now);
+  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  const counts = { month: new Date(monthStart).toISOString().slice(0, 7), aiDescriptions: null, faceIndexed: null };
+  try {
+    const ai = await env.GALLERY_DB.prepare(
+      `SELECT COUNT(*) AS total FROM gallery_documents
+       WHERE collection_name = 'images' AND json_valid(data_json)
+         AND CAST(COALESCE(json_extract(data_json, '$.aiCaptionGeneratedAt'), json_extract(data_json, '$.aiTitleGeneratedAt'), 0) AS REAL) >= ?`
+    ).bind(monthStart).first();
+    counts.aiDescriptions = Number(ai?.total) || 0;
+  } catch (error) {
+    console.warn("Monthly AI count failed", error?.message || error);
+  }
+  try {
+    const faces = await env.GALLERY_DB.prepare(
+      "SELECT COUNT(*) AS total FROM image_face_index_state WHERE updated_at >= ?"
+    ).bind(monthStart).first();
+    counts.faceIndexed = Number(faces?.total) || 0;
+  } catch (error) {
+    console.warn("Monthly face count failed", error?.message || error);
+  }
+  return counts;
+}
+
+// POST /maintenance/storage-scan — צעד אחד: עמוד אחד מרשימת R2 ושמירה אחת של
+// המצב. אחרי סריקה מלאה נשמר הדוח, והבאה מתחילה רק אחרי יממה; בינתיים הקריאה
+// רק קוראת.
+async function maintenanceStorageScan(request, env) {
+  requireMaintenanceRunner(request);
+  await ensureDatabaseSchema(env);
+  const now = Date.now();
+  const state = await readMaintenanceDocument(env, STORAGE_DOC_ID);
+  const report = state.report && typeof state.report === "object" ? state.report : null;
+  if (!state.scan && report && Number(report.completedAt) > now - STORAGE_RESCAN_MS) {
+    return json(request, { success: true, idle: true, done: true, nextScanAt: Number(report.completedAt) + STORAGE_RESCAN_MS });
+  }
+  const empty = storageEmptyScan(now);
+  const scan = state.scan && typeof state.scan === "object"
+    ? { ...empty, ...state.scan, byPrefix: { ...empty.byPrefix, ...(state.scan.byPrefix || {}) } }
+    : empty;
+  const r2Cursor = String(state.cursor?.r2Cursor || "");
+  const listed = await env.GALLERY_BUCKET.list({ limit: STORAGE_OBJECTS_PER_CALL, ...(r2Cursor ? { cursor: r2Cursor } : {}) });
+  for (const object of listed?.objects || []) {
+    const size = Math.max(0, Number(object.size) || 0);
+    const group = storageGroup(object.key);
+    scan.objects += 1;
+    scan.bytes += size;
+    scan.byPrefix[group] = {
+      objects: (Number(scan.byPrefix[group]?.objects) || 0) + 1,
+      bytes: (Number(scan.byPrefix[group]?.bytes) || 0) + size
+    };
+  }
+  const done = !(listed?.truncated && listed.cursor);
+  let next;
+  if (done) {
+    const finished = { ...scan, d1Bytes: await d1DatabaseBytes(env), jobs: await monthlyJobCounts(env, now), completedAt: now };
+    next = { version: 1, report: finished, scan: null, cursor: null, updatedAt: now };
+  } else {
+    next = { version: 1, report, scan, cursor: { r2Cursor: String(listed.cursor) }, updatedAt: now };
+  }
+  await saveBackgroundDocument(env, STORAGE_DOC_ID, next);
+  return json(request, { success: true, idle: false, done, objects: scan.objects, bytes: scan.bytes });
+}
+
+// GET /maintenance/storage — הדוח האחרון, הסריקה שבדרך והסף (מנהל־על).
+async function readStorageReport(request, env) {
+  await requireMaintenanceViewer(request, env);
+  await ensureDatabaseSchema(env);
+  const state = await readMaintenanceDocument(env, STORAGE_DOC_ID);
+  const report = state.report && typeof state.report === "object" ? state.report : null;
+  const budget = normalizeStorageBudget(await readMaintenanceDocument(env, STORAGE_BUDGET_DOC_ID));
+  const scan = state.scan && typeof state.scan === "object" ? state.scan : null;
+  const response = json(request, {
+    success: true,
+    report,
+    scanning: scan ? { startedAt: Number(scan.startedAt) || 0, objects: Number(scan.objects) || 0, bytes: Number(scan.bytes) || 0 } : null,
+    budget,
+    status: storageBudgetStatus(report, budget),
+    groups: [...STORAGE_PREFIX_GROUPS, STORAGE_OTHER_GROUP]
+  });
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+// מצב האחסון לבדיקת ההתראה: null כשאין דוח או סף, או כשהנפח מתחת לסף.
+async function storageAlertState(env) {
+  try {
+    const state = await readMaintenanceDocument(env, STORAGE_DOC_ID);
+    const report = state.report && typeof state.report === "object" ? state.report : null;
+    if (!report?.completedAt) return null;
+    const status = storageBudgetStatus(report, normalizeStorageBudget(await readMaintenanceDocument(env, STORAGE_BUDGET_DOC_ID)));
+    return status.over ? { ...status, reportAt: Number(report.completedAt) } : null;
+  } catch (error) {
+    console.warn("Storage alert state failed", error?.message || error);
+    return null;
+  }
+}
+
+// --- מנהל־העל האחרון ---
+// מי שמוריד או חוסם מנהל־על מאושר (או מוחק את הפרופיל שלו) עובר כאן: לעולם
+// לא את עצמו, ולעולם לא את מנהל־העל המאושר האחרון. אותה בדיקה ב-/data
+// וב-/admin/users/batch, כך שהלוח אינו המגן היחיד.
+const USER_ROLES = ["viewer", "uploader", "admin", "super_admin"];
+
+function isApprovedSuperAdmin(profile) {
+  return profile?.status === "approved" && profile?.role === "super_admin";
+}
+
+async function countApprovedSuperAdmins(env, excludeIds = []) {
+  const excluded = [...new Set(excludeIds.map(String))];
+  const placeholders = excluded.map(() => "?").join(", ");
+  const row = await env.GALLERY_DB.prepare(
+    `SELECT COUNT(*) AS total FROM gallery_documents
+     WHERE collection_name = 'userProfiles' AND json_valid(data_json)
+       AND json_extract(data_json, '$.role') = 'super_admin'
+       AND json_extract(data_json, '$.status') = 'approved'
+       ${excluded.length ? `AND document_id NOT IN (${placeholders})` : ""}`
+  ).bind(...excluded).first();
+  return Number(row?.total) || 0;
+}
+
+// ההחלטה עצמה, בלי מסד: "" כשמותר, אחרת קוד הסירוב. otherSuperAdmins הוא מספר
+// מנהלי־העל המאושרים מלבד היעד (נספר רק כשצריך).
+export function superAdminRetentionProblem({ existing, next, documentId, actorUid, otherSuperAdmins = 1 }) {
+  if (!isApprovedSuperAdmin(existing) || isApprovedSuperAdmin(next)) return "";
+  if (documentId === actorUid) return "self_lockout";
+  return otherSuperAdmins < 1 ? "last_super_admin" : "";
+}
+
+async function assertSuperAdminRetained(env, actor, documentId, existing, next) {
+  const base = { existing, next, documentId, actorUid: actor.uid };
+  let problem = superAdminRetentionProblem(base);
+  if (!problem && isApprovedSuperAdmin(existing) && !isApprovedSuperAdmin(next)) {
+    problem = superAdminRetentionProblem({ ...base, otherSuperAdmins: await countApprovedSuperAdmins(env, [documentId]) });
+  }
+  if (problem === "self_lockout") {
+    throw apiError("אי אפשר להוריד או לחסום את החשבון שאיתו אתה מחובר.", 403, "self_lockout");
+  }
+  if (problem === "last_super_admin") {
+    throw apiError("זהו מנהל־העל המאושר האחרון; יש למנות מנהל־על נוסף קודם.", 409, "last_super_admin");
+  }
+}
+
+// --- פעולה על כמה משתמשים ---
+const USERS_BATCH_MAX = 100;
+const USERS_BATCH_ACTIONS = new Set(["approve", "block", "unblock", "role"]);
+const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{1,120}$/;
+const USERS_BATCH_ACTIVITY = { approve: "approved_user", block: "changed_block", unblock: "changed_block", role: "changed_role" };
+const ROLE_LABELS = { viewer: "דרגה 1", uploader: "דרגה 2", admin: "דרגה 3", super_admin: "דרגה 4" };
+
+function usersBatchFailure(uid, code, message) {
+  return { uid, ok: false, code, message };
+}
+
+// מה הפעולה עושה לפרופיל אחד, או כישלון עם קוד. אותם שדות שהלוח כותב
+// בפעולה הבודדת (admin.js), כדי ששתי הדרכים ישאירו רשומה זהה.
+function applyUserBatchAction(profile, action, role, actorUid, now) {
+  if (action === "approve") {
+    if (profile.status !== "pending") return { error: ["not_pending", "המשתמש אינו ממתין לאישור."] };
+    return { next: { ...profile, status: "approved", role, approvedAt: now, approvedBy: actorUid } };
+  }
+  if (action === "block") {
+    if (profile.status === "blocked") return { error: ["already_blocked", "המשתמש כבר חסום."] };
+    return { next: { ...profile, status: "blocked", roleBeforeBlock: USER_ROLES.includes(profile.role) ? profile.role : "viewer", blockedAt: now, blockedBy: actorUid } };
+  }
+  if (action === "unblock") {
+    if (profile.status !== "blocked") return { error: ["not_blocked", "המשתמש אינו חסום."] };
+    return { next: { ...profile, status: "approved", role: USER_ROLES.includes(profile.roleBeforeBlock) ? profile.roleBeforeBlock : "viewer", unblockedAt: now, unblockedBy: actorUid } };
+  }
+  if (profile.status !== "approved") return { error: ["not_approved", "אפשר לשנות דרגה רק למשתמש מאושר שאינו חסום."] };
+  if (profile.role === role) return { error: ["unchanged", "למשתמש כבר יש הדרגה הזו."] };
+  return { next: { ...profile, role, roleChangedAt: now, roleChangedBy: actorUid } };
+}
+
+// POST /admin/users/batch — { action: approve|block|unblock|role, role?, uids: [...] }.
+// מנהל־על אנושי בלבד. כל משתמש מטופל בנפרד, והתשובה מפרטת לכל אחד אם הצליח
+// ולמה לא — כישלון של אחד אינו עוצר את השאר.
+async function adminUsersBatch(request, env) {
+  const actor = await requireMaintenanceViewer(request, env);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const action = String(payload?.action || "");
+  if (!USERS_BATCH_ACTIONS.has(action)) throw apiError("הפעולה אינה מוכרת.", 400, "invalid_batch_action");
+  const role = action === "approve" ? String(payload?.role || "viewer") : String(payload?.role || "");
+  if ((action === "approve" || action === "role") && !USER_ROLES.includes(role)) throw apiError("הדרגה אינה תקינה.", 400, "invalid_role");
+  if (!Array.isArray(payload?.uids) || !payload.uids.length) throw apiError("לא נבחרו משתמשים.", 400, "invalid_user_ids");
+  if (payload.uids.length > USERS_BATCH_MAX) throw apiError(`אפשר לטפל בעד ${USERS_BATCH_MAX} משתמשים בפעולה אחת.`, 400, "too_many_users");
+  const uids = [...new Set(payload.uids.map(value => String(value ?? "")))];
+  if (uids.some(uid => !USER_ID_PATTERN.test(uid))) throw apiError("מזהה משתמש אינו תקין.", 400, "invalid_user_ids");
+
+  const results = [];
+  const logs = [];
+  const now = Date.now();
+  for (const uid of uids) {
+    try {
+      if (uid === actor.uid) {
+        results.push(usersBatchFailure(uid, "self_forbidden", "פעולה מרובה אינה חלה על החשבון שלך."));
+        continue;
+      }
+      const row = await readGalleryDocumentRow(env, "userProfiles", uid);
+      if (!row) {
+        results.push(usersBatchFailure(uid, "not_found", "המשתמש לא נמצא."));
+        continue;
+      }
+      const profile = parseDocumentData(row);
+      const { next, error } = applyUserBatchAction(profile, action, role, actor.uid, now);
+      if (error) {
+        results.push(usersBatchFailure(uid, error[0], error[1]));
+        continue;
+      }
+      await assertSuperAdminRetained(env, actor, uid, profile, next);
+      const updatedAt = Math.max(now, (Number(row.updated_at) || 0) + 1);
+      const write = await env.GALLERY_DB.prepare(
+        `UPDATE gallery_documents SET data_json = ?, updated_at = ?
+         WHERE collection_name = 'userProfiles' AND document_id = ? AND updated_at = ?`
+      ).bind(JSON.stringify(next), updatedAt, uid, Number(row.updated_at) || 0).run();
+      if (write?.meta?.changes != null && Number(write.meta.changes) !== 1) {
+        results.push(usersBatchFailure(uid, "document_write_conflict", "הפרופיל השתנה במקביל. רענן ונסה שוב."));
+        continue;
+      }
+      results.push({ uid, ok: true, status: next.status, role: next.role });
+      const targetName = String(profile.displayName || profile.email || uid).slice(0, 160);
+      const details = action === "approve" ? ROLE_LABELS[role]
+        : action === "role" ? `דרגה חדשה: ${role}`
+          : action === "block" ? "המשתמש נחסם" : "החסימה הוסרה";
+      logs.push({ uid, targetName, details });
+    } catch (error) {
+      results.push(usersBatchFailure(uid, String(error?.code || "batch_item_failed"), String(error?.message || "הפעולה נכשלה.")));
+    }
+  }
+  // יומן הפעילות: שורה לכל משתמש שהשתנה, כמו בפעולה הבודדת, עם החשבון המאומת.
+  for (const [index, entry] of logs.entries()) {
+    const logId = `log_${now}_${index}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const log = {
+      id: logId, action: USERS_BATCH_ACTIVITY[action], targetType: "user", targetId: entry.uid,
+      targetName: entry.targetName, details: String(entry.details || "").slice(0, 400),
+      actorUid: actor.uid, actorEmail: actor.email,
+      actorName: String(actor.account?.displayName || actor.email || "משתמש").slice(0, 160),
+      actorRole: actor.role, createdAt: now
+    };
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+       VALUES ('activityLogs', ?, ?, ?, ?, ?) ON CONFLICT(collection_name, document_id) DO NOTHING`
+    ).bind(logId, JSON.stringify(log), actor.uid, now, now).run();
+  }
+  if (logs.length) await bumpDataVersions(env, ["userProfiles", "activityLogs"]);
+  const succeeded = results.filter(result => result.ok).length;
+  const response = json(request, { success: true, action, results, succeeded, failed: results.length - succeeded });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+// --- הערות פנימיות על משתמש ---
+// מנהל (דרגה 3) ומנהל־על כותבים וקוראים; אף אחד אינו קורא — או כותב — הערות על
+// עצמו, גם לא מנהל־על. ההערות אינן ב-/data, אינן ברשימות ואינן במטמון הקצה.
+const USER_NOTE_MAX_LENGTH = 2000;
+const USER_NOTES_LIST_LIMIT = 200;
+const USER_NOTES_PER_USER_MAX = 500;
+const USER_NOTE_RATE_LIMIT = 120;
+const USER_NOTE_RATE_WINDOW_MS = 60 * 60 * 1000;
+const USER_NOTE_ID_PATTERN = /^note_[a-f0-9-]{36}$/;
+
+function noteTargetUid(value) {
+  const uid = String(value ?? "");
+  if (!USER_ID_PATTERN.test(uid)) throw apiError("מזהה המשתמש אינו תקין.", 400, "invalid_user_id");
+  return uid;
+}
+
+function assertNotOwnNotes(actor, targetUid) {
+  if (targetUid === actor.uid) throw apiError("הערות על החשבון שלך אינן נגישות לך.", 403, "notes_about_self");
+}
+
+// טקסט חופשי בלבד: בלי תווי בקרה (חוץ משורה חדשה וטאב) ובלי תווי כיווניות
+// שמשנים את סדר התצוגה, עד 2,000 תווים.
+export function cleanUserNote(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/g, "")
+    .trim()
+    .slice(0, USER_NOTE_MAX_LENGTH);
+}
+
+function noteView(row, actor) {
+  const authorUid = String(row.author_uid || "");
+  return {
+    id: String(row.note_id),
+    body: String(row.body || ""),
+    authorUid,
+    authorName: String(row.author_name || ""),
+    createdAt: Number(row.created_at) || 0,
+    canDelete: authorUid === actor.uid || actor.role === "super_admin"
+  };
+}
+
+// GET /admin/user-notes?uid= · POST /admin/user-notes { uid, body } · DELETE /admin/user-notes/<noteId>
+async function adminUserNotes(request, env, url) {
+  if (backgroundActors.has(request)) throw apiError("פעולה זו אינה מורשית לתהליך הרקע.", 403, "background_scope_denied");
+  const actor = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  let result;
+  if (request.method === "GET") {
+    const uid = noteTargetUid(url.searchParams.get("uid"));
+    assertNotOwnNotes(actor, uid);
+    const rows = await env.GALLERY_DB.prepare(
+      `SELECT note_id, author_uid, author_name, body, created_at FROM admin_user_notes
+       WHERE target_uid = ? ORDER BY created_at DESC, note_id DESC LIMIT ?`
+    ).bind(uid, USER_NOTES_LIST_LIMIT).all();
+    result = { success: true, uid, notes: (rows.results || []).map(row => noteView(row, actor)) };
+  } else if (request.method === "POST") {
+    const payload = await request.json().catch(() => ({}));
+    const uid = noteTargetUid(payload?.uid);
+    assertNotOwnNotes(actor, uid);
+    if (typeof payload?.body === "string" && payload.body.trim().length > USER_NOTE_MAX_LENGTH) {
+      throw apiError(`הערה יכולה להכיל עד ${USER_NOTE_MAX_LENGTH} תווים.`, 400, "note_too_long");
+    }
+    const body = cleanUserNote(payload?.body);
+    if (!body) throw apiError("ההערה ריקה.", 400, "empty_note");
+    if (!(await readGalleryDocumentRow(env, "userProfiles", uid))) throw apiError("המשתמש לא נמצא.", 404, "not_found");
+    const existing = await env.GALLERY_DB.prepare("SELECT COUNT(*) AS total FROM admin_user_notes WHERE target_uid = ?").bind(uid).first();
+    if ((Number(existing?.total) || 0) >= USER_NOTES_PER_USER_MAX) throw apiError("למשתמש הזה יש כבר יותר מדי הערות.", 409, "notes_limit");
+    await consumeRateLimit(env, `user-notes:${actor.uid}`, USER_NOTE_RATE_LIMIT, USER_NOTE_RATE_WINDOW_MS,
+      "נכתבו יותר מדי הערות. המתן מעט ונסה שוב.", "notes_rate_limit_exceeded");
+    const row = {
+      note_id: `note_${crypto.randomUUID()}`,
+      author_uid: actor.uid,
+      author_name: String(actor.account?.displayName || actor.email || "מנהל").slice(0, 160),
+      body,
+      created_at: Date.now()
+    };
+    await env.GALLERY_DB.prepare(
+      "INSERT INTO admin_user_notes (note_id, target_uid, author_uid, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(row.note_id, uid, row.author_uid, row.author_name, row.body, row.created_at).run();
+    result = { success: true, uid, note: noteView(row, actor) };
+  } else {
+    let noteId = "";
+    try {
+      noteId = decodeURIComponent(url.pathname.slice("/admin/user-notes/".length));
+    } catch {
+      noteId = "";
+    }
+    if (!USER_NOTE_ID_PATTERN.test(noteId)) throw apiError("מזהה ההערה אינו תקין.", 400, "invalid_note_id");
+    const row = await env.GALLERY_DB.prepare(
+      "SELECT note_id, target_uid, author_uid FROM admin_user_notes WHERE note_id = ?"
+    ).bind(noteId).first();
+    if (!row) throw apiError("ההערה לא נמצאה.", 404, "not_found");
+    assertNotOwnNotes(actor, String(row.target_uid));
+    if (String(row.author_uid) !== actor.uid && actor.role !== "super_admin") {
+      throw apiError("רק מי שכתב את ההערה, או מנהל־על, רשאי למחוק אותה.", 403, "permission_denied");
+    }
+    await env.GALLERY_DB.prepare("DELETE FROM admin_user_notes WHERE note_id = ?").bind(noteId).run();
+    result = { success: true, id: noteId };
+  }
+  const response = json(request, result);
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+// --- הרקע המטושטש (placeholder) של פריט מדיה ---
+// data URL קטן (BMP של רשת צבעים זעירה; WebP, PNG ו-JPEG מותרים גם הם) שנוצר
+// בדפדפן יחד עם התצוגות (media-variants-generate.js). רק base64 נקי ועד 400 תווים, כי
+// הגלריה מציבה אותו כ-CSS; כל ערך אחר נזרק. זהה ל-normalizePlaceholder שב-media-variants.js.
+const MEDIA_PLACEHOLDER_MAX_LENGTH = 400;
+const MEDIA_PLACEHOLDER_PATTERN = /^data:image\/(?:bmp|webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+export function normalizeMediaPlaceholder(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  return text.length <= MEDIA_PLACEHOLDER_MAX_LENGTH && MEDIA_PLACEHOLDER_PATTERN.test(text) ? text : "";
+}
+
 export function unwrapGalleryProxy(request, env) {
   const headerNames = [...request.headers.keys()].filter(name => name.startsWith("x-gallery-proxy-"));
   if (!headerNames.length) return { request, env };
@@ -6881,6 +7594,13 @@ export default {
       if (request.method === "POST" && url.pathname === "/maintenance/alert-check") return await maintenanceAlertCheck(request, env);
       if (request.method === "POST" && url.pathname === "/maintenance/broken-links") return await maintenanceBrokenLinks(request, env);
       if (request.method === "GET" && url.pathname === "/maintenance/broken-links") return await readBrokenLinksReport(request, env);
+      if (request.method === "POST" && url.pathname === "/maintenance/storage-scan") return await maintenanceStorageScan(request, env);
+      if (request.method === "GET" && url.pathname === "/maintenance/storage") return await readStorageReport(request, env);
+      if (request.method === "POST" && url.pathname === "/stats/beacon") return await receiveUsageBeacon(request, env);
+      if (request.method === "GET" && url.pathname === "/stats/usage") return await readUsageStats(request, env, url);
+      if (request.method === "POST" && url.pathname === "/admin/users/batch") return await adminUsersBatch(request, env);
+      if ((["GET", "POST"].includes(request.method) && url.pathname === "/admin/user-notes") ||
+          (request.method === "DELETE" && url.pathname.startsWith("/admin/user-notes/"))) return await adminUserNotes(request, env, url);
       if (url.pathname.startsWith("/data/")) {
         return await handleDataRequest(request, env, url, ctx);
       }
@@ -6903,6 +7623,7 @@ export default {
             "data-filters", "cursor-pagination", "etag-304", "edge-cache",
             "resumable-uploads", "face-people", "face-find-me",
             "d1-daily-backups", "trash-auto-purge", "maintenance-alerts", "broken-links-report",
+            "usage-stats", "storage-report", "users-batch", "admin-user-notes", "media-placeholders",
             ...(streamConfig(env) ? ["cloudflare-stream"] : [])
           ],
           streamEnabled: Boolean(streamConfig(env)),

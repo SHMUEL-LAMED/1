@@ -119,18 +119,20 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
                 for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
                 parts.push({ name, width: part.width, height: part.height, type: part.blob.type, extension: part.extension, base64: btoa(text) });
             }
-            return parts;
+            // הרקע המטושטש נוצר מאותו פענוח; הוא מחרוזת קצרה ולא קובץ.
+            return { parts, placeholder: typeof generated.placeholder === 'string' ? generated.placeholder : '' };
         }, { ...record, backgroundIsVideo: isVideoLikeRecord(record) });
         const form = new FormData();
         form.append('imageId', record.id);
         const meta = {};
-        for (const part of encoded) {
+        for (const part of encoded.parts) {
             form.append(`variant_${part.name}`, new Blob([Buffer.from(part.base64, 'base64')], { type: part.type }), `${part.name}.${part.extension}`);
             meta[part.name] = { width: part.width, height: part.height };
         }
         form.append('variantsMeta', JSON.stringify(meta));
+        if (encoded.placeholder) form.append('placeholder', encoded.placeholder);
         const result = await api('/media/variants', { method: 'POST', body: form });
-        Object.assign(record, { variants: result.variants, variantsVersion: 1 });
+        Object.assign(record, { variants: result.variants, variantsVersion: 1, ...(result.placeholder ? { placeholder: result.placeholder } : {}) });
     };
     let driveAccessToken;
     const driveRequest = async path => {

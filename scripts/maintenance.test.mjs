@@ -10,9 +10,10 @@ test.afterEach(() => { globalThis.fetch = originalFetch; });
 const quiet = () => {};
 const noSleep = async () => {};
 
-test('ריצה תקינה: בדיקה, התראה, גיבוי, סל המחזור, וקישורים שבורים עד הסוף', async () => {
+test('ריצה תקינה: בדיקה, התראה, גיבוי, סל המחזור, קישורים שבורים וסריקת האחסון עד הסוף', async () => {
     const calls = [];
     let brokenSteps = 0;
+    let storageSteps = 0;
     globalThis.fetch = async (url, options = {}) => {
         const path = new URL(url).pathname;
         calls.push(`${options.method || 'GET'} ${path}`);
@@ -25,12 +26,29 @@ test('ריצה תקינה: בדיקה, התראה, גיבוי, סל המחזור
         if (path === '/maintenance/backup') return Response.json({ success: true, created: true });
         if (path === '/maintenance/trash-purge') return Response.json({ success: true, purged: 0 });
         if (path === '/maintenance/broken-links') { brokenSteps += 1; return Response.json({ success: true, done: brokenSteps === 3 }); }
+        if (path === '/maintenance/storage-scan') { storageSteps += 1; return Response.json({ success: true, done: storageSteps === 2 }); }
         throw new Error(`unexpected ${path}`);
     };
     const result = await runMaintenance({ apiOrigin: API, authenticate: async () => 'bg1.test', report: quiet, sleep: noSleep });
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.deepEqual(calls.slice(0, 4), ['GET /health', 'POST /maintenance/alert-check', 'POST /maintenance/backup', 'POST /maintenance/trash-purge']);
     assert.equal(brokenSteps, 3);
+    assert.equal(storageSteps, 2);
+    // הסריקה היומית של האחסון באה אחרי הקישורים השבורים.
+    assert.ok(calls.lastIndexOf('POST /maintenance/broken-links') < calls.indexOf('POST /maintenance/storage-scan'));
+});
+
+test('סריקת האחסון שכבר רצה היום עונה idle אחרי קריאה אחת', async () => {
+    let storageCalls = 0;
+    globalThis.fetch = async url => {
+        const path = new URL(url).pathname;
+        if (path === '/health') return Response.json({ success: true });
+        if (path === '/maintenance/storage-scan') { storageCalls += 1; return Response.json({ success: true, idle: true, done: true }); }
+        return Response.json({ success: true, done: true });
+    };
+    const result = await runMaintenance({ apiOrigin: API, authenticate: async () => 'bg1.test', report: quiet, sleep: noSleep });
+    assert.equal(result.ok, true);
+    assert.equal(storageCalls, 1);
 });
 
 test('Worker ישן שאינו מכיר את הנתיבים: מדלגים בלי להכשיל את הריצה', async () => {
