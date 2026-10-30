@@ -866,6 +866,8 @@ function renderDateRangeControl(scoped) {
     if (label && label.textContent !== text) label.textContent = text;
     const clear = document.getElementById('galleryDateRangeClear');
     if (clear) clear.disabled = !active;
+    // הכיתוב שבכפתור משנה את רוחבו, ואיתו את מקומו בסרגל.
+    placeOpenDateRangePanel();
 }
 
 // הגבול מתוך שני הבוררים שלו: שנה (חובה) וחודש (רשות — בלעדיו, השנה כולה).
@@ -892,6 +894,26 @@ window.clearGalleryDateRange = function() {
     document.getElementById('galleryDateRangeFromYear')?.focus();
 };
 
+// מעל רוחב טלפון החלונית צפה מתחת לכפתור ונפרשת ממנו שמאלה. הכפתור יכול
+// לשבת בכל מקום בסרגל (הסרגל נשבר לשורות לפי הרוחב), ולכן כשהיא חורגת מהמסך
+// היא מוזזת פנימה — אחרת חלק ממנה נחתך ונוצרת גלילה אופקית בכל הדף.
+const DATE_RANGE_PANEL_MARGIN = 16;
+function placeDateRangePanel(panel) {
+    panel.style.left = '';
+    panel.style.right = '';
+    if (panel.hidden || window.matchMedia?.('(max-width: 767px)').matches) return;
+    const host = panel.offsetParent;
+    if (!host || typeof panel.getBoundingClientRect !== 'function') return;
+    const rect = panel.getBoundingClientRect();
+    const viewport = document.documentElement.clientWidth || window.innerWidth;
+    let shift = 0;
+    if (rect.left < DATE_RANGE_PANEL_MARGIN) shift = DATE_RANGE_PANEL_MARGIN - rect.left;
+    else if (rect.right > viewport - DATE_RANGE_PANEL_MARGIN) shift = viewport - DATE_RANGE_PANEL_MARGIN - rect.right;
+    if (!shift) return;
+    panel.style.right = 'auto';
+    panel.style.left = `${Math.round(rect.left + shift - host.getBoundingClientRect().left)}px`;
+}
+
 // החלונית: נפתחת ונסגרת בכפתור, נסגרת ב-Escape (והפוקוס חוזר לכפתור) ובלחיצה
 // מחוצה לה. הבוררים עצמם הם select רגילים, ולכן נגישים במקלדת ובקורא מסך.
 function setDateRangePanelOpen(open, { focus = false } = {}) {
@@ -902,6 +924,7 @@ function setDateRangePanelOpen(open, { focus = false } = {}) {
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     // בטלפון החלונית נפתחת בתוך הזרימה, בשורה מלאה משלה (styles.css).
     toggle.closest('.date-range')?.classList.toggle('is-open', open);
+    placeDateRangePanel(panel);
     if (open) {
         renderDateRangeControl(scopedGalleryImages());
         if (focus) document.getElementById('galleryDateRangeFromYear')?.focus();
@@ -936,6 +959,13 @@ document.addEventListener('pointerdown', event => {
     if (event.target instanceof Node && panel.closest('.date-range')?.contains(event.target)) return;
     setDateRangePanelOpen(false);
 });
+
+// שינוי רוחב (סיבוב הטלפון, חלון שהוקטן) מזיז את הכפתור — החלונית נמדדת
+// מחדש. המאזין נרשם ב-initGallery.
+function placeOpenDateRangePanel() {
+    const panel = document.getElementById('galleryDateRangePanel');
+    if (panel && !panel.hidden) placeDateRangePanel(panel);
+}
 
 // --- סינון לפי סוג המדיה ---
 const MEDIA_TYPE_FILTERS = ['image', 'video'];
@@ -3847,6 +3877,7 @@ export function initGallery() {
     // סוף הביקור נרשם כשהדף נסתר או נסגר; רענון מיד אחריו הוא המשך של אותו ביקור.
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') noteVisitSeen(); });
     window.addEventListener('pagehide', noteVisitSeen);
+    window.addEventListener('resize', placeOpenDateRangePanel);
     // שבבי סוג הרגע, תגיות התצוגה המלאה וכפתור העריכה — מאזין אחד לכל אחד.
     installSceneFilterChips(document.getElementById('gallerySceneFilter'), tagId => window.setGallerySceneTag(tagId));
     installLightboxDescription({ onTagSelect: filterBySceneTagFromLightbox, onEdit: editCurrentLightboxDescription });

@@ -262,6 +262,34 @@ test('אורך סרטון: אורך שנמדד בביקור קודם נלקח מ
     expect(mediaRequests).toEqual([]);
 });
 
+// מעל רוחב טלפון החלונית צפה. הסרגל נשבר לשורות לפי הרוחב, והכפתור יכול
+// לשבת ליד הקצה השמאלי — שם החלונית הייתה חורגת מהמסך (820px, ו-1280px עם
+// בורר האורך). היא מוזזת פנימה, גם כשהכיתוב שבכפתור משנה את רוחבו.
+for (const width of [820, 900, 1280]) {
+    test(`ברוחב ${width}px: חלונית הטווח כולה בתוך המסך, בלי גלילה אופקית`, async ({ page, worker }) => {
+        await page.setViewportSize({ width, height: 900 });
+        seedDatedGallery(worker);
+        await seedSession(page, { worker });
+        await page.goto('/');
+        await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(5);
+        await page.locator('#galleryMediaTypeFilter').selectOption('video');
+        await page.locator('#galleryDateRangeToggle').click();
+        const panel = page.locator('#galleryDateRangePanel');
+        await expect(panel).toBeVisible();
+        const inside = async () => {
+            const box = await panel.boundingBox();
+            expect(box.x).toBeGreaterThanOrEqual(0);
+            expect(box.x + box.width).toBeLessThanOrEqual(width);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        };
+        await inside();
+        await page.locator('#galleryDateRangeFromYear').selectOption({ label: 'תשפ״ד' });
+        await page.locator('#galleryDateRangeToYear').selectOption({ label: 'תשפ״ז' });
+        await expect(page.locator('#galleryDateRangeLabel')).toHaveText('משנת תשפ״ד עד סוף שנת תשפ״ז');
+        await inside();
+    });
+}
+
 test('בטלפון: חלונית הטווח נפתחת בתוך הסרגל, בלי גלילה אופקית', async ({ page, worker }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     seedDatedGallery(worker);
