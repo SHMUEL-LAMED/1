@@ -2,7 +2,7 @@
 // נוצר מפיצול index.html למודולים נפרדים; הלוגיקה זהה למקור.
 
 // בחירת המקור להצגה: תצוגה מקדימה כשקיימת, ואם לא — המקור כפי שהיה.
-import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource, mediaOrientation, MEDIA_ORIENTATIONS } from './media-variants.js';
+import { pickCardSource, pickLightboxSource, pickPosterSource, pickBackdropSource, mediaOrientation, MEDIA_ORIENTATIONS, placeholderCssUrl } from './media-variants.js';
 // "אקראי" במיון ו"תמונה אקראית": סדר שנשאר יציב לאורך הביקור (gallery-random.js).
 import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 // תצוגה מקדימה של סרטון בריחוף או במיקוד על הכרטיס (מושתקת, כמה שניות).
@@ -442,6 +442,7 @@ async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
 window.downloadGalleryMedia = async function(item) {
     try {
         await downloadGalleryMedia(item);
+        window.countUsage?.('downloads');
         window.showNotification('הקובץ הורד למחשב.');
     } catch (error) {
         console.error('Gallery media download failed:', error);
@@ -512,6 +513,8 @@ window.downloadSelectedMedia = async function(button) {
             : null;
         const zipName = `${safeDownloadFileName(folder?.name, 'גלריה')}.zip`;
         saveBlobAs(new Blob(buildZipParts(entries), { type: 'application/zip' }), zipName);
+        window.countUsage?.('zipDownloads');
+        window.countUsage?.('zipItems', entries.length);
 
         window.showNotification(
             entries.length === selected.length
@@ -1873,9 +1876,15 @@ function buildGalleryCard(img, isEditBlocked) {
     // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
     // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
     const mediaRatio = mediaAspectRatio(img);
+    // הרקע המטושטש (placeholder) יושב מתחת לתמונה עד שהיא נטענת, ונעלם כשהכרטיס
+    // מסומן is-loaded. רק לתמונה: כרטיס של סרטון מסומן טעון מראש. הערך עבר
+    // בדיקה של data URL נקי (media-variants.js), ובכל זאת נכתב דרך escapeHtml.
+    const placeholderUrl = isVideo ? '' : placeholderCssUrl(img);
+    const placeholderClass = placeholderUrl ? ' has-placeholder' : '';
+    const placeholderStyle = placeholderUrl ? ` style="--media-placeholder:${window.escapeHtml(placeholderUrl)}"` : '';
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}${placeholderClass}"${placeholderStyle} onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}">
                 ${mediaHtml}
                 ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 <span class="gallery-number">01</span>
@@ -3499,6 +3508,21 @@ function applyLightboxImageSource(lbImage, source) {
     lbImage.src = source.url;
 }
 
+// הרקע המטושטש מתחת לתמונת התצוגה המלאה, עד שהיא נטענת. הוא יורד אחרי הטעינה,
+// כדי שלא ייראה מבעד לתמונה שקופה (PNG) ולא יישאר לפריט הבא.
+function setLightboxPlaceholder(lbImage, placeholderUrl, request) {
+    lbImage.classList?.toggle('has-placeholder', Boolean(placeholderUrl));
+    if (placeholderUrl) lbImage.style?.setProperty?.('--media-placeholder', placeholderUrl);
+    else lbImage.style?.removeProperty?.('--media-placeholder');
+    if (!placeholderUrl || typeof lbImage.addEventListener !== 'function') return;
+    const clear = () => {
+        if (request !== lightboxImageRequest) return;
+        lbImage.classList?.remove('has-placeholder');
+        lbImage.style?.removeProperty?.('--media-placeholder');
+    };
+    lbImage.addEventListener('load', clear, { once: true });
+}
+
 function dataSaverEnabled() {
     return typeof navigator !== 'undefined' && navigator?.connection?.saveData === true;
 }
@@ -3595,9 +3619,13 @@ function updateLightbox(immediate = false) {
     // לתמונה היא מתחלפת יחד איתה, לא לפניה.
     const lbBackdrop = document.getElementById('lightboxBackdrop');
     const backdropUrl = pickBackdropSource(img, window.safeImageUrl);
+    // הרקע המטושטש של הפריט, כשיש: מוצג מיד מתחת לתמונה ומתחת להשתקפות, עד
+    // שהקבצים עצמם נטענים — כך התצוגה המלאה אינה נפתחת על מסך כהה וריק.
+    const placeholderUrl = isVideo ? '' : placeholderCssUrl(img);
     const setBackdrop = () => {
         if (!lbBackdrop) return;
         lbBackdrop.hidden = !backdropUrl;
+        if (lbBackdrop.style) lbBackdrop.style.backgroundImage = placeholderUrl;
         if (backdropUrl && lbBackdrop.src !== backdropUrl) lbBackdrop.src = backdropUrl;
         lbBackdrop.onerror = () => { lbBackdrop.hidden = true; };
     };
@@ -3643,6 +3671,7 @@ function updateLightbox(immediate = false) {
             setBackdrop();
             lbImage.hidden = false;
             lbImage.onerror = () => window.handleImageError(lbImage);
+            setLightboxPlaceholder(lbImage, placeholderUrl, request);
             applyLightboxImageSource(lbImage, source);
             lbStage?.classList.remove('is-loading');
         };

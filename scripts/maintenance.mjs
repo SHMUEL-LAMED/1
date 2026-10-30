@@ -12,6 +12,9 @@
 //   4. /maintenance/trash-purge — מחיקה לצמיתות של מה שבסל יותר מ-30 יום.
 //   5. /maintenance/broken-links — צעדים של בדיקת הקישורים השבורים, עד שהסריקה
 //      מסתיימת או שהזמן שהוקצב נגמר; הריצה הבאה ממשיכה מהסמן.
+//   6. /maintenance/storage-scan — סיכום הנפח היומי (R2 לפי קידומת, גודל D1,
+//      עיבודי AI ופנים בחודש) למסך "סטטיסטיקות", באותו דגם של צעדים עם סמן.
+//      פעם ביום; בשאר הריצות הקריאה הראשונה עונה "idle" בלי לכתוב דבר.
 // Worker ישן, שעדיין אינו מכיר נתיב, מדולג בשקט; כך הפריסה של ה-Worker ושל
 // ה-workflow אינה חייבת להיות באותה דקה.
 import { pathToFileURL } from 'node:url';
@@ -20,6 +23,7 @@ import { authenticate as authenticateBackground } from './background-jobs.mjs';
 const HEALTH_ATTEMPTS = 3;
 const HEALTH_RETRY_MS = 10000;
 const BROKEN_LINKS_MAX_STEPS = 40;
+const STORAGE_SCAN_MAX_STEPS = 40;
 // קודים שאינם כשל של התחזוקה: Worker ישן, או מכסת כתיבה שתתחדש מעצמה.
 const SKIP_CODES = new Set(['background_scope_denied', 'background_write_quota_paused']);
 
@@ -93,6 +97,14 @@ export async function runMaintenance({
             let result = {};
             for (let steps = 0; steps < BROKEN_LINKS_MAX_STEPS && Date.now() < deadline; steps += 1) {
                 result = await post('/maintenance/broken-links');
+                if (result.skipped || result.done || result.idle) break;
+            }
+            return result;
+        });
+        await step('storage', async () => {
+            let result = {};
+            for (let steps = 0; steps < STORAGE_SCAN_MAX_STEPS && Date.now() < deadline; steps += 1) {
+                result = await post('/maintenance/storage-scan');
                 if (result.skipped || result.done || result.idle) break;
             }
             return result;

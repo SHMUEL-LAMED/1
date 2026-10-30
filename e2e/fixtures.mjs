@@ -256,7 +256,17 @@ function safeDataPart(value, label) {
 // אותן קבוצות מסמכים כמו ב-Worker: הגדרות שרק מנהל־על כותב, ומסמכי תחזוקה
 // פנימיים שרק מנהל־על קורא (ואינם ברשימת האוסף של אחרים).
 const SYSTEM_META_SUPER_ADMIN_WRITE_IDS = new Set(['downloadPrivacy', 'popupAnnouncement']);
-const SYSTEM_META_PRIVATE_IDS = new Set(['backgroundJobs', 'backgroundState', 'maintenanceBrokenLinks', 'maintenanceAlert']);
+const SYSTEM_META_PRIVATE_IDS = new Set(['backgroundJobs', 'backgroundState', 'maintenanceBrokenLinks', 'maintenanceAlert', 'maintenanceStorage', 'storageBudget']);
+// הרקע המטושטש: אותה תבנית ואותה תקרה כמו normalizeMediaPlaceholder ב-Worker.
+const PLACEHOLDER_PATTERN = /^data:image\/(?:bmp|webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
+function normalizePlaceholder(value) {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    return text.length <= 400 && PLACEHOLDER_PATTERN.test(text) ? text : '';
+}
+// המדדים שהדפדפן מדווח ל-/stats/beacon, והתקרה של כל אחד (USAGE_BEACON_LIMITS).
+const USAGE_BEACON_LIMITS = { views: 500, downloads: 200, zipDownloads: 50, zipItems: 2000 };
+const USER_ROLES = ['viewer', 'uploader', 'admin', 'super_admin'];
 
 // העתק נאמן של assertDataPermission שב-Worker (בלי מנהל-העל הראשוני).
 function assertDataPermission(actor, collectionName, method, documentId = '') {
@@ -375,6 +385,13 @@ export class FakeWorker {
         // והדוח האחרון של הקישורים השבורים, בצורה ש-/maintenance/broken-links מחזיר.
         // maintenanceSupported=false מדמה Worker ישן שעדיין אינו מכיר את הנתיבים.
         this.maintenance = { backups: new Map(), brokenLinks: { report: null, scanning: null }, supported: true };
+        // סטטיסטיקות (ראו receiveUsageBeacon ו-readUsageStats ב-Worker): הדיווחים
+        // שהגיעו מהדפדפן, הימים שהבדיקה זורעת, וסיכום האחסון שהתחזוקה הייתה שומרת.
+        this.usage = { beacons: [], days: [], activeUsers: { today: 0, last7: 0, last30: 0 }, visitDays: new Map() };
+        this.storage = { report: null, scanning: null };
+        // הערות פנימיות על משתמש (adminUserNotes ב-Worker): מזהה הערה → הערה.
+        this.userNotes = new Map();
+        this.userNotesCounter = 0;
     }
 
     requireSuperAdminActor(request) {
@@ -601,7 +618,12 @@ export class FakeWorker {
             if (['images', 'pendingImages'].includes(collectionName)) {
                 const admin = actor.status === 'approved' && ['admin', 'super_admin'].includes(actor.role);
                 nextData = normalizeDescriptionFields(nextData, existing, admin);
+                // כמו ב-Worker: עותק ישן בלי השדה אינו מוחק אותו, וערך פסול אינו נשמר.
+                if (nextData.placeholder === undefined && existing?.placeholder) nextData = { ...nextData, placeholder: existing.placeholder };
+                const placeholder = normalizePlaceholder(nextData.placeholder);
+                if (placeholder) nextData.placeholder = placeholder; else delete nextData.placeholder;
             }
+            if (collectionName === 'userProfiles' && existing) this.assertSuperAdminRetained(actor, documentId, existing, nextData);
             // כמו ב-Worker: מי ששמר הגדרה נקבע לפי החשבון המאומת.
             if (collectionName === 'systemMeta' && Object.prototype.hasOwnProperty.call(nextData, 'updatedBy')) {
                 nextData.updatedBy = actor.uid;
@@ -621,7 +643,11 @@ export class FakeWorker {
         }
 
         if (method === 'DELETE' && documentId) {
+            if (collectionName === 'userProfiles' && docs.has(documentId)) this.assertSuperAdminRetained(actor, documentId, docs.get(documentId), {});
             docs.delete(documentId);
+            if (collectionName === 'userProfiles') {
+                for (const [id, note] of this.userNotes) if (note.targetUid === documentId) this.userNotes.delete(id);
+            }
             return { success: true, id: documentId };
         }
 
@@ -729,6 +755,7 @@ export class FakeWorker {
         this.objects.set(key, { bytes: Buffer.from(await file.arrayBuffer()), contentType: mimeType, metadata: { ownerUid: actor.uid, state } });
         const variants = variantParts.length ? this.storeVariants(imageId, variantParts, { ownerUid: actor.uid, state }) : null;
         if (variants) this.attachVariantsToRecords(imageId, variants);
+        const placeholder = normalizePlaceholder(form.get('placeholder'));
         return {
             success: true,
             key,
@@ -738,7 +765,8 @@ export class FakeWorker {
             fileName: file.name || '',
             size: file.size,
             url: `${API_ORIGIN}/media/${key}`,
-            ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {})
+            ...(variants ? { variants, variantsVersion: MEDIA_VARIANTS_VERSION } : {}),
+            ...(placeholder ? { placeholder } : {})
         };
     }
 
@@ -859,10 +887,22 @@ export class FakeWorker {
             throw apiError('רק מי שהעלה את הפריט, או מנהל, רשאי לצרף לו תצוגות.', 403, 'permission_denied');
         }
         const parts = await this.readVariantParts(form);
-        if (!parts.length) throw apiError('לא צורפה אף תצוגה מקדימה.', 400, 'variant_missing');
-        const variants = this.storeVariants(imageId, parts, { ownerUid: ownerUid || actor.uid, state: active ? 'approved' : 'pending' });
-        const attached = this.attachVariantsToRecords(imageId, variants);
-        return { success: true, imageId, variants: attached.variants, variantsVersion: MEDIA_VARIANTS_VERSION, updated: attached.updated };
+        // הרקע המטושטש: כאן ערך פסול מכשיל את הבקשה, ובקשה עם הרקע בלבד מותרת.
+        const rawPlaceholder = form.get('placeholder');
+        const placeholder = normalizePlaceholder(rawPlaceholder);
+        if (rawPlaceholder !== null && rawPlaceholder !== '' && !placeholder) throw apiError('הרקע המטושטש אינו תקין.', 400, 'invalid_placeholder');
+        if (!parts.length && !placeholder) throw apiError('לא צורפה אף תצוגה מקדימה.', 400, 'variant_missing');
+        const variants = parts.length ? this.storeVariants(imageId, parts, { ownerUid: ownerUid || actor.uid, state: active ? 'approved' : 'pending' }) : {};
+        const attached = parts.length ? this.attachVariantsToRecords(imageId, variants) : { variants: record.variants || {}, updated: [] };
+        if (placeholder) {
+            for (const name of ['images', 'pendingImages']) {
+                const docs = this.collection(name);
+                if (!docs.has(imageId)) continue;
+                docs.set(imageId, { ...docs.get(imageId), placeholder });
+                if (!attached.updated.includes(name)) attached.updated.push(name);
+            }
+        }
+        return { success: true, imageId, variants: attached.variants, variantsVersion: MEDIA_VARIANTS_VERSION, ...(placeholder ? { placeholder } : {}), updated: attached.updated };
     }
 
     // POST /ai-title — כמו generateImageDescription ב-Worker: מנהל בלבד, בלי
@@ -958,6 +998,153 @@ export class FakeWorker {
         const actor = this.actor(request);
         if (actor.status !== 'approved') throw apiError('החשבון עדיין ממתין לאישור מנהל.', 403, 'approval_required');
         return actor;
+    }
+
+    // --- כלי הניהול: סטטיסטיקות, אחסון, פעולה מרובה והערות (ראו ב-Worker) ---
+
+    isApprovedSuperAdmin(profile) {
+        return profile?.status === 'approved' && profile?.role === 'super_admin';
+    }
+
+    assertSuperAdminRetained(actor, documentId, existing, next) {
+        if (!this.isApprovedSuperAdmin(existing) || this.isApprovedSuperAdmin(next)) return;
+        if (documentId === actor.uid) throw apiError('אי אפשר להוריד או לחסום את החשבון שאיתו אתה מחובר.', 403, 'self_lockout');
+        const others = [...this.collection('userProfiles')].filter(([id, profile]) => id !== documentId && this.isApprovedSuperAdmin(profile));
+        if (!others.length) throw apiError('זהו מנהל־העל המאושר האחרון; יש למנות מנהל־על נוסף קודם.', 409, 'last_super_admin');
+    }
+
+    // POST /stats/beacon — כל משתמש מאושר; הביקור הראשון ביום נספר.
+    usageBeacon(request) {
+        const actor = this.requireApprovedActor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        const counts = {};
+        for (const [metric, limit] of Object.entries(USAGE_BEACON_LIMITS)) {
+            const amount = Math.trunc(Number(payload?.counts?.[metric]));
+            if (amount > 0) counts[metric] = Math.min(limit, amount);
+        }
+        const day = new Date().toISOString().slice(0, 10);
+        const visit = this.usage.visitDays.get(actor.uid) !== day;
+        this.usage.visitDays.set(actor.uid, day);
+        this.usage.beacons.push({ uid: actor.uid, counts, visit });
+        return { success: true, accepted: true, visit };
+    }
+
+    usageStats(request, url) {
+        this.requireSuperAdminActor(request);
+        const days = Math.max(1, Math.min(400, Math.trunc(Number(url.searchParams.get('days')) || 90)));
+        const to = new Date().toISOString().slice(0, 10);
+        const from = new Date(Date.now() - (days - 1) * DAY_MS).toISOString().slice(0, 10);
+        return {
+            success: true, from, to,
+            metrics: ['visits', 'views', 'downloads', 'zipDownloads', 'zipItems', 'uploads', 'uploadsPending', 'approvals', 'rejections'],
+            days: this.usage.days.filter(entry => entry.day >= from && entry.day <= to).map(entry => ({ ...entry })),
+            collectedSince: this.usage.days[0]?.day || null,
+            activeUsers: { ...this.usage.activeUsers }
+        };
+    }
+
+    storageReport(request) {
+        this.requireSuperAdminActor(request);
+        const saved = this.collection('systemMeta').get('storageBudget') || {};
+        const budget = {
+            r2QuotaGb: Number(saved.r2QuotaGb) > 0 ? Number(saved.r2QuotaGb) : 0,
+            d1QuotaMb: Number(saved.d1QuotaMb) > 0 ? Number(saved.d1QuotaMb) : 0,
+            warnPercent: Number(saved.warnPercent) >= 10 && Number(saved.warnPercent) <= 100 ? Math.trunc(Number(saved.warnPercent)) : 80
+        };
+        const report = this.storage.report;
+        const measure = (bytes, quotaBytes) => {
+            if (!Number.isFinite(Number(bytes))) return { bytes: null, quotaBytes, percent: null, over: false };
+            if (!quotaBytes) return { bytes: Number(bytes), quotaBytes, percent: null, over: false };
+            const percent = Math.round((Number(bytes) / quotaBytes) * 1000) / 10;
+            return { bytes: Number(bytes), quotaBytes, percent, over: percent >= budget.warnPercent };
+        };
+        const r2 = measure(report?.bytes, budget.r2QuotaGb * 1024 ** 3);
+        const d1 = measure(report?.d1Bytes, budget.d1QuotaMb * 1024 ** 2);
+        return {
+            success: true, report: structuredClone(report), scanning: this.storage.scanning, budget,
+            status: { r2, d1, over: Boolean(report?.completedAt) && (r2.over || d1.over), warnPercent: budget.warnPercent },
+            groups: ['approved', 'pending', 'variants', 'backups', 'chat', 'other']
+        };
+    }
+
+    // POST /admin/users/batch — אותם כללים כמו adminUsersBatch ב-Worker.
+    usersBatch(request) {
+        const actor = this.requireSuperAdminActor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        const action = String(payload.action || '');
+        if (!['approve', 'block', 'unblock', 'role'].includes(action)) throw apiError('הפעולה אינה מוכרת.', 400, 'invalid_batch_action');
+        const role = action === 'approve' ? String(payload.role || 'viewer') : String(payload.role || '');
+        if ((action === 'approve' || action === 'role') && !USER_ROLES.includes(role)) throw apiError('הדרגה אינה תקינה.', 400, 'invalid_role');
+        if (!Array.isArray(payload.uids) || !payload.uids.length || payload.uids.length > 100) throw apiError('רשימת המשתמשים אינה תקינה.', 400, 'invalid_user_ids');
+        const profiles = this.collection('userProfiles');
+        const results = [];
+        const now = Date.now();
+        for (const uid of [...new Set(payload.uids.map(String))]) {
+            const fail = (code, message) => results.push({ uid, ok: false, code, message });
+            if (uid === actor.uid) { fail('self_forbidden', 'פעולה מרובה אינה חלה על החשבון שלך.'); continue; }
+            const profile = profiles.get(uid);
+            if (!profile) { fail('not_found', 'המשתמש לא נמצא.'); continue; }
+            let next;
+            if (action === 'approve') {
+                if (profile.status !== 'pending') { fail('not_pending', 'המשתמש אינו ממתין לאישור.'); continue; }
+                next = { ...profile, status: 'approved', role, approvedAt: now, approvedBy: actor.uid };
+            } else if (action === 'block') {
+                if (profile.status === 'blocked') { fail('already_blocked', 'המשתמש כבר חסום.'); continue; }
+                next = { ...profile, status: 'blocked', roleBeforeBlock: USER_ROLES.includes(profile.role) ? profile.role : 'viewer', blockedAt: now, blockedBy: actor.uid };
+            } else if (action === 'unblock') {
+                if (profile.status !== 'blocked') { fail('not_blocked', 'המשתמש אינו חסום.'); continue; }
+                next = { ...profile, status: 'approved', role: USER_ROLES.includes(profile.roleBeforeBlock) ? profile.roleBeforeBlock : 'viewer', unblockedAt: now, unblockedBy: actor.uid };
+            } else {
+                if (profile.status !== 'approved') { fail('not_approved', 'אפשר לשנות דרגה רק למשתמש מאושר שאינו חסום.'); continue; }
+                if (profile.role === role) { fail('unchanged', 'למשתמש כבר יש הדרגה הזו.'); continue; }
+                next = { ...profile, role, roleChangedAt: now, roleChangedBy: actor.uid };
+            }
+            try {
+                this.assertSuperAdminRetained(actor, uid, profile, next);
+            } catch (error) {
+                fail(error.code, error.message);
+                continue;
+            }
+            profiles.set(uid, next);
+            results.push({ uid, ok: true, status: next.status, role: next.role });
+        }
+        const succeeded = results.filter(result => result.ok).length;
+        return { success: true, action, results, succeeded, failed: results.length - succeeded };
+    }
+
+    // /admin/user-notes — מנהל ומנהל־על; אף אחד אינו קורא הערות על עצמו.
+    userNotesRequest(request, url) {
+        const actor = this.requireAdminActor(request);
+        const method = request.method();
+        const view = note => ({ id: note.id, body: note.body, authorUid: note.authorUid, authorName: note.authorName, createdAt: note.createdAt, canDelete: note.authorUid === actor.uid || actor.role === 'super_admin' });
+        const own = uid => { if (uid === actor.uid) throw apiError('הערות על החשבון שלך אינן נגישות לך.', 403, 'notes_about_self'); };
+        if (method === 'GET') {
+            const uid = String(url.searchParams.get('uid') || '');
+            own(uid);
+            const notes = [...this.userNotes.values()].filter(note => note.targetUid === uid).sort((a, b) => b.createdAt - a.createdAt).map(view);
+            return { success: true, uid, notes };
+        }
+        if (method === 'POST') {
+            const payload = JSON.parse(request.postData() || '{}');
+            const uid = String(payload.uid || '');
+            own(uid);
+            const body = String(payload.body || '').trim();
+            if (!body) throw apiError('ההערה ריקה.', 400, 'empty_note');
+            if (body.length > 2000) throw apiError('הערה יכולה להכיל עד 2000 תווים.', 400, 'note_too_long');
+            if (!this.collection('userProfiles').has(uid)) throw apiError('המשתמש לא נמצא.', 404, 'not_found');
+            this.userNotesCounter += 1;
+            const id = `note_00000000-0000-4000-8000-${String(this.userNotesCounter).padStart(12, '0')}`;
+            const note = { id, targetUid: uid, authorUid: actor.uid, authorName: actor.account.displayName, body, createdAt: Date.now() + this.userNotesCounter };
+            this.userNotes.set(id, note);
+            return { success: true, uid, note: view(note) };
+        }
+        const id = decodeURIComponent(url.pathname.slice('/admin/user-notes/'.length));
+        const note = this.userNotes.get(id);
+        if (!note) throw apiError('ההערה לא נמצאה.', 404, 'not_found');
+        own(note.targetUid);
+        if (note.authorUid !== actor.uid && actor.role !== 'super_admin') throw apiError('רק מי שכתב את ההערה, או מנהל־על, רשאי למחוק אותה.', 403, 'permission_denied');
+        this.userNotes.delete(id);
+        return { success: true, id };
     }
 
     requireAdminActor(request) {
@@ -1350,6 +1537,13 @@ export class FakeWorker {
             if (method === 'GET' && url.pathname === '/maintenance/broken-links') {
                 this.requireSuperAdminActor(request);
                 return json({ success: true, listMax: 300, ...structuredClone(this.maintenance.brokenLinks) });
+            }
+            if (method === 'POST' && url.pathname === '/stats/beacon') return json(this.usageBeacon(request));
+            if (method === 'GET' && url.pathname === '/stats/usage') return json(this.usageStats(request, url));
+            if (method === 'GET' && url.pathname === '/maintenance/storage') return json(this.storageReport(request));
+            if (method === 'POST' && url.pathname === '/admin/users/batch') return json(this.usersBatch(request));
+            if ((['GET', 'POST'].includes(method) && url.pathname === '/admin/user-notes') || (method === 'DELETE' && url.pathname.startsWith('/admin/user-notes/'))) {
+                return json(this.userNotesRequest(request, url));
             }
             if (method === 'POST' && url.pathname === '/drive/token') {
                 this.actor(request);

@@ -39,6 +39,7 @@ const CANONICAL_VIEW_ORDER = [
   "popup",
   "activity",
   "analytics",
+  "stats",
   "backup",
   "health",
   "brokenlinks",

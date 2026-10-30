@@ -10,13 +10,27 @@
 // המודול נטען עצלה: בהעלאה (uploadMediaToR2 שב-app.js) ובריצת ההשלמה של
 // לוח הניהול. כישלון בו לעולם אינו עוצר העלאה — הקובץ עולה בלי תצוגות
 // והריצה הבאה משלימה אותן.
+//
+// מאותו פענוח נוצר גם הרקע המטושטש (placeholder): רשת זעירה של צבעים כ-BMP
+// (encodePlaceholderBmp ב-media-variants.js) שהכרטיס מציג עד שהתמונה נטענת.
+// הוא אינו קובץ ב-R2 אלא שדה קטן ברשומה.
 
 import {
     MEDIA_VARIANT_SPECS,
     MEDIA_VARIANT_MAX_BYTES,
     IMAGE_VARIANT_NAMES,
-    VIDEO_VARIANT_NAMES
+    VIDEO_VARIANT_NAMES,
+    PLACEHOLDER_MAX_SIDE,
+    PLACEHOLDER_TARGET_LENGTH,
+    normalizePlaceholder,
+    encodePlaceholderBmp
 } from './media-variants.js';
+
+// גודל הרשת של הרקע, מהמפורט לקטן: הראשון שנכנס ביעד (8×6 לתמונה לרוחב, 6×6
+// לריבועית) נבחר.
+const PLACEHOLDER_SIDES = Object.freeze([PLACEHOLDER_MAX_SIDE, 7, 6, 5, 4]);
+// שקיפות (PNG או WebP עם אלפא) נצבעת על אפור ניטרלי, כמו משטח הכרטיס בערך.
+const PLACEHOLDER_BACKGROUND = '#7f7f7f';
 
 // הפריים שנשלף מסרטון: בשנייה הראשונה (או באמצע סרטון קצר מזה).
 const VIDEO_FRAME_TIME_SECONDS = 1;
@@ -151,6 +165,51 @@ export async function decodeImageBlob(blob) {
     }
 }
 
+// הרקע המטושטש מתוך מקור שכבר פוענח (תמונה, פריים מסרטון או תצוגה קטנה), או
+// '' כשאף ניסיון אינו נכנס ליעד. כישלון כאן לעולם אינו מכשיל את התצוגות.
+export function encodePlaceholder(source, width, height) {
+    for (const side of PLACEHOLDER_SIDES) {
+        let canvas = null;
+        try {
+            const size = fitWithin(width, height, side);
+            canvas = document.createElement('canvas');
+            canvas.width = size.width;
+            canvas.height = size.height;
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            if (!context) return '';
+            context.fillStyle = PLACEHOLDER_BACKGROUND;
+            context.fillRect(0, 0, size.width, size.height);
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.drawImage(source, 0, 0, size.width, size.height);
+            // קנבס "נצבע" (מקור חוצה-מקור בלי CORS) זורק כאן — ואז אין רקע, וזה הכול.
+            const { data } = context.getImageData(0, 0, size.width, size.height);
+            const placeholder = normalizePlaceholder(encodePlaceholderBmp(data, size.width, size.height));
+            if (placeholder && placeholder.length <= PLACEHOLDER_TARGET_LENGTH) return placeholder;
+        } catch (error) {
+            console.warn('יצירת הרקע המטושטש נכשלה:', error);
+            return '';
+        } finally {
+            if (canvas) {
+                canvas.width = 0;
+                canvas.height = 0;
+            }
+        }
+    }
+    return '';
+}
+
+// רקע מטושטש מתוך Blob של תמונה (בריצת ההשלמה: התצוגה הקטנה שכבר קיימת).
+export async function generatePlaceholderFromBlob(blob) {
+    const decoded = await decodeImageBlob(blob);
+    try {
+        if (!decoded.width || !decoded.height) return '';
+        return encodePlaceholder(decoded.source, decoded.width, decoded.height);
+    } finally {
+        decoded.release();
+    }
+}
+
 async function variantsFromSource(source, width, height, names) {
     const parts = {};
     for (const name of names) {
@@ -172,14 +231,19 @@ async function variantsFromSource(source, width, height, names) {
     return parts;
 }
 
-export async function generateImageVariants(blob, names = IMAGE_VARIANT_NAMES) {
+async function renderImage(blob, names) {
     const decoded = await decodeImageBlob(blob);
     try {
         if (!decoded.width || !decoded.height) throw new Error('לתמונה אין ממדים.');
-        return await variantsFromSource(decoded.source, decoded.width, decoded.height, names);
+        const parts = await variantsFromSource(decoded.source, decoded.width, decoded.height, names);
+        return { parts, placeholder: encodePlaceholder(decoded.source, decoded.width, decoded.height) };
     } finally {
         decoded.release();
     }
+}
+
+export async function generateImageVariants(blob, names = IMAGE_VARIANT_NAMES) {
+    return (await renderImage(blob, names)).parts;
 }
 
 // טוען פריים אחד מסרטון. source הוא Blob (בהעלאה) או כתובת https (בריצת
@@ -263,23 +327,31 @@ function loadVideoFrame(source) {
     });
 }
 
-export async function generateVideoVariants(source, names = VIDEO_VARIANT_NAMES) {
+async function renderVideo(source, names) {
     const frame = await loadVideoFrame(source);
     try {
-        return await variantsFromSource(frame.video, frame.width, frame.height, names);
+        const parts = await variantsFromSource(frame.video, frame.width, frame.height, names);
+        return { parts, placeholder: encodePlaceholder(frame.video, frame.width, frame.height) };
     } finally {
         frame.release();
     }
 }
 
-// נקודת הכניסה: Blob או כתובת, תמונה או סרטון. מחזירה { parts, isVideo }
-// כש-parts הוא מפה של שם תצוגה → { blob, type, extension, width, height }.
+export async function generateVideoVariants(source, names = VIDEO_VARIANT_NAMES) {
+    return (await renderVideo(source, names)).parts;
+}
+
+// נקודת הכניסה: Blob או כתובת, תמונה או סרטון. מחזירה { parts, isVideo, placeholder }
+// כש-parts הוא מפה של שם תצוגה → { blob, type, extension, width, height },
+// ו-placeholder הוא הרקע המטושטש (או '' כשלא נוצר).
 export async function generateMediaVariants(source, options = {}) {
     const isVideo = typeof options.isVideo === 'boolean'
         ? options.isVideo
         : source instanceof Blob && String(source.type || '').startsWith('video/');
-    const parts = isVideo ? await generateVideoVariants(source) : await generateImageVariants(source);
-    return { parts, isVideo };
+    const { parts, placeholder } = isVideo
+        ? await renderVideo(source, VIDEO_VARIANT_NAMES)
+        : await renderImage(source, IMAGE_VARIANT_NAMES);
+    return { parts, isVideo, placeholder };
 }
 
 // מצרף את התצוגות לטופס ההעלאה בשמות שה-Worker מצפה להם:
@@ -296,5 +368,8 @@ export function appendVariantParts(form, generated) {
         count += 1;
     }
     if (count) form.append('variantsMeta', JSON.stringify(meta));
+    // הרקע המטושטש נשלח כשדה טקסט; Worker ישן פשוט מתעלם ממנו.
+    const placeholder = normalizePlaceholder(generated?.placeholder);
+    if (placeholder) form.append('placeholder', placeholder);
     return count;
 }

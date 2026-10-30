@@ -7,9 +7,13 @@
 // ואפשר לעצור ולהמשיך: ההמשך מדלג מאליו על מה שכבר נשמר בענן.
 //
 // בנוי על אותו דגם כמו "הכן חיפוש פנים בענן" שב-face-index.js.
+//
+// באותו מסך: השלמת הרקע המטושטש (placeholder) לפריטים שכבר יש להם תצוגות.
+// היא זולה בהרבה מריצת התצוגות — רק התצוגה הקטנה יורדת, ונשלח רק שדה טקסט
+// קטן — ותמיד רצה בדפדפן של המנהל, גם כשריצת התצוגות עברה לענן.
 
-import { selectVariantCandidates, runVariantBackfill, MEDIA_VARIANTS_VERSION } from './media-variants.js';
-import { generateMediaVariants, appendVariantParts } from './media-variants-generate.js';
+import { selectVariantCandidates, runVariantBackfill, MEDIA_VARIANTS_VERSION, selectPlaceholderCandidates } from './media-variants.js';
+import { generateMediaVariants, appendVariantParts, generatePlaceholderFromBlob } from './media-variants-generate.js';
 import { API_BASE_URLS } from './api-environment.js';
 
 // שלושה פריטים במקביל: פענוח תמונה גדולה או סרטון תופס זיכרון, ויותר מזה
@@ -28,6 +32,21 @@ const variantsRun = {
     remaining: 0,
     message: '',
     failures: []
+};
+
+// הרקע המטושטש: עד 300 פריטים בכל הפעלה. כל פריט הוא בקשה אחת ל-/media/variants
+// ושתי כתיבות רשומה (images ו-pendingImages) ועדכון גרסת הנתונים — כ-4 כתיבות
+// ל-D1 — ולכן ריצה אחת היא לכל היותר כ-1,200 כתיבות, הרחק מתחת לתקציב היומי.
+export const PLACEHOLDER_BACKFILL_MAX_PER_RUN = 300;
+export const PLACEHOLDER_D1_WRITES_PER_ITEM = 4;
+
+const placeholdersRun = {
+    running: false,
+    stopRequested: false,
+    processed: 0,
+    failed: 0,
+    total: 0,
+    message: ''
 };
 
 let variantsSummaryCache = null;
@@ -85,7 +104,8 @@ function summarizeRecords(records) {
         isSupported: candidate => isWorkerMediaUrl(candidate.url)
     });
     const total = new Set(records.map(record => window.safeRecordId(record?.id)).filter(Boolean)).size;
-    return { total, missing: candidates.length + unsupported.length, unsupported: unsupported.length, candidates };
+    const placeholderCandidates = selectPlaceholderCandidates(records);
+    return { total, missing: candidates.length + unsupported.length, unsupported: unsupported.length, candidates, placeholderCandidates };
 }
 
 function renderMediaVariantsPanel() {
@@ -134,6 +154,8 @@ function renderMediaVariantsPanel() {
     }
     if (stopBtn) stopBtn.disabled = !variantsRun.running;
 
+    renderPlaceholdersPanel(summary);
+
     if (failuresEl) {
         failuresEl.replaceChildren();
         variantsRun.failures.slice(0, VARIANTS_FAILURE_LIST_LIMIT).forEach(failure => {
@@ -151,6 +173,27 @@ function renderMediaVariantsPanel() {
     }
 }
 window.renderMediaVariantsPanel = renderMediaVariantsPanel;
+
+function renderPlaceholdersPanel(summary) {
+    const summaryEl = document.getElementById('placeholdersSummary');
+    const statusEl = document.getElementById('placeholdersStatusText');
+    const startBtn = document.getElementById('placeholdersStartBtn');
+    const stopBtn = document.getElementById('placeholdersStopBtn');
+    if (summaryEl) {
+        const missing = summary?.placeholderCandidates?.length;
+        summaryEl.textContent = Number.isFinite(missing)
+            ? (missing
+                ? `${missing} פריטים עם תצוגות עדיין בלי רקע מטושטש. כל הפעלה משלימה עד ${PLACEHOLDER_BACKFILL_MAX_PER_RUN} (כ-${Math.min(missing, PLACEHOLDER_BACKFILL_MAX_PER_RUN) * PLACEHOLDER_D1_WRITES_PER_ITEM} כתיבות למסד).`
+                : 'לכל הפריטים שיש להם תצוגות כבר יש רקע מטושטש.')
+            : 'בודק אילו פריטים חסר להם רקע מטושטש…';
+    }
+    if (statusEl) statusEl.textContent = placeholdersRun.message || 'ההשלמה עדיין לא הופעלה.';
+    if (startBtn) {
+        startBtn.disabled = placeholdersRun.running || variantsRun.running;
+        startBtn.textContent = placeholdersRun.running ? 'משלים…' : 'השלם רקע מטושטש';
+    }
+    if (stopBtn) stopBtn.disabled = !placeholdersRun.running;
+}
 
 // "נשמרו 12 קבצים (3.4 MB) · WebP: 8 · AVIF: 4" — או מחרוזת ריקה כשאין נתונים.
 export function describeVariantsStorage(stats) {
@@ -188,9 +231,9 @@ window.refreshMediaVariantsSummary = refreshMediaVariantsSummary;
 
 // מוריד מקור לעיבוד. קובץ ממתין דורש אסימון; קובץ מאושר הוא ציבורי, והבקשה
 // נשארת "פשוטה" (בלי preflight) כדי שתוכל להישמר במטמון הדפדפן.
-async function fetchMediaBlob(url) {
+async function fetchMediaBlob(url, { authenticate = false } = {}) {
     const headers = new Headers();
-    if (url.includes('/media/pending/')) {
+    if (authenticate || url.includes('/media/pending/')) {
         const token = await window.getFirebaseIdToken();
         if (token) headers.set('Authorization', `Bearer ${token}`);
     }
@@ -321,3 +364,75 @@ function stopMediaVariantsJob() {
     renderMediaVariantsPanel();
 }
 window.stopMediaVariantsJob = stopMediaVariantsJob;
+
+function applyPlaceholderLocally(imageId, placeholder) {
+    if (!placeholder) return;
+    for (const list of [window.state?.images, window.state?.pendingImages]) {
+        for (const record of list || []) {
+            if (window.safeRecordId(record?.id) === imageId) record.placeholder = placeholder;
+        }
+    }
+}
+
+// התצוגה הקטנה של פריט ממתין מוגשת רק עם הרשאה, ולכן היא יורדת תמיד עם
+// האסימון (לפריט מאושר זה רק מוסיף בקשת preflight; זה מסך ניהול).
+async function processPlaceholderCandidate(candidate) {
+    const blob = await fetchMediaBlob(candidate.url, { authenticate: true });
+    const placeholder = await generatePlaceholderFromBlob(blob);
+    if (!placeholder) throw new Error('לא ניתן היה ליצור רקע קטן מספיק.');
+    const form = new FormData();
+    form.append('imageId', candidate.imageId);
+    form.append('placeholder', placeholder);
+    const response = await postMediaVariants(form);
+    applyPlaceholderLocally(candidate.imageId, response?.placeholder || placeholder);
+}
+
+async function startPlaceholdersJob() {
+    if (!window.checkAdminPermission()) return;
+    if (placeholdersRun.running || variantsRun.running) {
+        window.showNotification('ריצה אחרת כבר פועלת במסך הזה.', false);
+        return;
+    }
+    Object.assign(placeholdersRun, { running: true, stopRequested: false, processed: 0, failed: 0, total: 0, message: 'בודק אילו פריטים חסר להם רקע מטושטש…' });
+    renderMediaVariantsPanel();
+    try {
+        const records = await fetchMediaRecords();
+        const candidates = selectPlaceholderCandidates(records, { limit: PLACEHOLDER_BACKFILL_MAX_PER_RUN });
+        placeholdersRun.total = candidates.length;
+        if (!candidates.length) {
+            placeholdersRun.message = 'לכל הפריטים שיש להם תצוגות כבר יש רקע מטושטש.';
+            return;
+        }
+        const result = await runVariantBackfill(candidates, processPlaceholderCandidate, {
+            concurrency: variantsConcurrency(),
+            shouldStop: () => placeholdersRun.stopRequested,
+            onProgress: progress => {
+                placeholdersRun.processed = progress.processed;
+                placeholdersRun.failed = progress.failed;
+                placeholdersRun.message = `הושלמו ${progress.processed} מתוך ${progress.total} · נכשלו ${progress.failed}`;
+                renderMediaVariantsPanel();
+            }
+        });
+        placeholdersRun.message = result.stopped
+            ? `ההשלמה נעצרה אחרי ${result.processed} פריטים. אפשר להמשיך בכל עת.`
+            : `ההשלמה הסתיימה: ${result.succeeded} פריטים קיבלו רקע מטושטש, ${result.failed} נכשלו.`;
+        window.showNotification(placeholdersRun.message, !result.failed);
+    } catch (error) {
+        console.error('השלמת הרקע המטושטש נכשלה:', error);
+        placeholdersRun.message = `ההשלמה נעצרה בגלל שגיאה: ${error?.message || 'שגיאה לא ידועה'}.`;
+        window.showNotification(placeholdersRun.message, false);
+    } finally {
+        placeholdersRun.running = false;
+        placeholdersRun.stopRequested = false;
+        await refreshMediaVariantsSummary();
+    }
+}
+window.startPlaceholdersJob = startPlaceholdersJob;
+
+function stopPlaceholdersJob() {
+    if (!placeholdersRun.running) return;
+    placeholdersRun.stopRequested = true;
+    placeholdersRun.message = 'עוצר אחרי הפריטים שבעיבוד…';
+    renderMediaVariantsPanel();
+}
+window.stopPlaceholdersJob = stopPlaceholdersJob;

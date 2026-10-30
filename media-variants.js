@@ -211,6 +211,99 @@ export async function runVariantBackfill(candidates, processItem, options = {}) 
     return summary;
 }
 
+// --- הרקע המטושטש (placeholder) ---
+// data URL זעיר שנוצר יחד עם התצוגות ונשמר ברשומה כשדה placeholder: התמונה
+// מוקטנת לרשת של עד 8×8 צבעים ונכתבת כ-BMP של 24 ביט (encodePlaceholderBmp
+// למטה) — בלי מקודד של הדפדפן, כי WebP של Canvas זעיר הוא כבר כ-550 בתים
+// בגלל הכותרות, ו-PNG של תמונה אמיתית אינו נדחס בגודל כזה. הדפדפן מגדיל את
+// הרשת בהחלקה ו-CSS מטשטש, וכך מתקבל כתם צבע רך של התמונה. הכרטיס והתצוגה
+// המלאה מציגים אותו עד שהתמונה עצמה נטענת. הוא מוצב כ-CSS, ולכן רק תבנית
+// אחת עוברת: data:image/<bmp|webp|png|jpeg>;base64,<base64>, עד
+// PLACEHOLDER_MAX_LENGTH תווים — כמו normalizeMediaPlaceholder שב-Worker.
+export const PLACEHOLDER_MAX_LENGTH = 400;
+// היעד ביצירה: עד 300 תווים, כדי שהרשומה כמעט אינה גדלה.
+export const PLACEHOLDER_TARGET_LENGTH = 300;
+export const PLACEHOLDER_MAX_SIDE = 8;
+const PLACEHOLDER_PATTERN = /^data:image\/(?:bmp|webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+function toBase64(bytes) {
+    let text = '';
+    for (const byte of bytes) text += String.fromCharCode(byte);
+    return btoa(text);
+}
+
+// BMP של 24 ביט מתוך פיקסלים של getImageData (RGBA). שורות מלמטה למעלה,
+// BGR, וכל שורה מרופדת לכפולה של 4 בתים — כך כל דפדפן מציג אותו. השקיפות
+// כבר "נצבעה" על רקע אפור לפני הקריאה, ולכן ערוץ האלפא אינו נכתב.
+export function encodePlaceholderBmp(rgba, width, height) {
+    const w = Math.trunc(width);
+    const h = Math.trunc(height);
+    if (!(w > 0 && h > 0 && w <= 64 && h <= 64) || !rgba || rgba.length < w * h * 4) return '';
+    const rowSize = Math.ceil((w * 3) / 4) * 4;
+    const pixelBytes = rowSize * h;
+    const bytes = new Uint8Array(54 + pixelBytes);
+    const view = new DataView(bytes.buffer);
+    bytes[0] = 0x42; // B
+    bytes[1] = 0x4d; // M
+    view.setUint32(2, bytes.length, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, w, true);
+    view.setInt32(22, h, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, pixelBytes, true);
+    for (let y = 0; y < h; y += 1) {
+        const row = 54 + (h - 1 - y) * rowSize;
+        for (let x = 0; x < w; x += 1) {
+            const source = (y * w + x) * 4;
+            bytes[row + x * 3] = rgba[source + 2];
+            bytes[row + x * 3 + 1] = rgba[source + 1];
+            bytes[row + x * 3 + 2] = rgba[source];
+        }
+    }
+    return `data:image/bmp;base64,${toBase64(bytes)}`;
+}
+
+export function normalizePlaceholder(value) {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    return text.length <= PLACEHOLDER_MAX_LENGTH && PLACEHOLDER_PATTERN.test(text) ? text : '';
+}
+
+// הרקע של פריט, או '' כשאין או שאינו תקין.
+export function pickPlaceholder(record) {
+    return normalizePlaceholder(record?.placeholder);
+}
+
+// הערך של background-image: url("…"). התבנית שלמעלה אינה מכילה גרשיים,
+// סוגריים או לוכסן הפוך, ולכן אין מה לברוח ממנו.
+export function placeholderCssUrl(record) {
+    const placeholder = pickPlaceholder(record);
+    return placeholder ? `url("${placeholder}")` : '';
+}
+
+// פריט שחסר לו רקע, אבל יש לו כבר תצוגה קטנה שממנה אפשר ליצור אותו —
+// השלמה זולה: רק התצוגה הקטנה יורדת, לא המקור, ונשלח רק השדה הזה.
+export function needsPlaceholder(record) {
+    if (!record || typeof record !== 'object' || pickPlaceholder(record)) return false;
+    return Boolean(variantEntry(record, 'thumb') || variantEntry(record, 'poster'));
+}
+
+export function selectPlaceholderCandidates(records, { limit = Infinity } = {}) {
+    const candidates = [];
+    const seen = new Set();
+    for (const record of Array.isArray(records) ? records : []) {
+        const imageId = safeId(record?.id);
+        if (!imageId || seen.has(imageId)) continue;
+        seen.add(imageId);
+        if (!needsPlaceholder(record)) continue;
+        const source = variantEntry(record, 'thumb') || variantEntry(record, 'poster');
+        candidates.push({ imageId, url: source.url, title: String(record?.title || '') });
+    }
+    return Number.isFinite(limit) ? candidates.slice(0, Math.max(0, Math.trunc(limit))) : candidates;
+}
+
 // --- כיוון הפריט: לאורך, לרוחב או ריבועי ---
 // הרשומות אינן שומרות כיוון, אבל רובן יודעות את המידות: העלאה רושמת את
 // width/height של התמונה כפי שפוענחה (upload-compress.js), וכל תצוגה מקדימה

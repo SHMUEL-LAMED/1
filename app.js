@@ -29,6 +29,9 @@ import { initGalleryNavigation } from './gallery-navigation-ui.js';
 import { backToTopVisible } from './gallery-navigation.js';
 // ציר הזמן העברי שליד הרשת: קפיצה לחודש וסימון החודש שבראש המסך.
 import { initGalleryTimeline } from './gallery-timeline-ui.js';
+// מוני השימוש (ביקור, צפיות, הורדות) למסך "סטטיסטיקות": מצטברים בדפדפן
+// ונשלחים בדיווח אחד, ולא בקשה לכל צפייה.
+import { installUsageBeacon } from './usage-beacon.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -40,7 +43,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v70';
+const SITE_VERSION = 'v71';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -79,7 +82,7 @@ const ensureFaceIndexModule = defineLazyModule(() => import('./face-index.js'), 
 ]);
 // ריצת ההשלמה של התצוגות המקדימות היא כלי ניהול, ונטענת רק ממסך "תצוגות מקדימות".
 const ensureMediaVariantsModule = defineLazyModule(() => import('./media-variants-admin.js'), [
-    'startMediaVariantsJob', 'stopMediaVariantsJob'
+    'startMediaVariantsJob', 'stopMediaVariantsJob', 'startPlaceholdersJob', 'stopPlaceholdersJob'
 ]);
 // ריצת ההשלמה של תאריכי הצילום — כלי ניהול, נטען רק ממסך "תאריכי צילום".
 const ensureCaptureDatesModule = defineLazyModule(() => import('./capture-dates-admin.js'), [
@@ -796,6 +799,8 @@ window.recordMediaView = async function(mediaId) {
     const id = safeRecordId(mediaId);
     if (!id || !window.db || !window.state.currentUser || sessionStorage.getItem(`viewed_${id}`)) return;
     sessionStorage.setItem(`viewed_${id}`, '1');
+    // אותו כלל של "פעם אחת לפריט בביקור" גם במונה היומי; הוא נשלח מצטבר.
+    window.countUsage?.('views');
     try {
         const { doc, setDoc, increment } = window.firestoreModules;
         await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'mediaStats', id), {
@@ -933,6 +938,8 @@ window.uploadMediaToR2 = async function(mediaBlob, imgId, title = 'קובץ מד
         storedMedia.variants = result.variants;
         storedMedia.variantsVersion = Number(result.variantsVersion) || 1;
     }
+    // הרקע המטושטש חוזר מה-Worker אחרי בדיקה; ה-Worker בודק אותו שוב בשמירת הרשומה.
+    if (typeof result.placeholder === 'string' && result.placeholder) storedMedia.placeholder = result.placeholder;
     // Cloudflare Stream (רשות): כשה-Worker שלח את הסרטון ל-Stream, הרשומה
     // נושאת את כתובות הניגון ב-HLS. בלי Stream השדה פשוט אינו קיים.
     const stream = streamFromResult(result);
@@ -1653,6 +1660,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initGallery();
         initSearchHistory();
         initGalleryNavigation();
+        installUsageBeacon();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
         // הרישום נשאר כאן בכוונה: דחייה שלו אחרי load ואחרי התמונה הראשונה

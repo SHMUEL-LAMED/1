@@ -11,6 +11,8 @@
 
 import { pickCardSource } from './media-variants.js';
 import { trashPurgeLabel } from './maintenance-model.js';
+// ייצוא CSV שמנטרל נוסחאות (=, +, -, @) — שמות המשתמשים מגיעים מחשבונות Google.
+import { csvText, userCsvRows } from './admin-users-model.js';
 
 const { checkAdminPermission, checkSuperAdminPermission, canViewSuperAdminData } = window;
 const { openModal, closeModal, showConfirm, scheduleIconRefresh } = window;
@@ -136,6 +138,15 @@ const ADMIN_VIEWS = [
         icon: 'chart-column-big',
         superAdminOnly: true,
         keywords: 'סטטיסטיקה צפיות נתונים אנליטיקס'
+    },
+    {
+        id: 'stats',
+        group: 'כלי מערכת',
+        title: 'סטטיסטיקות',
+        description: 'ביקורים, צפיות, הורדות, העלאות ומשתמשים פעילים לאורך זמן, ואחסון ועלויות.',
+        icon: 'chart-line',
+        superAdminOnly: true,
+        keywords: 'סטטיסטיקה גרף ביקורים צפיות הורדות העלאות משתמשים פעילים אחסון עלות נפח r2 d1 מכסה'
     },
     {
         id: 'backup',
@@ -338,6 +349,31 @@ function ensureAdminErrorsModule() {
     return (adminErrorsModulePromise ||= import('./admin-errors.js'));
 }
 
+// מסך "סטטיסטיקות" (מנהל־על) נטען רק כשנפתח: הגרפים, הטבלאות ו"אחסון ועלויות".
+let adminStatsModulePromise = null;
+function ensureAdminStatsModule() {
+    return (adminStatsModulePromise ||= import('./admin-stats.js'));
+}
+
+// הבחירה המרובה וההערות הפנימיות במסך המשתמשים נטענות רק כשהמסך נפתח. הכפתורים
+// שב-admin.html קוראים לעטיפות האלה, שמושכות את המודול לפני הקריאה.
+let usersBulkModulePromise = null;
+function ensureUsersBulkModule() {
+    return (usersBulkModulePromise ||= import('./admin-users-bulk.js'));
+}
+function lazyAdminHandlers(ensure, names, label) {
+    for (const name of names) {
+        window[name] = (...args) => ensure()
+            .then(module => module[name](...args))
+            .catch(error => {
+                console.error(`${label} module failed to load:`, error);
+                window.showNotification('טעינת הרכיב נכשלה. נסה שוב.', false);
+            });
+    }
+}
+lazyAdminHandlers(ensureUsersBulkModule, ['selectVisibleUsers', 'clearUserSelection', 'runUsersBulkAction', 'openUserNotes', 'closeUserNotes', 'addUserNote'], 'Users bulk');
+lazyAdminHandlers(ensureAdminStatsModule, ['loadAdminStats', 'setAdminStatsRange', 'saveStorageBudget'], 'Stats');
+
 // הגיבויים היומיים והקישורים השבורים (מנהל־על) נטענים רק כשאחד המסכים נפתח.
 let maintenanceModulePromise = null;
 function ensureMaintenanceModule() {
@@ -387,7 +423,16 @@ function runViewHook(viewId) {
         window.renderPendingUsers?.();
         window.renderManagedUsers?.();
         window.forceRefreshUsers?.();
+        if (window.state?.isSuperAdmin) {
+            ensureUsersBulkModule()
+                .then(module => {
+                    module.decorateUserCards(document.getElementById('pendingUsersList'));
+                    module.decorateUserCards(document.getElementById('managedUsersList'));
+                })
+                .catch(error => console.error('Users bulk module failed to load:', error));
+        }
     }
+    if (viewId === 'stats' && window.state?.isSuperAdmin) window.loadAdminStats();
     if (viewId === 'folders') window.renderAdminFolders();
     if (viewId === 'deletions') window.renderDeletionRequests?.();
     if (viewId === 'trash') window.renderTrashItems?.();
@@ -750,8 +795,8 @@ window.filterManagedUsers = function() {
 };
 
 function downloadCsv(rows, filename) {
-    // BOM כדי שאקסל יזהה עברית ב-UTF-8.
-    const csv = '﻿' + rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    // BOM כדי שאקסל יזהה עברית ב-UTF-8. תא שמתחיל בסימן של נוסחה נפתח בגרש (csvText).
+    const csv = '﻿' + csvText(rows);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -765,21 +810,11 @@ function downloadCsv(rows, filename) {
     }, 100);
 }
 
+// ייצוא רשימת המשתמשים — מנהל־על בלבד, ורק ממה שכבר נטען למסך שלו
+// (state.allUsers). אין כאן בקשה לשרת: הקובץ נבנה בדפדפן.
 window.exportUsersCsv = function() {
     if (!checkSuperAdminPermission()) return;
-    const roleLabels = { viewer: 'דרגה 1 — צופה', uploader: 'דרגה 2 — מעלה', admin: 'דרגה 3 — מנהל', super_admin: 'דרגה 4 — מנהל־על' };
-    const rows = [['שם', 'דוא״ל', 'דרגה', 'סטטוס', 'חסום', 'הצטרף']];
-    (window.state.allUsers || []).forEach(user => {
-        rows.push([
-            user.displayName || '',
-            user.email || '',
-            roleLabels[user.role] || user.role || '',
-            user.status || '',
-            user.blocked ? 'כן' : 'לא',
-            formatDate(user.createdAt)
-        ]);
-    });
-    downloadCsv(rows, `simchas-gallery-users-${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCsv(userCsvRows(window.state.allUsers || []), `simchas-gallery-users-${new Date().toISOString().slice(0, 10)}.csv`);
     window.showNotification('קובץ המשתמשים הורד.', true);
 };
 

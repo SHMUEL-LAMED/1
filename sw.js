@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v70";
+const CACHE_VERSION = "v71";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -65,6 +65,7 @@ const APP_SHELL = [
   "./cloudflare-client.js",
   "./api-environment.js",
   "./auto-update.js",
+  "./usage-beacon.js",
   "./manifest.webmanifest",
   "./favicon-32.png",
   "./icon-192.png",
