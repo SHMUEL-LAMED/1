@@ -221,3 +221,141 @@ test("מיקום סימן המים: יחסי לצלע הקצרה, בפינה ה�
     // מידות לא תקינות אינן מפילות.
     assert.equal(watermarkLayout(NaN, undefined).fontSize, WATERMARK_MIN_FONT);
 });
+
+// --- מיקום ב-XMP של רחפנים ויצרנים אחרים ---
+
+// חבילת XMP ראשית סביב תיאור אחד, ו-XMP מורחב (ExtendedXMP) שמחולק לקטעים:
+// "http://ns.adobe.com/xmp/extension/\0", GUID של 32 תווים, האורך המלא וההיסט.
+const xmpPacket = body => '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+    + '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    + body + '</rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+const mainXmp = xml => segment(0xE1, Buffer.concat([Buffer.from("http://ns.adobe.com/xap/1.0/\0", "latin1"), Buffer.from(xml, "utf8")]));
+const EXTENDED_GUID = "0123456789ABCDEF0123456789ABCDEF";
+function extendedXmp(xml, cuts) {
+    const full = Buffer.from(xml, "utf8");
+    const bounds = [0, ...cuts, full.length];
+    return bounds.slice(0, -1).map((from, index) => {
+        const head = Buffer.alloc(8);
+        head.writeUInt32BE(full.length, 0);
+        head.writeUInt32BE(from, 4);
+        return segment(0xE1, Buffer.concat([
+            Buffer.from("http://ns.adobe.com/xmp/extension/\0", "latin1"), Buffer.from(EXTENDED_GUID, "latin1"), head,
+            full.subarray(from, bounds[index + 1])
+        ]));
+    });
+}
+
+// בדיקת מבנה גסה: כל תגית שנפתחה נסגרת בסדר הנכון, ושום תגית לא נחתכה באמצע.
+function assertBalancedXml(text) {
+    const stack = [];
+    for (const [, close, name, selfClose] of text.matchAll(/<(\/?)([A-Za-z_][\w.:-]*)\b[^<>]*?(\/?)>/g)) {
+        if (selfClose) continue;
+        if (!close) { stack.push(name); continue; }
+        assert.equal(stack.pop(), name, `תגית סוגרת ${name} בלי פותחת מתאימה`);
+    }
+    assert.deepEqual(stack, [], "תגיות שלא נסגרו");
+    assert.ok(!/<[^<>]*</.test(text.replace(/<\?xpacket[^>]*\?>/g, "")), "תגית נחתכה באמצע");
+}
+
+// אותו מבנה קטעים בדיוק (סמן, תחילה וסוף), אותו אורך ואותם נתונים דחוסים.
+function assertSameStructure(result, source) {
+    assert.equal(result.length, source.length);
+    const before = readJpegSegments(source);
+    const after = readJpegSegments(result);
+    assert.ok(after, "ה-JPEG עדיין נקרא עד SOS");
+    assert.deepEqual(after.segments, before.segments);
+    assert.equal(after.scanStart, before.scanStart);
+    sameBytes(scanData(result), scanData(source));
+}
+
+const DJI_NS = 'xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/" xmlns:tiff="http://ns.adobe.com/tiff/1.0/"';
+const DJI_COORDINATES = ["31.775412", "35.220934", "+812.53", "+45.10"];
+
+test("XMP של רחפן DJI (מאפיינים): GpsLatitude, GpsLongitude והגובה יוצאים, הזוויות והיצרן נשארים", () => {
+    const xml = xmpPacket(`<rdf:Description rdf:about="DJI Meta Data" ${DJI_NS} tiff:Make="DJI" tiff:Model="FC3582"`
+        + ' drone-dji:GpsStatus="RTK" drone-dji:GpsLatitude="31.775412" drone-dji:GpsLongtitude="35.220934" drone-dji:GpsLongitude="35.220934"'
+        + ' drone-dji:AbsoluteAltitude="+812.53" drone-dji:RelativeAltitude="+45.10" drone-dji:GimbalYawDegree="-90.0" drone-dji:FlightPitchDegree="+2.30"/>');
+    const source = jpegWithSegments([mainXmp(xml)]);
+    assert.equal(inspectJpegMetadata(source).hasXmpGps, true);
+    const result = stripJpegMetadata(source);
+    assert.deepEqual(result.removed, { exifGps: false, xmpGps: true, secondary: 0, video: 0 });
+    assertSameStructure(result.bytes, source);
+    assert.equal(inspectJpegMetadata(result.bytes).hasXmpGps, false);
+    const text = Buffer.from(result.bytes).toString("utf8");
+    for (const value of DJI_COORDINATES) assert.ok(!text.includes(value), `${value} נשאר בקובץ`);
+    assert.ok(!/gps|latitude|longt?itude|altitude/i.test(text), "לא נשאר מאפיין מיקום");
+    for (const kept of ['tiff:Make="DJI"', 'tiff:Model="FC3582"', 'drone-dji:GimbalYawDegree="-90.0"', 'drone-dji:FlightPitchDegree="+2.30"', 'xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"']) {
+        assert.ok(text.includes(kept), `${kept} נמחק`);
+    }
+    assertBalancedXml(text.slice(text.indexOf("<?xpacket")));
+});
+
+test("XMP של רחפן כאלמנטים, ובאותיות מעורבות (gps, Gps, GPS): הכול יוצא, והמבנה נשאר תקין", () => {
+    const xml = xmpPacket(`<rdf:Description rdf:about="" ${DJI_NS} xmlns:Camera="http://pix4d.com/camera/1.0/" xmlns:exif="http://ns.adobe.com/exif/1.0/"`
+        + ' exif:gpslatitude="31,46.52N" Camera:gpsXYAccuracy="0.5">'
+        + '<drone-dji:GpsLatitude>31.775412</drone-dji:GpsLatitude>'
+        + '<drone-dji:GpsLongitude>35.220934</drone-dji:GpsLongitude>'
+        + '<drone-dji:AbsoluteAltitude>+812.53</drone-dji:AbsoluteAltitude>'
+        + '<drone-dji:RelativeAltitude>+45.10</drone-dji:RelativeAltitude>'
+        + '<Camera:GPSZAccuracy/>'
+        + '<drone-dji:GimbalRollDegree>+0.00</drone-dji:GimbalRollDegree>'
+        + '<tiff:Make>DJI</tiff:Make>'
+        + '</rdf:Description>');
+    const source = jpegWithSegments([exifSegment(), mainXmp(xml)]);
+    const result = stripJpegMetadata(source);
+    assert.deepEqual(result.removed, { exifGps: true, xmpGps: true, secondary: 0, video: 0 });
+    assertSameStructure(result.bytes, source);
+    const text = Buffer.from(result.bytes).toString("utf8");
+    for (const value of [...DJI_COORDINATES, "31,46.52N"]) assert.ok(!text.includes(value), `${value} נשאר בקובץ`);
+    assert.ok(!/gps|latitude|longt?itude|altitude/i.test(text), "לא נשאר מאפיין מיקום");
+    assert.ok(text.includes("<drone-dji:GimbalRollDegree>+0.00</drone-dji:GimbalRollDegree>"));
+    assert.ok(text.includes("<tiff:Make>DJI</tiff:Make>"));
+    assert.ok(text.includes('xmlns:Camera="http://pix4d.com/camera/1.0/"'), "הצהרת מרחב השמות נשארת");
+    assertBalancedXml(text.slice(text.indexOf("<?xpacket")));
+});
+
+test("XMP מורחב: מיקום בקטע ההמשך, וגם מאפיין שנחתך בין שני קטעים, יוצא; הכותרות של הקטעים לא נוגעות", () => {
+    const body = `<rdf:Description rdf:about="" ${DJI_NS} xmlns:GDepth="http://ns.google.com/photos/1.0/depthmap/"`
+        + ` GDepth:Data="${"QUJD".repeat(40)}" drone-dji:GpsLatitude="31.775412">`
+        + "<drone-dji:GpsLongitude>35.220934</drone-dji:GpsLongitude><drone-dji:AbsoluteAltitude>+812.53</drone-dji:AbsoluteAltitude>"
+        + "<tiff:Make>DJI</tiff:Make></rdf:Description>";
+    const xml = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">${body}</rdf:RDF></x:xmpmeta>`;
+    // החיתוכים: באמצע "drone-dji:GpsLatitude" ובאמצע הערך של GpsLongitude.
+    const cuts = [xml.indexOf("GpsLatitude") + 5, xml.indexOf("35.2209") + 3];
+    const main = mainXmp(xmpPacket(`<rdf:Description rdf:about="" xmlns:xmpNote="http://ns.adobe.com/xmp/note/" xmpNote:HasExtendedXMP="${EXTENDED_GUID}"/>`));
+    const chunks = extendedXmp(xml, cuts);
+    assert.equal(chunks.length, 3);
+    // הקטעים בסדר הפוך בקובץ: הסדר נקבע לפי ההיסט שבכותרת, לא לפי המיקום.
+    const source = jpegWithSegments([main, chunks[2], chunks[0], chunks[1]]);
+    assert.equal(inspectJpegMetadata(source).hasXmpGps, true);
+
+    const result = stripJpegMetadata(source);
+    assert.deepEqual(result.removed, { exifGps: false, xmpGps: true, secondary: 0, video: 0 });
+    assertSameStructure(result.bytes, source);
+    assert.equal(inspectJpegMetadata(result.bytes).hasXmpGps, false);
+    // החלקים של הערכים שנחתכו אינם נשארים באף קטע.
+    const text = Buffer.from(result.bytes).toString("latin1");
+    for (const piece of ["31.775412", "35.2", "20934", "+812.53", "Latitude", "GpsLongitude", "AbsoluteAltitude"]) {
+        assert.ok(!text.includes(piece), `${piece} נשאר בקובץ`);
+    }
+    assert.ok(text.includes(EXTENDED_GUID), "ה-GUID נשאר");
+    assert.ok(text.includes("<tiff:Make>DJI</tiff:Make>"));
+    assert.ok(text.includes("QUJD".repeat(40)), "מפת העומק נשארת");
+    // הטקסט המאוחד, לפי סדר ההיסטים, הוא עדיין XML מאוזן.
+    const after = readJpegSegments(result.bytes).segments
+        .filter(item => Buffer.from(result.bytes.subarray(item.dataStart, item.dataStart + 35)).toString("latin1") === "http://ns.adobe.com/xmp/extension/\0")
+        .map(item => ({ offset: Buffer.from(result.bytes).readUInt32BE(item.dataStart + 71), data: Buffer.from(result.bytes.subarray(item.dataStart + 75, item.end)) }))
+        .sort((a, b) => a.offset - b.offset);
+    assert.equal(after.length, 3);
+    assertBalancedXml(Buffer.concat(after.map(item => item.data)).toString("utf8"));
+});
+
+test("מאפיין שרק מזכיר מיקום בערך, או קטע XMP מורחב קטוע, אינם נערכים", () => {
+    const xml = xmpPacket('<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/"'
+        + ' xmp:Label="GPS off" xmp:CreatorTool="Altitude Editor"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">latitude 31</rdf:li></rdf:Alt></dc:title></rdf:Description>');
+    const truncated = segment(0xE1, Buffer.from("http://ns.adobe.com/xmp/extension/\0ABC", "latin1"));
+    const source = jpegWithSegments([mainXmp(xml), truncated]);
+    const result = stripJpegMetadata(source);
+    assert.equal(result.reason, "no_location");
+    sameBytes(result.bytes, source);
+});

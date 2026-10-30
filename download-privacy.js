@@ -9,8 +9,9 @@
 // * מצב 'gps' (ברירת המחדל) עורך במקום, בלי לשנות את אורך הקובץ: הרשומה
 //   שמצביעה על ה-GPS IFD יוצאת מ-IFD0 (הרשומות שאחריה זזות 12 בתים אחורה,
 //   כך שהסדר והמצביעים האחרים נשארים תקפים), וה-GPS IFD עצמו והערכים שלו
-//   מתאפסים — כדי שהקואורדינטות לא יישארו בקובץ גם בלי מצביע. מאפייני GPS
-//   ב-XMP (כמו exif:GPSLatitude) מוחלפים ברווחים, וה-XML נשאר תקין. כיוון
+//   מתאפסים — כדי שהקואורדינטות לא יישארו בקובץ גם בלי מצביע. מאפייני מיקום
+//   ב-XMP (כמו exif:GPSLatitude, או drone-dji:GpsLatitude ו-AbsoluteAltitude
+//   של רחפן), גם ב-XMP מורחב, מוחלפים ברווחים, וה-XML נשאר תקין. כיוון
 //   שהאורך אינו משתנה, גם היסטים שנמדדים מסוף הקובץ (Motion Photo) או
 //   מכותרת MPF (תמונה משנית, למשל מפת עומק) נשארים נכונים; תמונה משנית
 //   שהיא JPEG עוברת את אותו ניקוי, ובסרטון של Motion Photo תיבת המיקום
@@ -209,10 +210,17 @@ function exifOrientation(bytes, segment) {
 
 // --- GPS ב-XMP ---
 
-// מאפיין GPS בכל קידומת (exif:, exifEX: ...), כמאפיין של תגית או כאלמנט
-// שלם (גם אלמנט עם תוכן מקונן, כמו GPSVersionID עם rdf:Seq).
-const XMP_GPS_ATTRIBUTE = /\s[A-Za-z_][\w.-]*:GPS\w*\s*=\s*(?:"[^"]*"|'[^']*')/g;
-const XMP_GPS_ELEMENT = /<([A-Za-z_][\w.-]*:GPS\w*)\b[^>]*?(?:\/>|>[\s\S]*?<\/\1\s*>)/g;
+// מאפיין מיקום בכל קידומת, כמאפיין של תגית או כאלמנט שלם (גם אלמנט עם תוכן
+// מקונן, כמו GPSVersionID עם rdf:Seq). השם המקומי נבדק בלי תלות באותיות:
+// exif:GPSLatitude של Adobe, אבל גם drone-dji:GpsLatitude של DJI (וגם
+// GpsLongtitude, בשגיאת הכתיב של קושחות ישנות) ו-Camera:gpsXYAccuracy. רחפנים
+// כותבים גם גובה בלי GPS בשם (drone-dji:AbsoluteAltitude, RelativeAltitude),
+// ולכן גם כל שם שיש בו Latitude, Longitude או Altitude יוצא. שמות אחרים —
+// זוויות המצלמה, היצרן, הדירוג — נשארים: רק הקואורדינטות והגובה מסגירים מקום.
+// הצהרת מרחב שמות (xmlns:...) לעולם אינה נמחקת, אחרת ה-XML היה נשבר.
+const XMP_LOCATION_NAME = String.raw`(?!xmlns:)[A-Za-z_][\w.-]*:(?:gps\w*|\w*?(?:latitude|longt?itude|altitude)\w*)`;
+const XMP_GPS_ATTRIBUTE = new RegExp(String.raw`\s${XMP_LOCATION_NAME}\s*=\s*(?:"[^"]*"|'[^']*')`, 'gi');
+const XMP_GPS_ELEMENT = new RegExp(String.raw`<(${XMP_LOCATION_NAME})\b[^>]*?(?:\/>|>[\s\S]*?<\/\1\s*>)`, 'gi');
 
 // הטקסט כמחרוזת "בינארית" — תו לכל בית — כדי שהמיקומים שנמצאים בביטוי
 // הרגולרי יהיו בדיוק מיקומי הבתים, גם כשיש בטקסט עברית ב-UTF-8.
@@ -224,20 +232,75 @@ function binaryString(bytes, start, end) {
     return text;
 }
 
-function xmpGpsRanges(bytes, segment) {
-    const text = binaryString(bytes, segment.dataStart, segment.end);
+// XMP מורחב (ExtendedXMP): XML שלא נכנס בקטע אחד מחולק לכמה קטעים, וכל אחד
+// מתחיל בכותרת — מרחב השמות, GUID של 32 תווים, האורך המלא וההיסט של החלק.
+const XMP_EXTENSION = XMP_NAMESPACES[1];
+const XMP_EXTENSION_HEADER = XMP_EXTENSION.length + 32 + 8;
+
+// הטקסטים שבהם מחפשים: כל חבילה ראשית לבד, וחלקי XMP מורחב מאוחדים לפי
+// ה-GUID ולפי ההיסט שבכותרת (לא לפי הסדר בקובץ) — כי החלוקה היא בבתים, ומאפיין
+// יכול להיחתך בין שני קטעים. כל טקסט הוא רשימת טווחי בתים שמחוברים ברצף; הכותרות
+// עצמן אינן חלק ממנו ולכן לעולם אינן נערכות. רצף ההיסטים נשבר (קטע חסר) — טקסט חדש.
+function xmpTexts(bytes, segments) {
+    const texts = [];
+    const extended = new Map();
+    for (const segment of segments) {
+        const payload = segment.dataStart + XMP_EXTENSION_HEADER;
+        if (!ascii(bytes, segment.dataStart, XMP_EXTENSION) || payload > segment.end) {
+            texts.push([{ at: segment.dataStart, end: segment.end }]);
+            continue;
+        }
+        const guid = binaryString(bytes, segment.dataStart + XMP_EXTENSION.length, segment.dataStart + XMP_EXTENSION.length + 32);
+        if (!extended.has(guid)) extended.set(guid, []);
+        extended.get(guid).push({ at: payload, end: segment.end, offset: u32be(bytes, payload - 4) });
+    }
+    for (const chunks of extended.values()) {
+        chunks.sort((a, b) => a.offset - b.offset);
+        let run = [];
+        for (const chunk of chunks) {
+            const previous = run[run.length - 1];
+            if (previous && chunk.offset !== previous.offset + (previous.end - previous.at)) {
+                texts.push(run);
+                run = [];
+            }
+            run.push(chunk);
+        }
+        texts.push(run);
+    }
+    return texts;
+}
+
+// טווחי הבתים של מאפייני המיקום בכל קטעי ה-XMP. התאמה שחוצה שני קטעים של XMP
+// מורחב מתפרקת לשני טווחים, אחד בכל קטע.
+function xmpGpsRanges(bytes, segments) {
     const ranges = [];
-    for (const pattern of [XMP_GPS_ELEMENT, XMP_GPS_ATTRIBUTE]) {
-        pattern.lastIndex = 0;
-        for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
-            ranges.push({ at: segment.dataStart + match.index, end: segment.dataStart + match.index + match[0].length });
+    for (const pieces of xmpTexts(bytes, segments)) {
+        const starts = [];
+        let text = '';
+        for (const piece of pieces) {
+            starts.push(text.length);
+            text += binaryString(bytes, piece.at, piece.end);
+        }
+        for (const pattern of [XMP_GPS_ELEMENT, XMP_GPS_ATTRIBUTE]) {
+            pattern.lastIndex = 0;
+            for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+                const from = match.index;
+                const to = from + match[0].length;
+                pieces.forEach((piece, index) => {
+                    const at = Math.max(from, starts[index]);
+                    const end = Math.min(to, starts[index] + piece.end - piece.at);
+                    if (at < end) ranges.push({ at: piece.at + at - starts[index], end: piece.at + end - starts[index] });
+                });
+            }
         }
     }
     return ranges;
 }
 
-function removeXmpGps(bytes, segment) {
-    const ranges = xmpGpsRanges(bytes, segment);
+// ב-XMP מורחב ה-GUID הוא MD5 של כל ה-XML, והוא אינו מחושב מחדש: קורא שבודק
+// אותו יתעלם לכל היותר מה-XMP המורחב, וזה עדיף על מיקום שנשאר.
+function removeXmpGps(bytes, segments) {
+    const ranges = xmpGpsRanges(bytes, segments);
     for (const range of ranges) bytes.fill(0x20, range.at, range.end);
     return ranges.length > 0;
 }
@@ -334,10 +397,11 @@ function stripLocationInPlace(bytes, depth = 0) {
     const parsed = readJpegSegments(bytes);
     if (!parsed) return { ok: false, exifGps: false, xmpGps: false, secondary: 0, video: 0 };
     const result = { ok: true, exifGps: false, xmpGps: false, secondary: 0, video: 0 };
+    const xmpSegments = parsed.segments.filter(segment => segmentKind(bytes, segment) === 'xmp');
+    result.xmpGps = removeXmpGps(bytes, xmpSegments);
     for (const segment of parsed.segments) {
         const kind = segmentKind(bytes, segment);
         if (kind === 'exif' && removeExifGps(bytes, segment)) result.exifGps = true;
-        if (kind === 'xmp' && removeXmpGps(bytes, segment)) result.xmpGps = true;
         if (kind === 'mpf' && depth === 0) {
             for (const range of mpfSecondaryRanges(bytes, segment)) {
                 const inner = stripLocationInPlace(bytes.subarray(range.at, range.end), depth + 1);
@@ -366,11 +430,10 @@ export function inspectJpegMetadata(input) {
             summary.hasGpsIfd ||= exifHasGps(bytes, segment);
             summary.orientation ||= exifOrientation(bytes, segment);
         }
-        if (kind === 'xmp') {
-            summary.hasXmp = true;
-            summary.hasXmpGps ||= xmpGpsRanges(bytes, segment).length > 0;
-        }
+        if (kind === 'xmp') summary.hasXmp = true;
     }
+    const xmpSegments = parsed.segments.filter(segment => segmentKind(bytes, segment) === 'xmp');
+    summary.hasXmpGps = xmpGpsRanges(bytes, xmpSegments).length > 0;
     return summary;
 }
 
