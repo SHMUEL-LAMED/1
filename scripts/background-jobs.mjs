@@ -335,7 +335,8 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
     }
 }
 
-async function authenticate(apiOrigin) {
+// גם scripts/maintenance.mjs מתחבר כך: אותו אסימון OIDC של אותו workflow.
+export async function authenticate(apiOrigin) {
     const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
     url.searchParams.set('audience', `${apiOrigin}/background`);
     const oidcResponse = await fetch(url, { headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` }, signal: AbortSignal.timeout(20000) });

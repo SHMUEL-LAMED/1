@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/background-jobs.yml
       - scripts/background-jobs.mjs
+      - scripts/maintenance.mjs
 permissions:
   contents: read
   id-token: write
@@ -18,7 +19,7 @@ jobs:
   process:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       BACKGROUND_MAX_ITEMS: ${{ github.event_name == 'push' && '8' || '40' }}
       GALLERY_API_ORIGIN: https://simchas-gallery-api.0534169095.workers.dev
@@ -33,3 +34,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Process gallery without a user browser
         run: node scripts/background-jobs.mjs
+      # אותו job ואותו OIDC: גיבוי D1 יומי, ניקוי סל המחזור אחרי 30 יום, התראה
+      # למנהלי־העל ובדיקת קישורים שבורים. רץ גם כשהעיבוד נכשל; Worker שאינו
+      # עונה מכשיל את הצעד בהודעה ברורה, ו-GitHub מודיע על ריצה מתוזמנת שנכשלה.
+      - name: Daily backup, recycle bin cleanup, alerts and broken links
+        if: ${{ !cancelled() }}
+        run: node scripts/maintenance.mjs
