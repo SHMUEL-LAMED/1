@@ -16,8 +16,8 @@
 //   state.imagesHasMore         — האם יש עוד עמודים לתיקייה הפעילה
 //   state.folderCounts / state.imagesTotal — מוני התיקיות מהשרת
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
-//   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
 //   state.latestImagesHasMore   — האם יש בארכיון עוד מעבר להן
+//   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
 //   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
