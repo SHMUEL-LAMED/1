@@ -136,15 +136,15 @@ export function createSwipeSession({
     const inFlight = new Set();
     let pending = null;        // { id, action, meta, deadline, timer }
     let committed = 0;
+    // השמירות רצות בזו אחר זו, כמו הלולאה של "אשר נבחרים": שני אישורים
+    // מהירים לאותה תיקייה מקורית שעוד אינה קיימת היו יוצרים אותה פעמיים,
+    // כי התיקייה נכנסת ל-state.folders רק כשהשמירה שלה מסתיימת.
+    let chain = Promise.resolve();
 
     function send(entry) {
         inFlight.add(entry.id);
-        let result;
-        try {
-            result = Promise.resolve(commit(entry.id, entry.action, entry.meta));
-        } catch (error) {
-            result = Promise.reject(error);
-        }
+        const result = chain.then(() => commit(entry.id, entry.action, entry.meta));
+        chain = result.catch(() => {});
         return result
             .then(() => { committed += 1; })
             .catch(error => {

@@ -1354,7 +1354,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const search = document.getElementById('adminMenuSearch');
         if (!search) return;
         const typingElsewhere = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
-        if (event.key === '/' && !typingElsewhere) {
+        // חלון מודאלי פתוח (למשל "מצב מהיר") מחזיק את הפוקוס: "/" אינו בורח ממנו אל התפריט שמאחור.
+        const modalOpen = Boolean(document.querySelector('[role="dialog"]:not(.hidden)[aria-modal="true"]'));
+        if (event.key === '/' && !typingElsewhere && !modalOpen) {
             event.preventDefault();
             search.focus();
         }

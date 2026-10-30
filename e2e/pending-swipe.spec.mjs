@@ -38,6 +38,8 @@ const cardTitle = page => page.locator('#pendingSwipeCardTitle');
 const count = page => page.locator('#pendingSwipeCount');
 
 test('מנהל־על: החלקה ימינה מאשרת, שמאלה דוחה, Z מבטל, ומקשים ממשיכים עד הסוף', async ({ page, worker }) => {
+    // הבדיקה מחכה בכוונה לסוף חלון ביטול מלא (5 שניות), ועוד שלוש החלקות.
+    test.slow();
     seedPending(worker, 3);
     await seedSession(page, { worker, role: 'super_admin', name: 'מנהל־על' });
     await openFastMode(page);
@@ -59,11 +61,12 @@ test('מנהל־על: החלקה ימינה מאשרת, שמאלה דוחה, Z �
     await expect(count(page)).toHaveText('נותרו 2');
     expect(worker.requestsTo('POST', '/approve')).toHaveLength(0);
 
-    await expect.poll(() => worker.collection('images').get('pending_e2e_3')?.status, UNDO_WAIT).toBe('active');
+    // תיעוד האישור ב-pendingImages נכתב אחרון (approvePendingRecord), ולכן מחכים לו.
+    await expect.poll(() => worker.collection('pendingImages').get('pending_e2e_3')?.status, UNDO_WAIT).toBe('approved');
     const approved = worker.collection('images').get('pending_e2e_3');
+    expect(approved.status).toBe('active');
     expect(approved.r2Key).toBe('approved/google-uploader-1/pending_e2e_3.jpg');
     expect(worker.collection('folders').get(approved.folderId)?.name).toBe('הקפות');
-    expect(worker.collection('pendingImages').get('pending_e2e_3')?.status).toBe('approved');
     await expect(page.locator('#pendingSwipeUndo')).toBeHidden();
     await expect(page.locator('#pendingCountBadge')).toHaveText('2');
 
@@ -88,8 +91,9 @@ test('מנהל־על: החלקה ימינה מאשרת, שמאלה דוחה, Z �
     await page.keyboard.press('r');
     await expect(cardTitle(page)).toHaveText('העלאה 1');
     await page.keyboard.press('ArrowRight');
-    await expect.poll(() => worker.collection('trashItems').size).toBe(1);
-    expect(worker.collection('pendingImages').has('pending_e2e_2')).toBe(false);
+    // moveRecordToTrash כותב לסל ורק אחר כך מוחק את הרשומה הממתינה.
+    await expect.poll(() => worker.collection('pendingImages').has('pending_e2e_2')).toBe(false);
+    expect(worker.collection('trashItems').size).toBe(1);
     expect([...worker.collection('trashItems').values()][0].originalId).toBe('pending_e2e_2');
 
     // התור ריק: מסך ריק, מונה אפס, והכפתורים כבויים.
@@ -117,6 +121,9 @@ test('מנהל: דחייה היא בקשת מחיקה, Enter מאשר, והפר�
 
     await expect(page.locator('#pendingSwipeReject')).toHaveAttribute('aria-label', 'דחייה — שליחת בקשת מחיקה למנהל־העל');
     await expect(cardTitle(page)).toHaveText('העלאה 2');
+    // "/" של חיפוש התפריט אינו מוציא את הפוקוס מהחלון המודאלי.
+    await page.keyboard.press('/');
+    await expect(page.locator('#pendingSwipeCard')).toBeFocused();
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator('#pendingSwipeUndoText')).toHaveText('תישלח בקשת מחיקה: העלאה 2');
     await expect(cardTitle(page)).toHaveText('העלאה 1');
@@ -171,4 +178,30 @@ test('בטלפון (390px): הכרטיס והכפתורים במסך, בלי ג�
     await page.locator('#pendingSwipe .modal-close').click();
     await expect.poll(() => worker.collection('images').get('pending_e2e_2')?.status).toBe('active');
     expect(worker.collection('trashItems').size).toBe(0);
+});
+
+test('אישורים מהירים לתיקייה מקורית חדשה יוצרים אותה פעם אחת בלבד', async ({ page, worker }) => {
+    seedPending(worker, 3);
+    await seedSession(page, { worker, role: 'super_admin' });
+    // בלי תנועה ההחלטה נרשמת מיד, וכך שלוש השמירות יוצאות כמעט יחד:
+    // שתיים עם ההחלטה הבאה, והאחרונה ביציאה.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+    // רשת איטית: שמירת התיקייה החדשה לוקחת זמן, כמו בטלפון.
+    await page.route(url => url.pathname.startsWith('/data/folders'), async route => {
+        if (route.request().method() !== 'GET') await new Promise(resolve => setTimeout(resolve, 600));
+        await route.fallback();
+    });
+    await page.keyboard.press('a');
+    await page.keyboard.press('a');
+    await page.keyboard.press('a');
+    await page.keyboard.press('Escape');
+    for (const id of ['pending_e2e_1', 'pending_e2e_2', 'pending_e2e_3']) {
+        await expect.poll(() => worker.collection('pendingImages').get(id)?.status).toBe('approved');
+    }
+    const folders = [...worker.collection('folders').values()].filter(folder => folder.name === 'הקפות');
+    expect(folders).toHaveLength(1);
+    for (const id of ['pending_e2e_1', 'pending_e2e_2', 'pending_e2e_3']) {
+        expect(worker.collection('images').get(id)?.folderId).toBe(folders[0].id);
+    }
 });

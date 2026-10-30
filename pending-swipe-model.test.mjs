@@ -228,6 +228,31 @@ test('שמירה שנכשלה מחזירה את הפריט לתור ומדווח
     assert.equal(api.committed, 0);
 });
 
+test('השמירות רצות בזו אחר זו: השנייה מתחילה רק כשהראשונה הסתיימה, גם אחרי כישלון', async () => {
+    const started = [];
+    const finishers = new Map();
+    const { api, errors } = session({
+        commit: id => new Promise((resolve, reject) => {
+            started.push(id);
+            finishers.set(id, { resolve, reject });
+        })
+    });
+    api.decide('a', 'approve');
+    api.decide('b', 'approve');
+    const done = api.flush();
+    await flush();
+    // שני אישורים מהירים לאותה תיקייה חדשה אינם יוצרים אותה פעמיים.
+    assert.deepEqual(started, ['a']);
+    finishers.get('a').reject(new Error('השרת סירב'));
+    await flush();
+    assert.deepEqual(started, ['a', 'b']);
+    finishers.get('b').resolve();
+    await done;
+    assert.deepEqual(errors.map(error => error.id), ['a']);
+    assert.equal(api.committed, 1);
+    assert.equal(api.busy, false);
+});
+
 test('commit שזורק באופן סינכרוני מטופל כמו כישלון', async () => {
     const { api, errors } = session({ commit: () => { throw new Error('אין הרשאה'); } });
     api.decide('a', 'approve');
