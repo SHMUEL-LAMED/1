@@ -172,6 +172,21 @@ test('עמוד האירוע: הסגירה מחזירה את הגלילה ואת 
     await eventPage.getByRole('button', { name: 'פתח את תמונות האירוע' }).click();
     await expect(eventPage).toBeHidden();
     await expect(page.locator('.folder-button[aria-current="page"]')).toContainText('אירועים ופעילויות');
+
+    // וגם כשהתיקייה כבר פעילה (התצוגה לא משתנה): ראש הרשת, לא המקום שבו נפתח העמוד.
+    // עם הפחתת תנועה הקפיצה לרשת מיידית, והחזרה למקום הייתה דורסת אותה מיד.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.locator('[data-event-folder="1"]').click();
+    await expect(eventPage).toBeVisible();
+    await eventPage.getByRole('button', { name: 'פתח את תמונות האירוע' }).click();
+    await expect(eventPage).toBeHidden();
+    // ראש הרשת מתחת לכותרת הצפה (scroll-margin-top).
+    const gridTop = () => page.locator('#photosGrid').evaluate(node =>
+        Math.abs(Math.round(node.getBoundingClientRect().top - (Number.parseFloat(getComputedStyle(node).scrollMarginTop) || 0))));
+    await expect.poll(gridTop).toBeLessThanOrEqual(1);
+    await page.waitForTimeout(300);
+    expect(await gridTop()).toBeLessThanOrEqual(1);
 });
 
 test('"חזור" של הדפדפן מאלבום של אדם מחזיר לאותו כרטיס, גם כשהיה עמוק מהמנה הראשונה', async ({ page, worker }) => {
@@ -196,6 +211,31 @@ test('"חזור" של הדפדפן מאלבום של אדם מחזיר לאות�
     expect(Math.abs(await scrollY(page) - before)).toBeLessThanOrEqual(1);
     // הפוקוס היה על הכותרת של האלבום, שנעלמה: הוא עובר לכרטיס שבראש המסך.
     await expect(page.locator('#photosGrid .gallery-media:focus')).toHaveCount(1);
+});
+
+test('#people שנשאר בכתובת אחרי שרשימת האנשים נסגרה אינו מקפיץ את הגלריה למקום ישן', async ({ page, worker }) => {
+    worker.seedPerson({ personId: 'fp_yossi', name: 'יוסי כהן', status: 'approved', faces: [{ imageId: 'img_e2e_5' }] });
+    await openGallery(page, worker, 150);
+    await scrollToCard(page, 120);
+    // רשימת האנשים נפתחת ונסגרת ב-Escape; הכתובת נשארת #people, בלי אלבום.
+    await page.evaluate(() => { window.location.hash = '#people'; });
+    const directory = page.locator('#peopleDirectoryModal');
+    await expect(directory).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(directory).toBeHidden();
+
+    // הרבה אחר כך: "עדכונים אחרונים" ו"חזור לגלריה" — תצוגה אחרת, בלי "חזור" של
+    // הדפדפן. הגלריה חוזרת לראש הרשת כמו תמיד, ולא למקום שבו נפתחה הרשימה.
+    await scrollToCard(page, 60);
+    await page.evaluate(() => window.showNewUpdates());
+    const banner = page.locator('#tempSearchBanner');
+    await expect(banner).toBeVisible();
+    await banner.getByRole('button', { name: 'חזור לגלריה' }).click();
+    await expect(banner).toBeHidden();
+    await expect(card(page, 120)).toBeAttached();
+    await settle(page);
+    const gridTop = await page.locator('#photosGrid').evaluate(node => Math.round(node.getBoundingClientRect().top));
+    expect(gridTop).toBeGreaterThanOrEqual(-1);
 });
 
 test.describe('בטלפון (390px)', () => {

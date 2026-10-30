@@ -449,6 +449,9 @@ window.openEventPage = function(event, folderId) {
     const openButton = document.getElementById('eventOpenGalleryBtn');
     if (openButton) openButton.onclick = () => {
         setActiveFolder(id);
+        // ראש הרשת הוא היעד גם כשזו התיקייה שכבר פעילה: זיכרון הגלילה
+        // (gallery-navigation-ui.js) לא יחזיר אחרי הסגירה למקום הישן.
+        window.forgetGalleryScrollMemory?.('event');
         window.closeModal('eventPageModal');
         document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
     };

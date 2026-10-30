@@ -122,7 +122,11 @@ function captureAnchor() {
         else low = middle + 1;
     }
     const card = cards[low];
-    return card ? { mediaId: card.dataset.mediaId, top: layoutTop(card) } : null;
+    // כרטיס שמתחת למסך אינו עוגן: עמוד אירוע שנפתח מחפיסת התיקיות שמעל הרשת
+    // חוזר לפי המספר, ולא לפי כרטיס שלא נראה — אחרת פסיפס שנטען בינתיים מעל
+    // הרשת היה מזיז את הדף כולו, ואת הכפתור שפתח אל מחוץ למסך.
+    const top = card ? layoutTop(card) : Infinity;
+    return top < window.innerHeight ? { mediaId: card.dataset.mediaId, top } : null;
 }
 
 function captureSnapshot(opener) {
@@ -209,6 +213,13 @@ function watchModals() {
     nodes.forEach(([node]) => observer.observe(node, { attributes: true, attributeFilter: ['class'] }));
 }
 
+// פעולה שסוגרת את החלון כדי להעביר את המשתמש למקום אחר בכוונה ("פתח את
+// תמונות האירוע" של התיקייה שכבר פעילה — התצוגה לא השתנתה, אבל הוא ביקש את
+// ראש הרשת): המקום שנרשם בפתיחה נשכח, והסגירה אינה מחזירה אליו.
+function forgetGalleryScrollMemory(slot) {
+    memory.delete(slot);
+}
+
 // נקרא מ-app.js בכל שינוי של נתיב האנשים, לפני שהאלבום מתחיל להיטען.
 function noteGalleryRoute(isPeopleRoute) {
     const plain = (window.state?.tempSearchResults ?? null) === null;
@@ -226,7 +237,12 @@ function noteGalleryRoute(isPeopleRoute) {
 function noteGalleryRendered() {
     if (!routeMemory) return;
     if ((window.state?.tempSearchResults ?? null) !== null) {
-        routeMemory.left = true;
+        // רק אלבום של אדם (#person/<id>) הוא צעד שחוזרים ממנו. רשימת האנשים
+        // שנסגרה ב-Escape משאירה #people בכתובת; תוצאות אחרות שמופיעות אחר כך
+        // ("עדכונים אחרונים", חיפוש פנים) אינן האלבום, והמקום מלפני הרשימה כבר
+        // ישן — שחזורו ב"חזור לגלריה" היה מקפיץ את הגלריה למקום שהמשתמש עזב.
+        if (routeMemory.left || /^#person\//.test(window.location.hash)) routeMemory.left = true;
+        else routeMemory = null;
         return;
     }
     if (!routeMemory.left) return;
@@ -248,4 +264,5 @@ export function initGalleryNavigation() {
     window.openShortcutsHelp = openShortcutsHelp;
     window.noteGalleryRoute = noteGalleryRoute;
     window.noteGalleryRendered = noteGalleryRendered;
+    window.forgetGalleryScrollMemory = forgetGalleryScrollMemory;
 }
