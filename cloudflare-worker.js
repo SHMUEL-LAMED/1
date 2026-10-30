@@ -6213,6 +6213,7 @@ function backupCell(value) {
   return value === undefined ? null : value;
 }
 
+// טבלאות הפנים של SQLite וטבלאות המערכת של D1 (_cf_*, שהגישה אליהן חסומה) אינן בגיבוי.
 // הייצוא כותב טקסט JSON בחלקים: כל טבלה בעמודים של D1_BACKUP_PAGE_ROWS
 // שורות לפי rowid, כך שאף שאילתה אינה מחזירה טבלה שלמה ואין צורך להחזיק את
 // כל ה-JSON בזיכרון — רק את הפלט הדחוס. רשימת הטבלאות נקראת מ-sqlite_master,
@@ -6221,7 +6222,7 @@ function backupCell(value) {
 async function exportD1Database(env, write) {
   const master = await env.GALLERY_DB.prepare(
     `SELECT type, name, tbl_name AS tableName, sql FROM sqlite_master
-     WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
+     WHERE type IN ('table', 'index') AND substr(name, 1, 7) <> 'sqlite_' AND substr(name, 1, 4) <> '_cf_'
      ORDER BY type DESC, name`
   ).all();
   const entries = master.results || [];
