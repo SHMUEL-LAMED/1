@@ -563,6 +563,21 @@
                         <button id="backupRestoreSubmit" type="button" onclick="restoreGalleryBackup()" disabled class="btn-primary-gold w-full py-3 text-xs">שחזר את הנתונים</button>
                     </div>
                 </div>
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="database-backup"></i> גיבוי יומי בענן</h3>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="createCloudBackupNow(this)" class="btn-secondary-dark px-3 py-1.5 text-[11px]">גבה עכשיו</button>
+                            <button type="button" onclick="loadCloudBackups()" class="btn-secondary-dark px-3 py-1.5 text-[11px]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> רענן</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('maintenance')" data-guide-target="maintenance" aria-label="הסבר במדריך למנהלים: תקינות, גיבוי ותחזוקה" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                        </div>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>פעם ביום נשמר בענן עותק מלא של מסד הנתונים (כל הטבלאות), ונשמרים 30 הימים האחרונים. קובצי המדיה עצמם אינם בגיבוי הזה. השחזור ידני ונעשה מחוץ ללוח, לפי ההוראות ב־README.</p>
+                        <p id="cloudBackupsStatus" class="field-hint" role="status" aria-live="polite">הרשימה נטענת בפתיחת המסך.</p>
+                        <div id="cloudBackupsList" class="admin-list"></div>
+                    </div>
+                </div>
             </section>
 
             <!-- ============ מסך: תקינות המערכת ============ -->
@@ -573,6 +588,37 @@
                         <p>בדיקה מהירה של Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.</p>
                         <button type="button" onclick="runSystemHealthCheck()" class="btn-primary-gold w-full py-2.5 text-xs">הרץ בדיקה</button>
                         <div id="systemHealthResults" class="admin-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ מסך: קישורים שבורים ============ -->
+            <section id="view-brokenlinks" class="admin-view" data-view="brokenlinks" aria-label="קישורים שבורים">
+                <div class="admin-overview hidden super-admin-only">
+                    <div class="admin-stat" data-tone="danger">
+                        <span class="admin-stat-icon"><i data-lucide="image-off" class="w-5 h-5"></i></span>
+                        <div><strong id="brokenLinksMissingCount">0</strong><span>רשומות שחסר להן קובץ</span></div>
+                    </div>
+                    <div class="admin-stat" data-tone="gold">
+                        <span class="admin-stat-icon"><i data-lucide="file-question" class="w-5 h-5"></i></span>
+                        <div><strong id="brokenLinksOrphanCount">0</strong><span>קבצים בלי רשומה</span></div>
+                    </div>
+                </div>
+                <div class="admin-panel hidden super-admin-only">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="unlink"></i> בדיקת קישורים שבורים</h3>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="loadBrokenLinksReport()" class="btn-secondary-dark px-3 py-1.5 text-[11px]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> רענן</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('maintenance')" data-guide-target="maintenance" aria-label="הסבר במדריך למנהלים: תקינות, גיבוי ותחזוקה" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                        </div>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>פעם ביום נבדק בענן שלכל תמונה מאושרת יש קובץ מקור ותצוגות, ושלכל קובץ באחסון יש רשומה. הבדיקה מדווחת בלבד ואינה מוחקת דבר.</p>
+                        <p id="brokenLinksStatus" class="field-hint" role="status" aria-live="polite">הדוח נטען בפתיחת המסך.</p>
+                        <h4 class="admin-row-title">רשומות שחסר להן קובץ</h4>
+                        <div id="brokenLinksMissingList" class="admin-list"></div>
+                        <h4 class="admin-row-title">קבצים בלי רשומה</h4>
+                        <div id="brokenLinksOrphansList" class="admin-list"></div>
                     </div>
                 </div>
             </section>

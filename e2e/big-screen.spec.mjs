@@ -235,7 +235,8 @@ test('התנתקות באמצע מסך גדול עוצרת אותו: התצוג�
     await expect(lightbox).not.toHaveAttribute('data-slideshow', /.+/);
     await expect(page.locator('#bigScreenInfo')).toBeHidden();
     await expect.poll(async () => (await wakeLog(page)).at(-1)).toBe('release');
-    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    // exitFullscreen אסינכרוני: fullscreenElement מתאפס רק באירוע fullscreenchange.
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
     // אין עוד בדיקות לתיקייה, גם אחרי כמה דקות.
     const imagePolls = () => worker.requestsTo('GET', '/data/images?').filter(entry => entry.path.includes('limit=120')).length;
     const pollsAfterSignOut = imagePolls();

@@ -1,8 +1,9 @@
 // download-privacy-admin.js — מסך "הורדות ופרטיות" בלוח הניהול (admin.html בלבד).
 //
 // ההגדרה נשמרת באותו מקום כמו הודעת הפופ-אפ: מסמך ב-systemMeta
-// (systemMeta/downloadPrivacy). ה-Worker כבר מתיר לכל משתמש מאושר לקרוא
-// אותו ולמנהל לכתוב, ולכן אין כאן שינוי בשרת. הצד שמיישם את ההגדרה בהורדה
+// (systemMeta/downloadPrivacy). ה-Worker מתיר לכל משתמש מאושר לקרוא אותו,
+// ולכתוב — למנהל־על בלבד, כמו המסך הזה (SYSTEM_META_SUPER_ADMIN_WRITE_IDS);
+// את updatedBy הוא קובע בעצמו לפי החשבון המאומת. הצד שמיישם את ההגדרה בהורדה
 // הוא download-privacy-ui.js שבדף הגלריה.
 
 import {
