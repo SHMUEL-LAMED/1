@@ -189,6 +189,33 @@ export function variantEntries(id, names = ['thumb', 'medium'], extension = 'web
     }]));
 }
 
+// רשומה ממתינה לאישור, כפי ש-savePendingImageCloud כותב אותה: הקובץ תחת
+// pending/, ופרטי המעלה ברשומה.
+export function pendingRecord(index, overrides = {}) {
+    const id = `pending_e2e_${index}`;
+    const createdAt = Date.UTC(2026, 8, 2, 10) + index * 60_000;
+    const uploader = { uid: 'google-uploader-1', name: 'שרה לוי', email: 'sarah@example.com' };
+    return {
+        id,
+        title: `העלאה ${index}`,
+        url: `${API_ORIGIN}/media/pending/${uploader.uid}/${id}.jpg`,
+        r2Key: `pending/${uploader.uid}/${id}.jpg`,
+        r2OwnerUid: uploader.uid,
+        r2Stored: true,
+        mediaType: 'image',
+        mimeType: 'image/jpeg',
+        originalSize: 2048,
+        originalFolderName: 'הקפות',
+        status: 'pending',
+        uploadedBy: uploader.uid,
+        uploadedByName: uploader.name,
+        uploadedByEmail: uploader.email,
+        date: new Date(createdAt).toISOString().split('T')[0],
+        createdAt,
+        ...overrides
+    };
+}
+
 // רשומת תמונה בדיוק כפי שמסלול ההעלאה כותב אותה (ראו prepareMediaRecordForCloud
 // ו-uploadMediaToR2 ב-app.js). התמונה ה-n היא החדשה ביותר.
 export function imageRecord(index, overrides = {}) {
@@ -762,6 +789,25 @@ export class FakeWorker {
         return { success: true, uploadId: session.uploadId, aborted: true };
     }
 
+    // POST /approve — כמו approveImage ב-Worker: מנהל בלבד, הקובץ עובר מ-pending/
+    // ל-approved/, ואישור חוזר של קובץ שכבר עבר מחזיר את המפתח המאושר.
+    handleApprove(request) {
+        const actor = this.actor(request);
+        if (actor.status !== 'approved' || !['admin', 'super_admin'].includes(actor.role)) {
+            throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        }
+        const payload = JSON.parse(request.postData() || '{}');
+        const key = String(payload.key || '');
+        if (!key.startsWith('pending/') || key.includes('..')) throw apiError('מפתח הקובץ אינו תקין.', 400, 'invalid_key');
+        const approvedKey = `approved/${key.slice('pending/'.length)}`;
+        const stored = this.objects.get(key);
+        if (stored) {
+            this.objects.set(approvedKey, { ...stored, metadata: { ...stored.metadata, state: 'approved', approvedBy: actor.uid } });
+            this.objects.delete(key);
+        }
+        return { success: true, key: approvedKey, state: 'approved', url: `${API_ORIGIN}/media/${approvedKey}` };
+    }
+
     // POST /media/variants — צירוף תצוגות לפריט קיים: מנהל לכל פריט, המעלה לפריט שלו.
     async handleAttachVariants(request) {
         const actor = this.actor(request);
@@ -1185,6 +1231,7 @@ export class FakeWorker {
             if (method === 'POST' && url.pathname === '/upload/multipart/complete') return json(await this.handleMultipartComplete(request), 201);
             if (method === 'POST' && url.pathname === '/upload/multipart/abort') return json(this.handleMultipartAbort(request));
             if (method === 'POST' && url.pathname === '/media/variants') return json(await this.handleAttachVariants(request));
+            if (method === 'POST' && url.pathname === '/approve') return json(this.handleApprove(request));
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
             if (method === 'POST' && url.pathname === '/ai-title') return json(await this.handleAiTitle(request));
             if (url.pathname.startsWith('/data/')) {

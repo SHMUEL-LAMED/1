@@ -196,7 +196,12 @@
                 <div class="admin-panel">
                     <div class="admin-panel-head">
                         <h3><i data-lucide="image-plus"></i> בקשות העלאה לאישור <span id="pendingCountBadge" class="admin-pane-count">0</span></h3>
-                        <button type="button" onclick="toggleSelectAllPending()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">סמן הכל</button>
+                        <div class="flex gap-2">
+                            <button type="button" id="pendingSwipeOpenBtn" onclick="openPendingSwipe()" class="btn-primary-gold px-3 py-1.5 text-[11px]" aria-haspopup="dialog" aria-controls="pendingSwipe" title="פריט אחד בכל פעם: החלקה, כפתורים או מקלדת">
+                                <i data-lucide="zap" class="w-3.5 h-3.5"></i> מצב מהיר
+                            </button>
+                            <button type="button" onclick="toggleSelectAllPending()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">סמן הכל</button>
+                        </div>
                     </div>
                     <div id="accPending" class="accordion-content admin-panel-body">
                         <p>בחר תמונות וסרטונים להעברה לגלריה, ובחר את יעד השמירה שלהם.</p>
@@ -946,6 +951,41 @@
                 </div>
             </header>
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
+        </div>
+    </div>
+
+    <!-- מצב מהיר לאישור העלאות (pending-swipe.js): כרטיס אחד בכל פעם, מסך מלא בטלפון -->
+    <div id="pendingSwipe" class="pending-swipe hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="pendingSwipeTitle" aria-describedby="pendingSwipeHelp">
+        <div class="pending-swipe-shell modal-card">
+            <div class="modal-head">
+                <h3 id="pendingSwipeTitle"><span class="admin-stat-icon" data-tone="gold"><i data-lucide="zap" class="w-4 h-4"></i></span> מצב מהיר</h3>
+                <span id="pendingSwipeCount" class="admin-pane-count">לא נותרו פריטים</span>
+                <button type="button" class="modal-close" data-swipe-close aria-label="יציאה מהמצב המהיר"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <!-- קורא מסך שומע איזה פריט עלה עכשיו וכמה נותרו, גם כשהפוקוס נשאר על הכרטיס. -->
+            <p id="pendingSwipeLive" class="sr-only" aria-live="polite"></p>
+            <p id="pendingSwipeHelp" class="pending-swipe-help">
+                החלקה ימינה מאשרת ושמאלה דוחה. במקלדת: → או A או Enter לאישור, ← או R לדחייה, Z לביטול, Esc ליציאה.
+            </p>
+            <div id="pendingSwipeStage" class="pending-swipe-stage">
+                <div id="pendingSwipeNext" class="pending-swipe-next" aria-hidden="true"></div>
+                <article id="pendingSwipeCard" class="pending-swipe-card" tabindex="0" aria-roledescription="כרטיס לאישור" aria-labelledby="pendingSwipeCardTitle" aria-describedby="pendingSwipeCardMeta"></article>
+                <div id="pendingSwipeEmpty" class="pending-swipe-empty hidden" role="status">
+                    <span class="admin-stat-icon" data-tone="green"><i data-lucide="check-check" class="w-5 h-5"></i></span>
+                    <p class="pending-swipe-empty-title">אין עוד פריטים לאישור</p>
+                    <p>כל ההעלאות טופלו. פריט חדש שיגיע יופיע כאן מעצמו.</p>
+                    <button type="button" class="btn-secondary-dark px-4 py-2 text-xs" data-swipe-close>חזרה לרשימה</button>
+                </div>
+            </div>
+            <div class="pending-swipe-actions">
+                <button type="button" id="pendingSwipeApprove" class="btn-primary-gold" aria-keyshortcuts="A ArrowRight Enter"><i data-lucide="check" class="w-5 h-5"></i> אשר</button>
+                <button type="button" id="pendingSwipeReject" class="btn-danger-soft" aria-keyshortcuts="R ArrowLeft"><i data-lucide="x" class="w-5 h-5"></i> דחה</button>
+            </div>
+            <div id="pendingSwipeUndo" class="pending-swipe-undo" hidden>
+                <p id="pendingSwipeUndoText" role="status" aria-live="polite"></p>
+                <button type="button" id="pendingSwipeUndoBtn" class="btn-secondary-dark" aria-keyshortcuts="Z Control+Z"><i data-lucide="undo-2" class="w-4 h-4"></i> בטל</button>
+                <span class="pending-swipe-undo-bar" aria-hidden="true"></span>
+            </div>
         </div>
     </div>
 
