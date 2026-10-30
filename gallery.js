@@ -1484,10 +1484,12 @@ function buildGalleryCard(img, isEditBlocked) {
     // נוסף מאז הביקור הקודם. נקודת הייחוס קבועה לאורך הביקור, ולכן התג חלק
     // מהמרקאפ שמושווה בלי לגרום לבנייה מחדש של כרטיסים.
     const isNew = isNewSince(img, newSinceBaseline());
+    // בתג הסרטון המילה והמשך בנפרד: בכרטיס צר ה-CSS משאיר רק את המשך (האייקון
+    // כבר אומר "סרטון"), כדי שהתג לא ייכנס מתחת ללב.
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
-           <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i> סרטון${durationLabel ? ` · ${durationLabel}` : ''}</span>`
+           <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i><span class="gallery-badge-label">סרטון${durationLabel ? ' ·' : ''}</span>${durationLabel ? `<span class="gallery-badge-duration">${durationLabel}</span>` : ''}</span>`
         : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
     // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
     // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.

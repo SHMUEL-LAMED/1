@@ -2199,8 +2199,10 @@ body textarea { resize: vertical; min-height: 84px; }
     pointer-events: none;
 }
 .gallery-play > span {
-    width: 56px;
-    height: 56px;
+    /* בכרטיס קטן או נמוך הכפתור קטן יותר: --play-size לפי הגודל שנבחר,
+       --play-max לפי רוחב הכרטיס (סעיף "מה שעל תמונת הכרטיס" למטה). */
+    width: min(var(--play-size, 56px), var(--play-max, 56px));
+    height: min(var(--play-size, 56px), var(--play-max, 56px));
     display: grid;
     place-items: center;
     border-radius: 50%;
@@ -2212,6 +2214,7 @@ body textarea { resize: vertical; min-height: 84px; }
     box-shadow: var(--shadow-2);
     transition: transform .35s var(--ease-spring), background .2s var(--ease);
 }
+.gallery-play > span > * { width: 43%; height: 43%; }
 .gallery-card:hover .gallery-play > span { transform: scale(1.1); background: var(--gold-foil); color: var(--ink-on-accent); }
 /* תצוגה מקדימה בריחוף (video-hover-preview.js): בזמן שהסרטון רץ בכרטיס,
    כפתור ההפעלה מתפנה ממנו ופס דק מסמן שזו רק טעימה של כמה שניות. */
@@ -2346,6 +2349,96 @@ body textarea { resize: vertical; min-height: 84px; }
     #photosGrid[data-layout="masonry"][data-density="large"] { --masonry-row: 200px; }
     /* במגע התווית "תצוגה מלאה" גלויה תמיד, וכרטיס לאורך בגודל בינוני צר ממנה. */
     #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-view { display: none; }
+}
+
+/* --------------------------------------------------------------------------
+   מה שעל תמונת הכרטיס בכרטיס קטן או צר: הלב, תג הסרטון, תג "חדש", מספר
+   הפריים, "תצוגה מלאה" וכפתור ההפעלה לא יושבים זה על זה ולא נחתכים בשולי
+   הכרטיס (e2e/card-overlays.spec.mjs).
+   -------------------------------------------------------------------------- */
+/* הכרטיס הוא container לפי רוחבו בלבד: בפסיפס הרוחב נקבע לפי יחס התמונה ולא
+   לפי הגודל שנבחר, וכרטיס לאורך צר בהרבה משכנו. גובה הכרטיס אינו מושפע. */
+#photosGrid .gallery-card { container: gallery-card / inline-size; }
+.gallery-badge > span { white-space: nowrap; }
+
+/* בפסיפס כרטיס לאורך או ריבועי צר מכדי שתג "חדש" ישב בפינה העליונה לצד הלב,
+   ובשורה נמוכה הוא נופל על כפתור ההפעלה. לכן "חדש" יורד לפינה התחתונה בצד
+   ההתחלה — המקום של מספר הפריים, שמפנה לו את המקום בכרטיס חדש. */
+#photosGrid[data-layout="masonry"] .gallery-new-badge { top: auto; bottom: 12px; }
+#photosGrid[data-layout="masonry"] .gallery-new-badge ~ .gallery-number { display: none; }
+#photosGrid[data-layout="masonry"][data-density="compact"] .gallery-new-badge { bottom: 8px; inset-inline-start: 8px; }
+/* שורה של 120px: כפתור ההפעלה קטן, כדי שלא יגיע עד הלב שבראש הכרטיס. */
+#photosGrid[data-layout="masonry"][data-density="compact"] { --play-size: 36px; }
+
+@media (max-width: 767px) {
+    /* ברשת "קטן" בטלפון שלוש עמודות של כ-116px: אותו טיפול כמו בפסיפס הקטן —
+       בלי "תצוגה מלאה" ומספר (הכרטיס כולו נפתח בנגיעה), לב ותג קטנים בפינות,
+       ו"חדש" בפינה התחתונה, הרחק מכפתור ההפעלה שבמרכז. */
+    #photosGrid[data-density="compact"] { --play-size: 36px; }
+    #photosGrid[data-density="compact"] .gallery-view,
+    #photosGrid[data-density="compact"] .gallery-number { display: none; }
+    #photosGrid[data-density="compact"] .gallery-new-badge { top: auto; bottom: 8px; inset-inline-start: 8px; }
+    /* בפסיפס בטלפון השורה בגודל בינוני היא 110px בלבד: לב ותג בגודל של "קטן"
+       וכפתור הפעלה קטן, אחרת הלב והתג נוגעים בכפתור שבמרכז. */
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) { --play-size: 28px; }
+    #photosGrid[data-density="compact"] .gallery-fav,
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-fav { top: 8px; inset-inline-end: 8px; width: 32px; height: 32px; }
+    #photosGrid[data-density="compact"] .gallery-fav.is-stacked,
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-fav.is-stacked { top: 48px; }
+    #photosGrid[data-density="compact"] .gallery-badge,
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-badge { top: 8px; inset-inline-start: 8px; padding: 3px 7px; }
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-number,
+    #photosGrid[data-layout="masonry"]:not([data-density="large"]) .gallery-new-badge { bottom: 8px; inset-inline-start: 8px; }
+    /* הפסיפס הקטן בטלפון: שורה של 72px, נמוכה מכדי שיהיה משהו במרכז הכרטיס
+       לצד הלב. כל סימן יושב בפינה משלו: הלב למעלה בצד הסוף, כפתור ההפעלה
+       למטה בצד הסוף (הוא גם הסימן שזה סרטון, ולכן בלי התג), ו"חדש" נקודה
+       מוזהבת למטה בצד ההתחלה. */
+    #photosGrid[data-layout="masonry"][data-density="compact"] { --play-size: 24px; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] .gallery-play { place-items: end; padding: 6px; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] .gallery-badge { display: none; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] .gallery-fav { top: 6px; inset-inline-end: 6px; width: 28px; height: 28px; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] .gallery-new-badge {
+        bottom: 6px;
+        inset-inline-start: 6px;
+        width: 10px;
+        height: 10px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 0;
+    }
+}
+
+/* מכאן לפי הרוחב שבאמת יש לכרטיס. מתחת ל-200px כפתור ההפעלה קטן, ובסרטון
+   הוא גם הכפתור "לצפייה" — בלי התווית "תצוגה מלאה" שהייתה נופלת עליו. */
+@container gallery-card (max-width: 199px) {
+    #photosGrid .gallery-card .gallery-play { --play-max: 40px; }
+    #photosGrid .gallery-card .gallery-play ~ .gallery-view { display: none; }
+}
+/* מתחת ל-170px אין מקום ל"תצוגה מלאה" לצד מספר הפריים, ולא למילה "סרטון"
+   לצד הלב: התג נשאר עם האייקון והמשך. */
+@container gallery-card (max-width: 169px) {
+    #photosGrid .gallery-card .gallery-view { display: none; }
+    #photosGrid .gallery-card .gallery-badge-label:not(:only-of-type) { display: none; }
+}
+/* כרטיס צר (לאורך בפסיפס): הלב והתגים קרובים יותר לפינות ובגודל של "קטן",
+   וכפתור ההפעלה קטן מספיק כדי לעבור בין הלב שלמעלה לתג שלמטה. */
+@container gallery-card (max-width: 139px) {
+    #photosGrid .gallery-card .gallery-play { --play-max: 28px; }
+    #photosGrid .gallery-card .gallery-fav { top: 8px; inset-inline-end: 8px; width: 32px; height: 32px; }
+    #photosGrid .gallery-card .gallery-fav.is-stacked { top: 48px; }
+    #photosGrid .gallery-card .gallery-badge { top: 8px; inset-inline-start: 8px; padding: 3px 7px; }
+    #photosGrid .gallery-card .gallery-number,
+    #photosGrid .gallery-card .gallery-new-badge { bottom: 8px; inset-inline-start: 8px; }
+}
+/* צר מכדי שתג הסרטון ייכנס לצד הלב: כפתור ההפעלה כבר אומר "סרטון". */
+@container gallery-card (max-width: 109px) {
+    #photosGrid .gallery-card .gallery-badge { display: none; }
+}
+/* פחות מ-56px (סרטון לאורך בפסיפס הקטן בטלפון): אין מקום ללב לצד כפתור
+   ההפעלה. המועדף נשאר זמין בתצוגה המלאה, וכפתור ההפעלה עולה לפינה שהתפנתה. */
+@container gallery-card (max-width: 55px) {
+    #photosGrid .gallery-card .gallery-fav { display: none; }
+    #photosGrid[data-layout="masonry"][data-density="compact"] .gallery-card .gallery-play { align-items: start; }
 }
 
 .gallery-actions {
@@ -2670,6 +2763,14 @@ body textarea { resize: vertical; min-height: 84px; }
 .lightbox-share-text { display: none; }
 @media (min-width: 640px) {
     .lightbox-share-text { display: inline; }
+}
+/* בטלפון חמשת הכפתורים תופסים כמעט את כל הרוחב, והכותרת שלצידם נמחצה לעמודה
+   צרה שנשברה לכמה שורות. מתחת ל-640px הסרגל נשבר לשתי שורות: הכותרת ברוחב
+   מלא, והכפתורים בשורה משלהם בצד הסוף. סדר ה-DOM (ולכן סדר המיקוד) לא משתנה. */
+@media (max-width: 639px) {
+    #lightboxModal .lightbox-bar { flex-wrap: wrap; row-gap: 6px; padding-block: 8px; }
+    #lightboxModal .lightbox-heading { flex: 1 0 100%; }
+    #lightboxModal .lightbox-actions { flex: 1 0 100%; justify-content: flex-end; }
 }
 #lightboxModal.is-slideshow #lightboxImage { cursor: default; }
 .slideshow-controls {

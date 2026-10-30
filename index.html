@@ -505,11 +505,11 @@
         <!-- השתקפות מטושטשת של הפריט הנוכחי; gallery.js מעדכן אותה עם כל מעבר. -->
         <img id="lightboxBackdrop" class="lightbox-backdrop" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" aria-hidden="true" hidden>
         <div class="lightbox-bar flex justify-between items-center gap-3 p-3">
-            <div class="min-w-0">
+            <div class="lightbox-heading min-w-0">
                 <h4 id="lightboxTitle" class="font-bold text-base truncate">שם התמונה</h4>
                 <p id="lightboxDetails" class="lightbox-sub text-xs">תאריך • קטגוריה</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="lightbox-actions flex items-center gap-2">
                 <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעל מצגת" aria-label="הפעל מצגת" aria-pressed="false" class="btn-secondary-dark slideshow-toggle h-11 rounded-full">
                     <i data-lucide="play" class="w-5 h-5"></i><span class="slideshow-toggle-text">הפעל מצגת</span>
                 </button>
