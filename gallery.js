@@ -1159,8 +1159,14 @@ function syncGalleryCards(grid, items) {
         previous.delete(id);
         let node = known && known.html === html && known.node.isConnected ? known.node : null;
         if (!node) {
+            // היחס שנמדד מהתמונה (handleCardImageLoad) אינו במרקאפ, ולכן עובר
+            // לכרטיס החדש. בלעדיו לב או בחירה היו מחזירים את הכרטיס ל-4:3 עד
+            // שהתמונה נטענת שוב, ושורת הפסיפס הייתה קופצת. תמונה שהתחלפה מתקנת
+            // אותו שוב כשהיא נטענת.
+            const measuredRatio = known?.node.style.getPropertyValue('--media-ratio') || '';
             known?.node.remove();
             node = insertGalleryCard(grid, html, grid.children[index] || null);
+            if (measuredRatio) node.style.setProperty('--media-ratio', measuredRatio.trim());
             window.scheduleIconRefresh(node);
         } else if (grid.children[index] !== node) {
             grid.insertBefore(node, grid.children[index] || null);

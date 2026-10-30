@@ -43,7 +43,11 @@ function makeCard(grid, html) {
         tagName: "ARTICLE", html,
         mediaId: html.match(/data-media-id="([^"]*)"/)?.[1] || "",
         number: html.match(/<span class="gallery-number">([^<]*)<\/span>/)?.[1] || "",
-        style: { values: {}, setProperty(name, value) { this.values[name] = String(value); } },
+        style: {
+            values: {},
+            setProperty(name, value) { this.values[name] = String(value); },
+            getPropertyValue(name) { return this.values[name] ?? ""; }
+        },
         get isConnected() { return grid.children.includes(card); },
         getBoundingClientRect() { return grid.geometry ? grid.geometry(card) : { top: 0 }; },
         get previousElementSibling() {
@@ -260,12 +264,14 @@ test("רינדור מחדש באותה תצוגה שומר את מספר הכר�
     assert.ok(grid.children.every((card, index) => card === before[index]), "כרטיס שלא השתנה נשאר ב-DOM");
     assert.equal(grid.innerHTMLWrites, writes, "הרשת לא נבנתה מחדש");
 
-    // לב שנלחץ: רק הכרטיס שלו מוחלף.
+    // לב שנלחץ: רק הכרטיס שלו מוחלף, והיחס שנמדד מהתמונה (פסיפס) עובר אליו.
+    before[1].style.setProperty("--media-ratio", "0.667");
     window.state.favorites.add("img-2");
     render();
     assert.equal(grid.children.length, 96);
     assert.notEqual(grid.children[1], before[1]);
     assert.ok(grid.children[1].html.includes("fill-current"));
+    assert.equal(grid.children[1].style.values["--media-ratio"], "0.667", "היחס שנמדד אינו אובד ברינדור מחדש");
     assert.ok(grid.children.every((card, index) => index === 1 || card === before[index]));
 
     // תמונה חדשה בראש הרשימה: הכרטיסים הקיימים נשארים אותם אלמנטים — רק

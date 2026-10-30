@@ -179,6 +179,27 @@ test('בפסיפס: בחירה מרובה עובדת, חיפוש בלי תוצא
     await expect(grid(page)).toHaveCSS('display', 'flex');
 });
 
+test('כרטיס שנבנה מחדש (בחירה מרובה, לב) שומר את היחס שנמדד, והשורה אינה קופצת', async ({ page, worker }) => {
+    seedShapedGallery(worker);
+    await page.addInitScript(key => { try { localStorage.setItem(key, 'masonry'); } catch { /* אחסון חסום */ } }, LAYOUT_KEY);
+    await seedSession(page, { worker, role: 'admin' });
+    await page.goto('/');
+    await expect(cards(page)).toHaveCount(SHAPES.length);
+    await expect.poll(() => allImagesLoaded(page)).toBe(true);
+    await expect(cards(page).nth(1)).toHaveAttribute('style', /--media-ratio:\s*0\.5(?![\d.])/);
+
+    // הרינדור והקריאה באותה משימה: לפני שהתמונה שבכרטיס החדש מספיקה להיטען
+    // ולמדוד את עצמה שוב. בלי ההעברה הכרטיס היה נופל ל-4:3 עד אז.
+    const rebuilt = await page.evaluate(() => {
+        const before = document.querySelectorAll('#photosGrid .gallery-card')[1];
+        window.toggleBulkSelectionMode(true);
+        window._doRenderImages();
+        const after = document.querySelectorAll('#photosGrid .gallery-card')[1];
+        return { replaced: before !== after, ratio: after.style.getPropertyValue('--media-ratio').trim() };
+    });
+    expect(rebuilt).toEqual({ replaced: true, ratio: '0.5' });
+});
+
 test('אחסון חסום: המתגים עובדים בלי שגיאה, והבחירה תקפה עד רענון', async ({ page, worker }) => {
     seedShapedGallery(worker);
     await seedSession(page, { worker });
