@@ -25,7 +25,7 @@ const PRELOAD_CONCURRENCY = 4;
 // תמונה שלא נטענה בזמן הזה נחשבת לכישלון ויוצאת מהאלבום, במקום לתקוע אותו.
 const IMAGE_TIMEOUT_MS = 30_000;
 
-// האלבום שהחלון פתוח עליו: { title, eventDate, description, folderId | records }.
+// האלבום שהחלון פתוח עליו: { title, eventDate, description, folderId | records, ownerUid }.
 let pendingAlbum = null;
 // הטעינה שרצה: { cancelled, aborts } — aborts מסיימים מיד טעינות שבדרך.
 let activeJob = null;
@@ -56,8 +56,26 @@ function setBusy(busy) {
     document.getElementById('printAlbumModal')?.setAttribute('aria-busy', String(busy));
 }
 
+// המזהה של המשתמש המחובר והמאושר לצפייה, או '' כשאין כזה (אורח, ממתין
+// לאישור, מי שהאישור שלו בוטל). אותו תנאי כמו ב-people.js: גם מנהל מאושר.
+function approvedViewerUid() {
+    const state = window.state;
+    if (!state?.isGoogleUser || state.userApprovalStatus !== 'approved') return '';
+    return String(state.currentUser?.uid || '');
+}
+
+// האלבום שייך למי שפתח את החלון. התנתקות, החלפת חשבון ואובדן אישור מאפסים
+// אותו (resetPrintAlbum מ-session-auth.js), וזו הגנה נוספת למקרה שהאיפוס לא
+// הספיק לרוץ: אחרת הבא בלשונית היה מדפיס את התמונות שהקודם בחר.
+function albumBelongsToViewer(album) {
+    const uid = approvedViewerUid();
+    return Boolean(album?.ownerUid) && album.ownerUid === uid;
+}
+
 function openAlbumDialog(album) {
-    pendingAlbum = album;
+    const ownerUid = approvedViewerUid();
+    if (!ownerUid) return;
+    pendingAlbum = { ...album, ownerUid };
     const perPage = readPerPage();
     document.querySelectorAll('input[name="printAlbumPerPage"]').forEach(input => {
         input.checked = Number(input.value) === perPage;
@@ -122,6 +140,24 @@ window.abortPrintAlbum = function() {
     setProgress('');
     clearPrintedAlbum();
 };
+
+// התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js,
+// שקורא לזה רק אם המודול נטען — לפני כן אין כאן מה לאפס): הטעינה נעצרת, האלבום
+// שנבחר נשכח, העמודים יוצאים מהדף והחלון נסגר. כך מבקר שאינו מחובר אינו יכול
+// ללחוץ "הכן והדפס" ולקבל את האלבום של המשתמש הקודם.
+function resetPrintAlbum() {
+    window.abortPrintAlbum();
+    pendingAlbum = null;
+    clearPrintedAlbum();
+    window.removeEventListener('afterprint', clearPrintedAlbum);
+    const summary = document.getElementById('printAlbumSummary');
+    if (summary) summary.textContent = '';
+    setProgress('');
+    setBusy(false);
+    const modal = document.getElementById('printAlbumModal');
+    if (modal && !modal.classList.contains('hidden')) window.closeModal?.('printAlbumModal');
+}
+window.resetPrintAlbum = resetPrintAlbum;
 
 // טעינה ופענוח של תמונה אחת. מחזיר את האלמנט הטעון — הוא זה שנכנס לעמוד.
 function preloadImage(src, job) {
@@ -232,6 +268,11 @@ function albumNotes({ skipped, failed, truncated }) {
 window.startPrintAlbum = async function() {
     const album = pendingAlbum;
     if (!album || activeJob) return;
+    // מי שלוחץ אינו מי שפתח את החלון (או שכבר אינו מאושר): לא טוענים ולא מדפיסים.
+    if (!albumBelongsToViewer(album)) {
+        resetPrintAlbum();
+        return;
+    }
     const perPage = selectedPerPage();
     writeGalleryPreference(ALBUM_PER_PAGE_KEY, String(perPage));
     const job = { cancelled: false, aborts: new Set() };
@@ -239,16 +280,24 @@ window.startPrintAlbum = async function() {
     setBusy(true);
     setProgress('מכין את רשימת התמונות…', 0);
     clearPrintedAlbum();
+    // אחרי כל המתנה: בוטל, או שהמשתמש התחלף בינתיים — ואז הכול מתאפס כאן.
+    const stopped = () => {
+        if (job.cancelled) return true;
+        if (albumBelongsToViewer(album)) return false;
+        resetPrintAlbum();
+        return true;
+    };
+    const shouldStop = () => job.cancelled || !albumBelongsToViewer(album);
 
     try {
         let records = album.records;
         let more = false;
         if (!records) {
-            const result = await window.loadAllFolderImages(album.folderId, { limit: ALBUM_MAX_ITEMS, shouldStop: () => job.cancelled });
+            const result = await window.loadAllFolderImages(album.folderId, { limit: ALBUM_MAX_ITEMS, shouldStop });
             records = result.items;
             more = result.hasMore;
         }
-        if (job.cancelled) return;
+        if (stopped()) return;
 
         const prepared = prepareAlbumItems(records, { sanitize: window.safeImageUrl });
         if (!prepared.items.length) {
@@ -265,13 +314,13 @@ window.startPrintAlbum = async function() {
             async ({ item }) => { images.set(item.id, await preloadImage(item.src, job)); },
             {
                 concurrency: PRELOAD_CONCURRENCY,
-                shouldStop: () => job.cancelled,
+                shouldStop,
                 onProgress: ({ processed }) => {
                     if (!job.cancelled) setProgress(`טוען תמונות… ${processed} מתוך ${total}`, processed / total);
                 }
             }
         );
-        if (job.cancelled) return;
+        if (stopped()) return;
 
         const items = prepared.items.filter(item => images.has(item.id));
         if (!items.length) {
@@ -283,7 +332,7 @@ window.startPrintAlbum = async function() {
         // תמונת השער היא עותק של הראשונה, ונטענת מהזיכרון של הדף; מחכים גם לה.
         const unready = [...(root?.querySelectorAll('img') || [])].filter(image => !image.complete);
         await Promise.all(unready.map(image => image.decode().catch(() => {})));
-        if (job.cancelled) return;
+        if (stopped()) return;
 
         // מכאן אין מה לבטל: החלון נסגר בלי לעצור, וחלון ההדפסה נפתח.
         activeJob = null;

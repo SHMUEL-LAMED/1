@@ -433,10 +433,13 @@ async function initFirebase() {
 // סגירת התצוגה עוצרת את המצגת, ואיתה "מסך גדול" (big-screen.js): הבדיקות
 // לפריטים חדשים, השעון, ה-Wake Lock והמסך המלא — מסך באולם אינו ממשיך
 // להציג את הגלריה אחרי התנתקות, החלפת חשבון או אובדן אישור.
+// גם חלון "אלבום להדפסה" והכנה שעוד רצה נעצרים ונשכחים (print-album-ui.js, רק
+// אם נטען), אחרת מבקר שאינו מחובר היה מדפיס את התמונות שהקודם בחר.
 function clearPrivateGalleryViews() {
     window.resetPeopleState?.();
     window.resetMediaLinkState?.();
     window.resetNewUpdatesState?.();
+    window.resetPrintAlbum?.();
     window.state.tempSearchResults = null;
     const banner = document.getElementById('tempSearchBanner');
     if (banner) {

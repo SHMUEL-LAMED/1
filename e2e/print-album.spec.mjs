@@ -218,3 +218,107 @@ test('ביטול באמצע הטעינה עוצר הכול: אין הדפסה ו
     expect(await printCalls(page)).toEqual([]);
     await expect(page.locator('#printAlbum .print-album-page')).toHaveCount(0);
 });
+
+// התנתקות: הסימון של הקודם אינו נשאר בחלון פתוח, ומבקר שאינו מחובר אינו יכול
+// ללחוץ "הכן והדפס" ולקבל אלבום של התמונות שהקודם בחר (resetPrintAlbum).
+async function signOutAndExpectAlbumCleared(page) {
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    await expect(page.getByRole('dialog', { name: 'אלבום להדפסה' })).toBeHidden();
+    await expect(page.locator('#printAlbum')).toBeEmpty();
+    await expect(page.locator('body')).not.toHaveClass(/is-printing-album/);
+}
+
+async function openSelectionAlbum(page) {
+    await page.evaluate(() => {
+        window.toggleBulkSelectionMode(true);
+        window.toggleSelectAllVisibleMedia();
+    });
+    await page.locator('#bulkSelectionBar').getByRole('button', { name: 'אלבום PDF' }).click();
+    const dialog = page.getByRole('dialog', { name: 'אלבום להדפסה' });
+    await expect(dialog.locator('#printAlbumSummary')).toHaveText('אירועים ופעילויות · 2 פריטים');
+    return dialog;
+}
+
+test('התנתקות סוגרת את חלון האלבום של הבחירה, ו"הכן והדפס" אחריה אינו מדפיס', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([imageRecord(1), imageRecord(2)]);
+    await seedSession(page, { worker, role: 'admin' });
+    await stubPrint(page);
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(2);
+    await openSelectionAlbum(page);
+
+    await signOutAndExpectAlbumCleared(page);
+    await expect(page.locator('#printAlbumSummary')).toBeEmpty();
+    // גם קריאה ישירה (הכפתור שנשאר בדף) אינה מכינה ואינה מדפיסה דבר.
+    await page.evaluate(() => window.startPrintAlbum());
+    expect(await printCalls(page)).toEqual([]);
+    await expect(page.locator('#printAlbum')).toBeEmpty();
+});
+
+test('התנתקות באמצע הכנת אלבום של אירוע עוצרת את הטעינה, ושום חלון הדפסה לא נפתח', async ({ page, worker }) => {
+    worker.seedFolders(EVENT_FOLDERS).seedImages([
+        imageRecord(1, { folderId: '2' }),
+        imageRecord(2, { folderId: '2', variants: variantEntries('img_e2e_2'), variantsVersion: 1 })
+    ]);
+    await seedSession(page, { worker });
+    await stubPrint(page);
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(2);
+
+    // התצוגה הבינונית אינה עונה עד שהבדיקה משחררת אותה — אחרי ההתנתקות.
+    let release;
+    const released = new Promise(resolve => { release = resolve; });
+    await page.route(variantUrl('img_e2e_2', 'medium'), async route => {
+        await released;
+        await route.fallback();
+    });
+    await openEventPage(page, 'טיולים וסיורים');
+    await page.locator('#eventPageModal').getByRole('button', { name: 'אלבום להדפסה' }).click();
+    const dialog = page.getByRole('dialog', { name: 'אלבום להדפסה' });
+    await dialog.getByRole('button', { name: 'הכן והדפס' }).click();
+    await expect(dialog.locator('#printAlbumStatus')).toHaveText('טוען תמונות… 1 מתוך 2');
+
+    await signOutAndExpectAlbumCleared(page);
+    release();
+    // התמונה שנתקעה משתחררת, ובכל זאת אין הדפסה ואין עמודים.
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 500)));
+    expect(await printCalls(page)).toEqual([]);
+    await expect(page.locator('#printAlbum')).toBeEmpty();
+    await expect(dialog).toBeHidden();
+});
+
+test('אלבום שנפתח למשתמש מאושר אינו מוכן ואינו מודפס אחרי שהאישור שלו בוטל', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([imageRecord(1), imageRecord(2)]);
+    await seedSession(page, { worker, role: 'admin' });
+    await stubPrint(page);
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(2);
+    const dialog = await openSelectionAlbum(page);
+
+    // הגנה נוספת, גם בלי האיפוס של session-auth.js: מי שפתח את החלון כבר
+    // אינו המשתמש המאושר — "הכן והדפס" אינו טוען דבר ואינו מדפיס.
+    await page.evaluate(() => { window.state.userApprovalStatus = 'pending'; });
+    await page.evaluate(() => window.startPrintAlbum());
+    expect(await printCalls(page)).toEqual([]);
+    await expect(page.locator('#printAlbum')).toBeEmpty();
+    await expect(dialog).toBeHidden();
+});
+
+test('אלבום שנפתח לחשבון אחד אינו מודפס לחשבון אחר באותה לשונית', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([imageRecord(1), imageRecord(2)]);
+    await seedSession(page, { worker, role: 'admin' });
+    await stubPrint(page);
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(2);
+    const dialog = await openSelectionAlbum(page);
+
+    // החשבון בלשונית התחלף (המזהה שונה), גם אם האיפוס לא הספיק לרוץ.
+    await page.evaluate(() => {
+        window.state.currentUser = { ...window.state.currentUser, uid: 'google-user-2' };
+    });
+    await page.evaluate(() => window.startPrintAlbum());
+    expect(await printCalls(page)).toEqual([]);
+    await expect(page.locator('#printAlbum')).toBeEmpty();
+    await expect(dialog).toBeHidden();
+});
