@@ -22,7 +22,9 @@ window.updateAdminPanelUI = function() {
     if (superAdminChatsCard) superAdminChatsCard.classList.add('hidden');
     if (superAdminUsersCard) superAdminUsersCard.classList.add('hidden');
     if (superAdminDeletionRequestsCard) superAdminDeletionRequestsCard.classList.add('hidden');
-    if (!window.state.isAdminLoggedIn) return;
+    // מי שאיבד את הרשאת הניהול: "מצב מהיר" (אם פתוח) נסגר ב-render שלו, בלי
+    // לשלוח את ההחלטה שבחלון הביטול.
+    if (!window.state.isAdminLoggedIn) { window.refreshPendingSwipe?.(); return; }
 
     const currentUser = window.state.currentUser;
     const adminName = document.getElementById('adminCurrentUserName');

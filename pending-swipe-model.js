@@ -140,12 +140,14 @@ export function createSwipeSession({
     // מהירים לאותה תיקייה מקורית שעוד אינה קיימת היו יוצרים אותה פעמיים,
     // כי התיקייה נכנסת ל-state.folders רק כשהשמירה שלה מסתיימת.
     let chain = Promise.resolve();
+    // מסתיים כשכל מה שנשלח עד עכשיו הסתיים (הצליח או נכשל) — ל-drain.
+    let settled = Promise.resolve();
 
     function send(entry) {
         inFlight.add(entry.id);
         const result = chain.then(() => commit(entry.id, entry.action, entry.meta));
         chain = result.catch(() => {});
-        return result
+        const done = result
             .then(() => { committed += 1; })
             .catch(error => {
                 handled.delete(entry.id);
@@ -155,6 +157,8 @@ export function createSwipeSession({
                 inFlight.delete(entry.id);
                 onChange();
             });
+        settled = done;
+        return done;
     }
 
     // שולח עכשיו את ההחלטה שממתינה (אם יש), בלי לחכות לסוף החלון.
@@ -164,6 +168,14 @@ export function createSwipeSession({
         pending = null;
         clearTimer(entry.timer);
         return send(entry);
+    }
+
+    // כמו flush, אבל מחכה גם לשמירות שכבר בדרך: ההבטחה מסתיימת רק כשכל
+    // מה שהוחלט עד עכשיו נשמר או נכשל. ההתנתקות מחכה לה, כדי שההחלטות
+    // יישלחו בשם המנהל שקיבל אותן ולא אחרי שהאסימון שלו כבר נמחק.
+    function drain() {
+        flush();
+        return settled;
     }
 
     return {
@@ -193,7 +205,19 @@ export function createSwipeSession({
             onChange();
             return { id: entry.id, action: entry.action };
         },
+        // סוף המפגש בלי לשמור: ההחלטה שממתינה נזרקת (לא נשלחת), וכל מה
+        // שהוחלט נשכח — חשבון אחר שייכנס יראה שוב את כל הפריטים. שמירה שכבר
+        // בדרך ממשיכה; commit עצמו אחראי לבדוק שהחשבון לא התחלף בינתיים.
+        reset() {
+            const entry = pending;
+            pending = null;
+            if (entry) clearTimer(entry.timer);
+            handled.clear();
+            onChange();
+            return entry ? { id: entry.id, action: entry.action } : null;
+        },
         flush,
+        drain,
         get pending() {
             return pending ? { id: pending.id, action: pending.action, deadline: pending.deadline } : null;
         },

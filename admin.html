@@ -1046,10 +1046,15 @@
             </div>
             <div class="pending-swipe-actions">
                 <button type="button" id="pendingSwipeApprove" class="btn-primary-gold" aria-keyshortcuts="A ArrowRight Enter"><i data-lucide="check" class="w-5 h-5"></i> אשר</button>
-                <button type="button" id="pendingSwipeReject" class="btn-danger-soft" aria-keyshortcuts="R ArrowLeft"><i data-lucide="x" class="w-5 h-5"></i> דחה</button>
+                <!-- השם הנגיש הוא "דחה" שעל הכפתור (WCAG 2.5.3); לאן הדחייה מובילה — בתיאור. -->
+                <button type="button" id="pendingSwipeReject" class="btn-danger-soft" aria-keyshortcuts="R ArrowLeft" aria-describedby="pendingSwipeRejectHint"><i data-lucide="x" class="w-5 h-5"></i> דחה</button>
+                <span id="pendingSwipeRejectHint" class="sr-only"></span>
             </div>
+            <!-- ההכרזה על ההחלטה: אזור שקיים מההתחלה ומתמלא פריים אחרי שהפס נחשף,
+                 כדי שגם ההחלטה הראשונה תוכרז (pending-swipe.js, announceUndo). -->
+            <p id="pendingSwipeUndoLive" class="sr-only" aria-live="polite" aria-atomic="true"></p>
             <div id="pendingSwipeUndo" class="pending-swipe-undo" hidden>
-                <p id="pendingSwipeUndoText" role="status" aria-live="polite"></p>
+                <p id="pendingSwipeUndoText"></p>
                 <button type="button" id="pendingSwipeUndoBtn" class="btn-secondary-dark" aria-keyshortcuts="Z Control+Z"><i data-lucide="undo-2" class="w-4 h-4"></i> בטל</button>
                 <span class="pending-swipe-undo-bar" aria-hidden="true"></span>
             </div>

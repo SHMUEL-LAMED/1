@@ -38,15 +38,37 @@ const decidedTitles = new Map();
 
 const $ = id => document.getElementById(id);
 
+const SESSION_ENDED = 'pending_swipe_session_ended';
+
+function currentUid() {
+    return String(window.state?.currentUser?.uid || '');
+}
+
+// ההחלטה שייכת לחשבון שקיבל אותה. שמירה שמגיע תורה אחרי התנתקות, החלפת
+// חשבון או אובדן הרשאת ניהול אינה נשלחת: אחרת היא הייתה יוצאת בשם המבקר
+// (ונכשלת עם טוסט שמציג לו את שם ההעלאה), או נשמרת בשם מנהל אחר.
+function commitDecision(id, action, meta) {
+    if (!meta?.uid || meta.uid !== currentUid() || !window.canViewAdminData?.()) {
+        throw Object.assign(new Error('החשבון שקיבל את ההחלטה כבר אינו מחובר.'), { code: SESSION_ENDED });
+    }
+    return action === 'approve'
+        ? window.approvePendingImage(id, meta.folder || 'auto')
+        : window.rejectPendingImage(id);
+}
+
 // המפגש אחד לכל הדף: פריט שנשלחה עליו בקשת מחיקה נשאר ב-pendingImages
-// (רק מנהל־על מוחק), ולא אמור לחזור לתור כשהמצב המהיר נפתח שוב.
+// (רק מנהל־על מוחק), ולא אמור לחזור לתור כשהמצב המהיר נפתח שוב. בסוף
+// החיבור (resetPendingSwipe) הוא מתאפס, וחשבון אחר מתחיל ממנו מחדש.
 const session = createSwipeSession({
     undoMs: SWIPE_UNDO_MS,
-    commit: (id, action, meta) => action === 'approve'
-        ? window.approvePendingImage(id, meta?.folder || 'auto')
-        : window.rejectPendingImage(id),
+    commit: commitDecision,
     onChange: () => render(),
     onError: (error, entry) => {
+        // מי שמול המסך עכשיו אינו מי שהחליט: בלי טוסט ובלי שם הפריט.
+        if (error?.code === SESSION_ENDED) {
+            console.warn('Pending swipe decision dropped after the session ended:', entry.id);
+            return;
+        }
         console.warn('Pending swipe action failed:', entry.id, error);
         const title = decidedTitles.get(entry.id) || 'הפריט';
         const failed = entry.action === 'approve' ? `האישור של "${title}" נכשל` : `הדחייה של "${title}" נכשלה`;
@@ -92,8 +114,11 @@ function cardTitle(record) {
     return pendingCardDetails(record, { isVideo: isVideoRecord(record) }).title;
 }
 
+// לאן הדחייה מובילה — התיאור הנגיש של "דחה" (aria-describedby). השם
+// הנגיש נשאר המילה שעל הכפתור, כדי שמי שאומר "דחה" לתוכנת שליטה קולית
+// יגיע אליו (WCAG 2.5.3).
 function rejectDescription() {
-    return window.state.isSuperAdmin ? 'דחייה — העברה לסל המחזור' : 'דחייה — שליחת בקשת מחיקה למנהל־העל';
+    return window.state.isSuperAdmin ? 'העברה לסל המחזור' : 'שליחת בקשת מחיקה למנהל־העל';
 }
 
 function decidedMessage(action, title) {
@@ -171,6 +196,9 @@ function resetCardPosition(card, { animate = true } = {}) {
 
 function render() {
     if (!isOpen) return;
+    // מי שאינו (או כבר אינו) מנהל אינו רואה את החלון, וההחלטה שבחלון הביטול
+    // אינה נשלחת בשמו.
+    if (!window.canViewAdminData?.()) { endPendingSwipe(); return; }
     const card = $('pendingSwipeCard');
     const empty = $('pendingSwipeEmpty');
     order = mergeQueueOrder(order, sourceIds());
@@ -206,16 +234,31 @@ function render() {
     const approve = $('pendingSwipeApprove');
     const reject = $('pendingSwipeReject');
     if (approve) approve.disabled = !hasCard;
-    if (reject) {
-        reject.disabled = !hasCard;
-        reject.setAttribute('aria-label', rejectDescription());
-    }
+    if (reject) reject.disabled = !hasCard;
+    const rejectHint = $('pendingSwipeRejectHint');
+    if (rejectHint) rejectHint.textContent = rejectDescription();
     // הפוקוס אינו נשאר על כרטיס שהוסתר: הוא עובר לכרטיס הבא או למסך הריק.
     if (hasCard && hadFocus && document.activeElement !== card && !card.contains(document.activeElement)) {
         card.focus({ preventScroll: true });
     } else if (!hasCard && (hadFocus || document.activeElement === document.body || document.activeElement?.disabled)) {
         empty?.querySelector('button')?.focus({ preventScroll: true });
     }
+}
+
+// ההכרזה על ההחלטה עוברת דרך אזור sr-only שנמצא בעץ הנגישות מההתחלה
+// (pendingSwipeUndoLive), ולא דרך הפס עצמו: אזור חי שנחשף ומתמלא באותה
+// משימה לא תמיד מוכרז, ואז ההחלטה הראשונה עוברת בשקט. האזור מתרוקן מיד
+// ומתמלא בפריים הבא, כך שגם אותו טקסט פעמיים (ביטול ושוב אותה החלטה) מוכרז.
+let undoAnnounceFrame = 0;
+function announceUndo(message) {
+    const live = $('pendingSwipeUndoLive');
+    if (!live) return;
+    cancelAnimationFrame(undoAnnounceFrame);
+    live.textContent = '';
+    undoAnnounceFrame = message ? requestAnimationFrame(() => {
+        undoAnnounceFrame = 0;
+        live.textContent = message;
+    }) : 0;
 }
 
 let undoShownFor = '';
@@ -225,6 +268,7 @@ function renderUndo() {
     if (!bar || !text) return;
     const pending = session.pending;
     if (!pending) {
+        if (undoShownFor) announceUndo('');
         bar.hidden = true;
         undoShownFor = '';
         return;
@@ -235,6 +279,7 @@ function renderUndo() {
     bar.hidden = false;
     bar.dataset.action = pending.action;
     text.textContent = decidedMessage(pending.action, decidedTitles.get(pending.id) || 'פריט');
+    announceUndo(text.textContent);
     // פס הזמן מתחיל מחדש לכל החלטה.
     const progress = bar.querySelector('.pending-swipe-undo-bar');
     if (progress) {
@@ -252,16 +297,18 @@ function decide(action) {
     const record = findRecord(id);
     if (!record) return;
     decidedTitles.set(id, cardTitle(record));
+    // מי החליט: השמירה תצא רק אם זה עדיין החשבון המחובר (commitDecision).
+    const uid = currentUid();
     const card = $('pendingSwipeCard');
-    const commitDecision = () => {
+    const recordDecision = () => {
         leaving = false;
         if (!isOpen) return;
-        if (currentId !== id || !session.decide(id, action, { folder: targetFolderId() })) {
+        if (currentId !== id || !session.decide(id, action, { folder: targetFolderId(), uid })) {
             resetCardPosition(card, { animate: false });
             render();
         }
     };
-    if (reducedMotionQuery.matches || !card) { commitDecision(); return; }
+    if (reducedMotionQuery.matches || !card) { recordDecision(); return; }
     leaving = true;
     card.querySelector('video')?.pause();
     card.classList.add('is-returning');
@@ -271,7 +318,7 @@ function decide(action) {
     const towardPositive = swipeActionForDx(1, readingDirection()) === action;
     const width = Math.max(window.innerWidth, card.offsetWidth) * 1.3;
     placeCard(card, towardPositive ? width : -width, 1);
-    window.setTimeout(commitDecision, FLY_OUT_MS);
+    window.setTimeout(recordDecision, FLY_OUT_MS);
 }
 
 function undo() {
@@ -344,19 +391,28 @@ function focusableIn(root) {
         .filter(element => !element.disabled && !element.hidden && !element.closest('[hidden], .hidden') && element.getClientRects().length > 0);
 }
 
+// המקשים נתפסים ברמת המסמך (capture) כל עוד החלון פתוח, ולא על החלון
+// עצמו: לחיצה על חלק שאינו מקבל פוקוס (הכותרת, טקסט ההסבר, המונה) מעבירה
+// את הפוקוס ל-body, ומאזין על החלון כבר לא היה שומע את Escape, החצים
+// ו-A/R/Z. מקש שמקורו מחוץ לחלון (טוסט, חלון אחר מעליו) אינו שלנו.
 function onKeydown(event) {
-    const dialog = event.currentTarget;
+    if (!isOpen) return;
+    const dialog = $('pendingSwipe');
+    const target = event.target instanceof Element ? event.target : null;
+    const onBody = !target || target === document.body || target === document.documentElement;
+    if (!onBody && !dialog.contains(target)) return;
     if (event.key === 'Tab') {
         // aria-modal: הפוקוס נשאר בתוך המצב המהיר עד שיוצאים ממנו.
         const items = focusableIn(dialog);
         if (!items.length) return;
         const first = items[0];
         const last = items[items.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        // מ-body הפוקוס חוזר לתוך החלון, ולא לדף שמאחוריו.
+        if (onBody) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         return;
     }
-    const target = event.target instanceof Element ? event.target : null;
     // Enter ורווח על כפתור מפעילים אותו בעצמם; בשדות ובסרטון המקשים שלהם.
     if (target?.closest('button, a') && (event.key === 'Enter' || event.key === ' ')) return;
     if (target?.closest('input, select, textarea')) return;
@@ -391,7 +447,7 @@ function wire() {
     wired = true;
     const dialog = $('pendingSwipe');
     const card = $('pendingSwipeCard');
-    dialog.addEventListener('keydown', onKeydown);
+    document.addEventListener('keydown', onKeydown, true);
     dialog.querySelectorAll('[data-swipe-close]').forEach(button => button.addEventListener('click', () => closePendingSwipe()));
     $('pendingSwipeApprove').addEventListener('click', () => decide('approve'));
     $('pendingSwipeReject').addEventListener('click', () => decide('reject'));
@@ -434,10 +490,36 @@ export function openPendingSwipe() {
 }
 
 export function closePendingSwipe() {
-    const dialog = $('pendingSwipe');
-    if (!dialog || !isOpen) return;
+    if (!isOpen) return;
     // יציאה אינה מוותרת על ההחלטה האחרונה: היא נשלחת עכשיו.
     session.flush();
+    hideDialog();
+}
+
+// סוף החיבור — התנתקות (גם מלשונית אחרת), החלפת חשבון או אובדן הרשאת
+// ניהול: החלון נסגר בלי לשלוח את ההחלטה שבחלון הביטול, והמפגש נשכח.
+// התנתקות מהכפתור כבר שלחה אותה קודם (flushPendingSwipe ב-session-auth.js);
+// כאן מגיע מה שלא הספיק — ובמקרה כזה עדיף שהפריט יישאר ממתין מאשר שיישמר
+// בשם מי שבא אחרי המנהל.
+export function endPendingSwipe() {
+    // קודם סוגרים: reset מודיע ל-render, וזה כבר לא יצייר חלון סגור.
+    if (isOpen) hideDialog({ restoreFocus: false });
+    session.reset();
+    decidedTitles.clear();
+    announceUndo('');
+    // פרטי ההעלאה של החשבון הקודם אינם נשארים גם ב-DOM המוסתר.
+    $('pendingSwipeCard')?.replaceChildren();
+    $('pendingSwipeNext')?.replaceChildren();
+    const undoText = $('pendingSwipeUndoText');
+    if (undoText) undoText.textContent = '';
+    const live = $('pendingSwipeLive');
+    if (live) live.textContent = '';
+    order = [];
+}
+
+function hideDialog({ restoreFocus = true } = {}) {
+    const dialog = $('pendingSwipe');
+    if (!dialog) return;
     isOpen = false;
     drag = null;
     leaving = false;
@@ -448,8 +530,16 @@ export function closePendingSwipe() {
     $('pendingSwipeCard')?.querySelector('video')?.pause();
     const opener = previousFocus && document.contains(previousFocus) ? previousFocus : $('pendingSwipeOpenBtn');
     previousFocus = null;
-    opener?.focus?.({ preventScroll: true });
+    if (restoreFocus) opener?.focus?.({ preventScroll: true });
+}
+
+// ההתנתקות (session-auth.js) מחכה לזה לפני שהאסימון נמחק: ההחלטה שבחלון
+// הביטול, וכל שמירה שכבר בדרך, נשלחות בשם המנהל שעדיין מחובר.
+export function flushPendingSwipe() {
+    return session.drain();
 }
 
 window.refreshPendingSwipe = () => render();
 window.closePendingSwipe = closePendingSwipe;
+window.flushPendingSwipe = flushPendingSwipe;
+window.resetPendingSwipe = endPendingSwipe;

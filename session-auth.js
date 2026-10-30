@@ -142,6 +142,22 @@ window.signInWithGoogleAccount = async function() {
     return window.openGoogleAccountChooser();
 };
 
+// "מצב מהיר" באישור העלאות (pending-swipe.js, רק אם נטען): החלטה שעוד בחלון
+// הביטול נשלחת עכשיו, כשהמנהל עדיין מחובר — אחרי ההתנתקות היא הייתה נשלחת
+// בשם מבקר לא מחובר ונכשלת, או בשם מי שנכנס אחריו. ההמתנה מוגבלת, כדי ששרת
+// תקוע לא ימנע התנתקות; מה שלא הספיק נזרק בסוף החיבור (resetPendingSwipe).
+const PENDING_SWIPE_SIGN_OUT_WAIT_MS = 8_000;
+async function settlePendingSwipe() {
+    const flushing = window.flushPendingSwipe?.();
+    if (!flushing) return;
+    let timer = 0;
+    await Promise.race([
+        Promise.resolve(flushing).catch(() => {}),
+        new Promise(resolve => { timer = setTimeout(resolve, PENDING_SWIPE_SIGN_OUT_WAIT_MS); })
+    ]);
+    clearTimeout(timer);
+}
+
 window.signOutGoogleAccount = async function(confirmed = false) {
     if (!auth) return;
     if (!confirmed) {
@@ -153,6 +169,7 @@ window.signOutGoogleAccount = async function(confirmed = false) {
         return;
     }
     try {
+        await settlePendingSwipe();
         window.google?.accounts?.id?.disableAutoSelect();
         window.clearDriveConnection?.();
         await signOut(auth);
@@ -175,6 +192,7 @@ window.lockGalleryImmediatelySidebar = async function(confirmed = false) {
     }
     try {
         window.showNotification("מתנתק ממצב ניהול...", true);
+        await settlePendingSwipe();
         window.clearDriveConnection?.();
         await signOut(auth);
         window.showNotification("התנתקת בהצלחה. חזרת למצב משתמש.", true);
@@ -435,7 +453,10 @@ async function initFirebase() {
 // להציג את הגלריה אחרי התנתקות, החלפת חשבון או אובדן אישור.
 // גם חלון "אלבום להדפסה" והכנה שעוד רצה נעצרים ונשכחים (print-album-ui.js, רק
 // אם נטען), אחרת מבקר שאינו מחובר היה מדפיס את התמונות שהקודם בחר.
+// גם "מצב מהיר" באישור העלאות נסגר (pending-swipe.js, רק אם נטען), בלי לשלוח
+// את ההחלטה שבחלון הביטול: היא שייכת לחשבון שכבר אינו מחובר.
 function clearPrivateGalleryViews() {
+    window.resetPendingSwipe?.();
     window.resetPeopleState?.();
     window.resetMediaLinkState?.();
     window.resetNewUpdatesState?.();

@@ -272,3 +272,56 @@ test('כל שינוי מודיע ל-onChange: החלטה, ביטול ושמיר�
     await flush();
     assert.equal(changes(), 4);
 });
+
+test('drain שולח את ההחלטה שממתינה ומחכה גם לשמירות שכבר בדרך (התנתקות)', async () => {
+    const calls = [];
+    const finishers = new Map();
+    const { api, clock } = session({
+        commit: id => new Promise(resolve => {
+            calls.push(id);
+            finishers.set(id, resolve);
+        })
+    });
+    // בלי שום החלטה drain מסתיים מיד.
+    await api.drain();
+    api.decide('a', 'approve');
+    api.decide('b', 'reject');
+    let drained = false;
+    const done = api.drain().then(() => { drained = true; });
+    assert.equal(api.pending, null);
+    assert.equal(clock.pending(), 0);
+    await flush();
+    assert.deepEqual(calls, ['a']);
+    finishers.get('a')();
+    await flush();
+    // "a" נשמר, אבל "b" עוד בדרך — drain עדיין מחכה.
+    assert.equal(drained, false);
+    assert.deepEqual(calls, ['a', 'b']);
+    finishers.get('b')();
+    await done;
+    assert.equal(drained, true);
+    assert.equal(api.committed, 2);
+    assert.equal(api.busy, false);
+});
+
+test('reset זורק את ההחלטה שממתינה בלי לשלוח, ושוכח את מה שהוחלט (סוף המפגש)', async () => {
+    const { api, clock, calls, changes } = session();
+    api.decide('a', 'approve');
+    clock.advance(SWIPE_UNDO_MS);
+    await flush();
+    api.decide('b', 'reject');
+    const before = changes();
+    assert.deepEqual(api.reset(), { id: 'b', action: 'reject' });
+    assert.equal(changes(), before + 1);
+    assert.equal(api.pending, null);
+    assert.equal(clock.pending(), 0);
+    clock.advance(SWIPE_UNDO_MS * 2);
+    await flush();
+    // רק מה שנשמר לפני הסוף נשלח; "b" לא יצא לשרת.
+    assert.deepEqual(calls.map(call => call.id), ['a']);
+    // חשבון אחר שנכנס מתחיל מתור מלא, ואפשר להחליט שוב על אותו פריט.
+    assert.deepEqual(api.queue(['a', 'b']), ['a', 'b']);
+    assert.equal(api.decide('b', 'approve'), true);
+    assert.equal(api.reset()?.id, 'b');
+    assert.equal(api.reset(), null);
+});

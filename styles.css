@@ -825,6 +825,9 @@ html[data-api-environment="staging"] .env-ribbon::before {
     isolation: isolate;
     transition: transform .2s var(--ease-spring), background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease), filter .2s var(--ease);
 }
+/* הסמל שבכפתור שומר על גודלו: כשהשורה צפופה (כותרת לוח בטלפון) הטקסט
+   הוא שמתכווץ, ולא הסמל — אחרת "מצב מהיר" נשאר עם סמל של שבריר פיקסל. */
+:is(.btn-primary-gold, .btn-secondary-dark, .btn-google-login, .btn-danger-soft, .btn-ghost) > :is(svg, i) { flex: none; }
 
 .btn-primary-gold {
     background: var(--gold-foil);
@@ -4578,11 +4581,14 @@ body textarea { resize: vertical; min-height: 84px; }
     box-shadow: var(--shadow-1);
     overflow: hidden;
 }
+/* הכותרת והכפתורים שלידה נשברים לשתי שורות כשאין מקום (טלפון), במקום
+   שהכותרת תידחס לשלוש שורות צרות והכפתורים יימחצו לצידה. */
 .admin-panel-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 10px 12px;
     padding: 14px 18px;
     border-bottom: 1px solid var(--line);
     background: linear-gradient(180deg, var(--panel-2), var(--panel));

@@ -1,7 +1,7 @@
 // "מצב מהיר" באישור העלאות (pending-swipe.js): החלקה ומקשים, ביטול לפני
 // השמירה, מונים, ופריטים שיוצאים מהתור — מול הזיוף של ה-Worker, דרך אותן
 // בקשות של "אשר נבחרים" (POST /approve, /data/images, /data/pendingImages).
-import { test, expect, seedSession, pendingRecord } from './fixtures.mjs';
+import { test, expect, seedSession, pendingRecord, readStoredToken, fakeSessionToken, TOKEN_KEY, DEFAULT_USER } from './fixtures.mjs';
 
 const UNDO_WAIT = { timeout: 12_000 };
 
@@ -119,7 +119,8 @@ test('מנהל: דחייה היא בקשת מחיקה, Enter מאשר, והפר�
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openFastMode(page);
 
-    await expect(page.locator('#pendingSwipeReject')).toHaveAttribute('aria-label', 'דחייה — שליחת בקשת מחיקה למנהל־העל');
+    await expect(page.locator('#pendingSwipeReject')).toHaveAccessibleName('דחה');
+    await expect(page.locator('#pendingSwipeReject')).toHaveAccessibleDescription('שליחת בקשת מחיקה למנהל־העל');
     await expect(cardTitle(page)).toHaveText('העלאה 2');
     // "/" של חיפוש התפריט אינו מוציא את הפוקוס מהחלון המודאלי.
     await page.keyboard.press('/');
@@ -204,4 +205,226 @@ test('אישורים מהירים לתיקייה מקורית חדשה יוצר�
     for (const id of ['pending_e2e_1', 'pending_e2e_2', 'pending_e2e_3']) {
         expect(worker.collection('images').get(id)?.folderId).toBe(folders[0].id);
     }
+});
+
+// כל הטוסטים שהוצגו בדף, גם אלה שכבר נעלמו — כדי לוודא שלמבקר שאינו מחובר
+// לא הוצג שם של העלאה, ולא "אין הרשאה" על החלטה של המנהל שהתנתק.
+async function recordToasts(page) {
+    await page.addInitScript(() => {
+        window.__toasts = [];
+        document.addEventListener('DOMContentLoaded', () => {
+            const message = document.getElementById('customAlertMessage');
+            if (!message) return;
+            new MutationObserver(() => window.__toasts.push(message.textContent.trim()))
+                .observe(message, { childList: true, characterData: true, subtree: true });
+        });
+    });
+}
+
+const toasts = page => page.evaluate(() => window.__toasts || []);
+const leakedToasts = async page => (await toasts(page)).filter(text => text.includes('העלאה') || text.includes('הרשאה'));
+// חלון הביטול (5 שניות) ועוד מרווח: מה שהיה אמור להישלח בסופו כבר נשלח.
+const pastUndoWindow = page => page.waitForTimeout(6_500);
+
+test('התנתקות באמצע חלון הביטול: ההחלטה נשמרת לפני ההתנתקות, והמצב המהיר נסגר', async ({ page, worker }) => {
+    test.slow();
+    seedPending(worker, 2);
+    await recordToasts(page);
+    await seedSession(page, { worker, role: 'super_admin', name: 'מנהל־על' });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+
+    await page.keyboard.press('a');
+    await expect(page.locator('#pendingSwipeUndoText')).toHaveText('אושר: העלאה 2');
+    expect(worker.requestsTo('POST', '/approve')).toHaveLength(0);
+
+    // "יציאה ממצב ניהול" שבתפריט, כשהאישור עוד בחלון הביטול.
+    await page.evaluate(() => window.lockGalleryImmediatelySidebar(true));
+    await expect(page.locator('#pendingSwipe')).toBeHidden();
+    await expect.poll(() => readStoredToken(page)).toBeNull();
+    // האישור נשלח בשם המנהל, לפני שהאסימון נמחק.
+    const record = worker.collection('pendingImages').get('pending_e2e_2');
+    expect(record?.status).toBe('approved');
+    expect(record?.approvedBy).toBe(DEFAULT_USER.uid);
+    expect(worker.collection('images').get('pending_e2e_2')?.status).toBe('active');
+
+    await pastUndoWindow(page);
+    expect(worker.requestsTo('POST', '/approve')).toHaveLength(1);
+    expect(await leakedToasts(page)).toEqual([]);
+});
+
+test('התנתקות בלשונית אחרת באמצע חלון הביטול: המצב המהיר נסגר וההחלטה אינה נשלחת', async ({ page, context, worker }) => {
+    test.slow();
+    seedPending(worker, 2);
+    await recordToasts(page);
+    await seedSession(page, { worker, role: 'super_admin', name: 'מנהל־על' });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+
+    await page.keyboard.press('a');
+    await expect(page.locator('#pendingSwipeUndoText')).toHaveText('אושר: העלאה 2');
+
+    const second = await context.newPage();
+    await second.goto('/');
+    await second.evaluate(() => window.signOutGoogleAccount(true));
+
+    // אירוע storage מגיע ללשונית הראשונה: החלון נסגר ואינו נשאר מעל הדף הנעול.
+    await expect(page.locator('#pendingSwipe')).toBeHidden();
+    await expect(page.locator('html')).not.toHaveClass(/pending-swipe-open/);
+    await pastUndoWindow(page);
+    // ההחלטה שבחלון הביטול לא נשלחה בשם מבקר שאינו מחובר: הפריט עדיין ממתין.
+    expect(worker.requestsTo('POST', '/approve')).toHaveLength(0);
+    expect(worker.collection('pendingImages').get('pending_e2e_2')?.status).toBe('pending');
+    expect(await leakedToasts(page)).toEqual([]);
+});
+
+test('החלפת חשבון באמצע חלון הביטול: ההחלטה אינה נשמרת בשם המנהל השני', async ({ page, context, worker }) => {
+    test.slow();
+    seedPending(worker, 2);
+    await recordToasts(page);
+    await seedSession(page, { worker, role: 'super_admin', name: 'מנהל־על' });
+    const other = { uid: 'google-admin-2', email: 'admin2@example.com', name: 'מנהל שני' };
+    worker.seedUser({ ...other, role: 'super_admin' });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+
+    await page.keyboard.press('a');
+    await expect(page.locator('#pendingSwipeUndoText')).toHaveText('אושר: העלאה 2');
+
+    // לשונית אחרת נכנסת בחשבון אחר; אירוע storage מחליף את החשבון גם כאן.
+    const second = await context.newPage();
+    await second.goto('/version.json');
+    await second.evaluate(([key, value]) => localStorage.setItem(key, value), [TOKEN_KEY, fakeSessionToken(other)]);
+
+    await expect(page.locator('#pendingSwipe')).toBeHidden();
+    await pastUndoWindow(page);
+    expect(worker.requestsTo('POST', '/approve')).toHaveLength(0);
+    expect(worker.collection('pendingImages').get('pending_e2e_2')?.status).toBe('pending');
+    expect([...worker.collection('pendingImages').values()].filter(record => record.approvedBy === other.uid)).toEqual([]);
+    expect(await leakedToasts(page)).toEqual([]);
+
+    // המנהל השני מתחיל מפגש נקי: הפריט שהראשון כמעט אישר חוזר לתור.
+    await expect(page.locator('#pendingList input[name="pendingImgCheck"]')).toHaveCount(2);
+    await page.locator('#pendingSwipeOpenBtn').click();
+    await expect(cardTitle(page)).toHaveText('העלאה 2');
+    await expect(count(page)).toHaveText('נותרו 2');
+});
+
+test('כפתור "דחה": השם הנגיש הוא המילה שעל הכפתור, והיעד בתיאור', async ({ page, worker }) => {
+    seedPending(worker, 1);
+    await seedSession(page, { worker, role: 'super_admin' });
+    await openFastMode(page);
+    const reject = page.locator('#pendingSwipeReject');
+    // WCAG 2.5.3: מי שאומר "דחה" לתוכנת שליטה קולית מגיע לכפתור.
+    await expect(reject).toHaveAccessibleName('דחה');
+    await expect(reject).toHaveAccessibleDescription('העברה לסל המחזור');
+    await expect(page.locator('#pendingSwipeApprove')).toHaveAccessibleName('אשר');
+});
+
+test('לחיצה על חלק בחלון שאינו מקבל פוקוס אינה מכבה את המקשים', async ({ page, worker }) => {
+    seedPending(worker, 3);
+    await seedSession(page, { worker, role: 'super_admin' });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+
+    // טקסט ההסבר אינו מקבל פוקוס: הלחיצה עליו מעבירה את הפוקוס ל-body.
+    await page.locator('#pendingSwipeHelp').click();
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    await page.keyboard.press('a');
+    await expect(page.locator('#pendingSwipeUndoText')).toHaveText('אושר: העלאה 3');
+    await expect(cardTitle(page)).toHaveText('העלאה 2');
+
+    await page.locator('#pendingSwipeTitle').click();
+    await page.keyboard.press('z');
+    await expect(cardTitle(page)).toHaveText('העלאה 3');
+    await page.locator('#pendingSwipeCount').click();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('#pendingSwipeUndoText')).toHaveText('נדחה ויועבר לסל המחזור: העלאה 3');
+    await page.locator('#pendingSwipeHelp').click();
+    await page.keyboard.press('z');
+    await expect(cardTitle(page)).toHaveText('העלאה 3');
+
+    // Tab מ-body חוזר לתוך החלון, ולא לדף שמאחוריו.
+    await page.locator('#pendingSwipeHelp').click();
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => document.getElementById('pendingSwipe').contains(document.activeElement))).toBe(true);
+
+    await page.locator('#pendingSwipeHelp').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#pendingSwipe')).toBeHidden();
+    // שתי ההחלטות בוטלו, ולכן היציאה לא שלחה דבר.
+    expect(worker.requestsTo('POST', '/approve')).toHaveLength(0);
+    expect(worker.collection('trashItems').size).toBe(0);
+});
+
+test('ההחלטה הראשונה מוכרזת: אזור ההכרזה קיים מראש ומתמלא רק בפריים הבא', async ({ page, worker }) => {
+    seedPending(worker, 2);
+    await seedSession(page, { worker, role: 'super_admin' });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openFastMode(page);
+
+    const live = page.locator('#pendingSwipeUndoLive');
+    // האזור כבר בעץ הנגישות לפני ההחלטה הראשונה: לא מוסתר ולא בתוך אב מוסתר.
+    await expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(await live.evaluate(element => !element.closest('[hidden], .hidden') && getComputedStyle(element).display !== 'none')).toBe(true);
+    await expect(live).toHaveText('');
+    // הטקסט הנראה בפס הביטול אינו מוכרז פעם שנייה.
+    await expect(page.locator('#pendingSwipeUndoText')).not.toHaveAttribute('aria-live', /.*/);
+    await expect(page.locator('#pendingSwipeUndoText')).not.toHaveAttribute('role', /.*/);
+
+    // באותה משימה שבה הפס נחשף, האזור עוד ריק; ההודעה נכנסת בפריים הבא.
+    const sameTask = await page.evaluate(() => {
+        document.getElementById('pendingSwipeApprove').click();
+        return {
+            barHidden: document.getElementById('pendingSwipeUndo').hidden,
+            live: document.getElementById('pendingSwipeUndoLive').textContent
+        };
+    });
+    expect(sameTask).toEqual({ barHidden: false, live: '' });
+    await expect(live).toHaveText('אושר: העלאה 2');
+
+    // ביטול ואותה החלטה שוב: האזור מתרוקן קודם, ולכן אותו טקסט מוכרז מחדש.
+    await page.keyboard.press('z');
+    await expect(live).toHaveText('');
+    await page.keyboard.press('a');
+    await expect(live).toHaveText('אושר: העלאה 2');
+});
+
+test('בטלפון (390px): כותרת לוח האישור נשברת לשורות, והסמל של "מצב מהיר" אינו נמחץ', async ({ page, worker }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    seedPending(worker, 2);
+    await seedSession(page, { worker, role: 'super_admin' });
+    await page.goto('/admin.html#pending');
+    await expect(page.locator('#pendingList input[name="pendingImgCheck"]').first()).toBeVisible();
+
+    const rects = await page.locator('#view-pending .admin-panel-head').evaluate(head => {
+        const rect = node => {
+            const r = node.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+        };
+        const title = head.querySelector('h3');
+        const button = document.getElementById('pendingSwipeOpenBtn');
+        const style = getComputedStyle(title);
+        return {
+            title: rect(title),
+            lineHeight: parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5,
+            button: rect(button),
+            icon: rect(button.querySelector('svg, i')),
+            buttons: Array.from(head.querySelectorAll('button'), rect)
+        };
+    });
+    // הסמל בגודל שנקבע לו (w-3.5 = 14px), ולא נמחץ לשבריר פיקסל.
+    expect(rects.icon.width).toBeGreaterThanOrEqual(13.5);
+    expect(rects.icon.height).toBeGreaterThanOrEqual(13.5);
+    // הכותרת בשורה אחת — לא שלוש שורות צרות לצד הכפתורים.
+    expect(rects.title.height).toBeLessThan(rects.lineHeight * 1.8);
+    // הכפתורים אינם חופפים לכותרת, וכולם בתוך המסך.
+    const overlaps = (a, b) => a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
+    for (const button of rects.buttons) {
+        expect(overlaps(button, rects.title)).toBe(false);
+        expect(button.x).toBeGreaterThanOrEqual(0);
+        expect(button.right).toBeLessThanOrEqual(390);
+    }
+    expect(rects.button.width).toBeGreaterThan(rects.icon.width + 40);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
