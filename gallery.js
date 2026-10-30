@@ -664,6 +664,12 @@ window.reshuffleGallery = function() {
     window.showNotification('הגלריה עורבבה מחדש.', true);
 };
 
+// הזרע הנוכחי של הסדר האקראי, לזיכרון הגלילה (gallery-navigation-ui.js):
+// מקום שנשמר לפני "ערבב מחדש" אינו משוחזר בסדר החדש, כמו ב-currentViewSignature.
+window.galleryRandomSeed = function() {
+    return randomGalleryOrder.seed;
+};
+
 // ההיקף של הדירוג האקראי: התיקייה הפעילה, או תוצאות החיפוש הזמני.
 function randomOrderScope() {
     return window.state.tempSearchResults !== null ? 'temp' : (window.safeRecordId(window.state.activeFolderId) || 'all');

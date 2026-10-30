@@ -91,6 +91,29 @@ function renderShortcutsHelp() {
     }));
 }
 
+// מה שאפשר להגיע אליו ב-Tab בתוך חלון.
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// חלון הקיצורים מודאלי (aria-modal), אבל הדף שמאחוריו — והתצוגה המלאה, כשהוא
+// נפתח מעליה — אינו inert: בלי זה Tab מהכפתור היחיד שבו היה יוצא אל הגלריה,
+// והמשתמש היה מקליד מאחורי חלון שעדיין פתוח. Tab ו-Shift+Tab מסתובבים בתוכו,
+// ופוקוס שנפל ממנו (לחיצה על הרשימה עצמה) חוזר אליו בהקשה הבאה.
+// הלכידה רק בחלון הזה ולא ב-openModal לכל החלונות: לחלונות האחרים כבר יש
+// סדר פוקוס משלהם (התצוגה המלאה, עמוד האירוע, חלונות מעל חלונות), ושינוי
+// כללי כזה היה צריך להיבדק בכל אחד מהם.
+function trapHelpFocus(event) {
+    if (event.key !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    const dialog = document.getElementById(HELP_MODAL_ID);
+    if (!isShown(dialog)) return;
+    const controls = Array.from(dialog.querySelectorAll(FOCUSABLE)).filter(node => node.getClientRects().length > 0);
+    const active = document.activeElement;
+    const inside = dialog.contains(active);
+    const edge = event.shiftKey ? controls[0] : controls.at(-1);
+    if (inside && controls.length && active !== edge) return;
+    event.preventDefault();
+    (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+}
+
 function openShortcutsHelp() {
     renderShortcutsHelp();
     window.openModal?.(HELP_MODAL_ID);
@@ -129,13 +152,18 @@ function captureAnchor() {
     return top < window.innerHeight ? { mediaId: card.dataset.mediaId, top } : null;
 }
 
+// הזרע של הסדר האקראי אינו ב-state; gallery.js חושף אותו.
+function currentViewKey() {
+    return galleryViewKey(window.state, window.galleryRandomSeed?.());
+}
+
 function captureSnapshot(opener) {
     // body (אחרי לחיצה על משהו שאינו ממקד) אינו "מי שפתח".
     const element = opener instanceof Element && opener !== document.body && opener !== document.documentElement ? opener : null;
     return {
         scrollY: window.scrollY,
         anchor: captureAnchor(),
-        viewKey: galleryViewKey(window.state),
+        viewKey: currentViewKey(),
         results: window.state?.tempSearchResults ?? null,
         opener: element,
         focusMediaId: element?.closest('[data-media-id]')?.dataset.mediaId || '',
@@ -144,7 +172,7 @@ function captureSnapshot(opener) {
 }
 
 function sameView(saved) {
-    return saved.viewKey === galleryViewKey(window.state) && saved.results === (window.state?.tempSearchResults ?? null);
+    return saved.viewKey === currentViewKey() && saved.results === (window.state?.tempSearchResults ?? null);
 }
 
 function cardFor(mediaId) {
@@ -260,6 +288,7 @@ export function initGalleryNavigation() {
     if (window.PAGE_MODE && window.PAGE_MODE !== 'gallery') return;
     installed = true;
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', trapHelpFocus);
     watchModals();
     window.openShortcutsHelp = openShortcutsHelp;
     window.noteGalleryRoute = noteGalleryRoute;

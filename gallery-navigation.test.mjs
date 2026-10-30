@@ -81,13 +81,25 @@ test("חזרה למעלה מופיעה אחרי כשני מסכים, ולא מת
 });
 
 test("מפתח התצוגה משתנה עם התיקייה, החיפוש, המיון והסינונים בלבד", () => {
-  const base = { activeFolderId: "all", searchQuery: "", gallerySort: "newest", hebrewYearFilter: "", hebrewMonthFilter: "", sceneTagFilter: "", mediaTypeFilter: "" };
+  const base = { activeFolderId: "all", searchQuery: "", gallerySort: "newest", hebrewYearFilter: "", hebrewMonthFilter: "", sceneTagFilter: "", mediaTypeFilter: "", orientationFilter: "" };
   const keyOf = galleryViewKey(base);
   assert.equal(galleryViewKey({ ...base, images: [1, 2], favorites: new Set(["x"]) }), keyOf);
-  for (const [field, value] of [["activeFolderId", "2"], ["searchQuery", "בר"], ["gallerySort", "oldest"], ["hebrewYearFilter", "5787"], ["hebrewMonthFilter", "tishrei"], ["sceneTagFilter", "dancing"], ["mediaTypeFilter", "video"]]) {
+  for (const [field, value] of [["activeFolderId", "2"], ["searchQuery", "בר"], ["gallerySort", "oldest"], ["hebrewYearFilter", "5787"], ["hebrewMonthFilter", "tishrei"], ["sceneTagFilter", "dancing"], ["mediaTypeFilter", "video"], ["orientationFilter", "portrait"]]) {
     assert.notEqual(galleryViewKey({ ...base, [field]: value }), keyOf, field);
   }
   assert.equal(typeof galleryViewKey(null), "string");
+});
+
+test("מפתח התצוגה: 'ערבב מחדש' (זרע אחר) הוא תצוגה חדשה רק במיון אקראי", () => {
+  const random = { activeFolderId: "all", gallerySort: "random" };
+  assert.equal(galleryViewKey(random, 17), galleryViewKey(random, 17));
+  assert.notEqual(galleryViewKey(random, 18), galleryViewKey(random, 17));
+  // במיון אחר הזרע אינו משנה דבר — כמו currentViewSignature ב-gallery.js.
+  const newest = { ...random, gallerySort: "newest" };
+  assert.equal(galleryViewKey(newest, 18), galleryViewKey(newest, 17));
+  assert.equal(galleryViewKey(newest, 18), galleryViewKey(newest));
+  // זרע חסר או לא מספרי נחשב 0, ולא מפיל את המפתח.
+  assert.equal(galleryViewKey(random, undefined), galleryViewKey(random, "x"));
 });
 
 test("החזרה למקום: לפי הכרטיס כשהוא בדף, אחרת לפי המספר, ובגבולות הדף", () => {
@@ -124,4 +136,10 @@ test("המודולים במעטפת, בבדיקת התחביר, ב-README, ומ�
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /import \{ initGalleryNavigation \} from '\.\/gallery-navigation-ui\.js'/);
   assert.match(app, /initGalleryNavigation\(\);/);
+  // הזרע של הסדר האקראי מגיע ממערבב הגלריה אל מפתח התצוגה של זיכרון הגלילה.
+  const gallery = readFileSync(new URL("./gallery.js", import.meta.url), "utf8");
+  assert.match(gallery, /window\.galleryRandomSeed = function\(\) \{\s*return randomGalleryOrder\.seed;/);
+  const ui = readFileSync(new URL("./gallery-navigation-ui.js", import.meta.url), "utf8");
+  assert.match(ui, /galleryViewKey\(window\.state, window\.galleryRandomSeed\?\.\(\)\)/);
+  assert.doesNotMatch(ui, /galleryViewKey\(window\.state\)/);
 });

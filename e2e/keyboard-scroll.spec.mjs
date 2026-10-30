@@ -70,6 +70,42 @@ test('"?" פותח את רשימת הקיצורים, Escape סוגר ומחזי�
     await expect(button).toBeFocused();
 });
 
+test('חלון הקיצורים לוכד את הפוקוס: Tab ו-Shift+Tab אינם יוצאים ממנו אל הדף שמאחור', async ({ page, worker }) => {
+    await openGallery(page, worker, 3);
+    const insideDialog = () => page.evaluate(() => Boolean(document.activeElement?.closest('#shortcutsHelpModal')));
+
+    await page.locator('body').press('?');
+    const dialog = helpDialog(page);
+    const close = dialog.getByRole('button', { name: 'סגירת רשימת הקיצורים' });
+    await expect(dialog).toBeVisible();
+    await expect(close).toBeFocused();
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Tab']) {
+        await page.keyboard.press(key);
+        expect(await insideDialog(), key).toBe(true);
+    }
+    await expect(close).toBeFocused();
+    // פוקוס שנפל אל גוף החלון (לחיצה על הרשימה) חוזר ל-Tab הבא אל תוך החלון.
+    await dialog.locator('#shortcutsHelpList').click();
+    await page.keyboard.press('Shift+Tab');
+    expect(await insideDialog()).toBe(true);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    // אחרי הסגירה Tab חוזר להתנהג כרגיל בדף.
+    await page.keyboard.press('Tab');
+    expect(await insideDialog()).toBe(false);
+
+    // גם מעל התצוגה המלאה: Tab אינו בורח אל הכפתורים של התצוגה שמתחת.
+    await cards(page).first().locator('.gallery-media').click();
+    await expect(page.locator('#lightboxModal')).toBeVisible();
+    await page.keyboard.press('Shift+?');
+    await expect(dialog).toBeVisible();
+    for (const key of ['Tab', 'Shift+Tab', 'Shift+Tab']) {
+        await page.keyboard.press(key);
+        expect(await insideDialog(), key).toBe(true);
+    }
+});
+
 test('בתצוגה המלאה: חצים מימין לשמאל, D מוריד, F מסמן מועדף, ו-"?" נפתח מעליה בלי להזיז אותה', async ({ page, worker }) => {
     await openGallery(page, worker, 3);
     await cards(page).first().locator('.gallery-media').click();
@@ -231,6 +267,35 @@ test('"חזור" של הדפדפן מאלבום של אדם מחזיר לאות�
     expect(Math.abs(await scrollY(page) - before)).toBeLessThanOrEqual(1);
     // הפוקוס היה על הכותרת של האלבום, שנעלמה: הוא עובר לכרטיס שבראש המסך.
     await expect(page.locator('#photosGrid .gallery-media:focus')).toHaveCount(1);
+});
+
+test('סינון לפי כיוון שנבחר בתוך אלבום של אדם: "חזור" מגיע לראש הרשת המסוננת, לא למקום הישן', async ({ page, worker }) => {
+    // כל פריט שלישי לרוחב, השאר לאורך — הכרטיס 70 נשאר גם ברשת המסוננת.
+    worker.seedFolders().seedImages(Array.from({ length: 150 }, (_, i) => imageRecord(i + 1,
+        (i + 1) % 3 === 0 ? { width: 4032, height: 3024 } : { width: 3024, height: 4032 })));
+    worker.seedPerson({ personId: 'fp_yossi', name: 'יוסי כהן', status: 'approved', faces: [{ imageId: 'img_e2e_5' }, { imageId: 'img_e2e_7' }] });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(cards(page).first()).toBeVisible();
+    await scrollToCard(page, 70);
+    expect(await scrollY(page)).toBeGreaterThan(1000);
+
+    await page.evaluate(() => { window.location.hash = '#person/fp_yossi'; });
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+    await page.locator('#galleryOrientationFilter').selectOption('portrait');
+    await expect(cards(page)).toHaveCount(2);
+
+    await page.goBack();
+    await expect(page.locator('#tempSearchBanner')).toBeHidden();
+    await expect(page.locator('#galleryOrientationFilter')).toHaveValue('portrait');
+    await expect(cards(page).first()).toBeVisible();
+    await settle(page);
+    await page.waitForTimeout(300);
+    // תצוגה אחרת: ראש הרשת המסוננת בראש המסך, ולא המקום של הכרטיס 70 מלפני האלבום
+    // (בלי הכיוון במפתח התצוגה, הגלילה חזרה לעומק של יותר מ-4000 פיקסלים).
+    const gridTop = await page.locator('#photosGrid').evaluate(node => Math.round(node.getBoundingClientRect().top));
+    expect(gridTop).toBeGreaterThanOrEqual(-1);
+    expect(await scrollY(page)).toBeLessThan(1000);
 });
 
 test('#people שנשאר בכתובת אחרי שרשימת האנשים נסגרה אינו מקפיץ את הגלריה למקום ישן', async ({ page, worker }) => {

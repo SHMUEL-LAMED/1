@@ -80,11 +80,17 @@ export function backToTopVisible(scrollY, viewportHeight) {
     return Number.isFinite(y) && y > backToTopThreshold(viewportHeight);
 }
 
-// "תצוגה" של הגלריה לצורך זיכרון הגלילה: תיקייה, חיפוש, מיון וסינונים.
-// מקום שנשמר בתצוגה אחת אינו משוחזר באחרת — אם המשתמש עבר תיקייה מתוך
-// עמוד האירוע, הוא רוצה את ראש התיקייה החדשה ולא את המקום הישן.
-export function galleryViewKey(state) {
+// "תצוגה" של הגלריה לצורך זיכרון הגלילה: תיקייה, חיפוש, מיון וסינונים —
+// אותם שדות כמו currentViewSignature ב-gallery.js, שלפיה הרשת חוזרת למנה
+// הראשונה. מקום שנשמר בתצוגה אחת אינו משוחזר באחרת — אם המשתמש עבר תיקייה
+// מתוך עמוד האירוע, או בחר כיוון בתוך אלבום של אדם וחזר, הוא רוצה את ראש
+// התצוגה החדשה ולא את המקום הישן ברשת שהשתנתה מתחתיו.
+//   randomSeed — הזרע של הסדר האקראי (window.galleryRandomSeed ב-gallery.js).
+//                הוא אינו ב-state, ונחשב רק במיון אקראי: "ערבב מחדש" הוא
+//                תצוגה חדשה, אבל במיון אחר הזרע אינו משנה את הסדר.
+export function galleryViewKey(state, randomSeed = 0) {
     const source = state && typeof state === 'object' ? state : {};
+    const seed = source.gallerySort === 'random' ? (Number(randomSeed) || 0) : 0;
     return JSON.stringify([
         String(source.activeFolderId ?? 'all'),
         String(source.searchQuery ?? ''),
@@ -92,7 +98,9 @@ export function galleryViewKey(state) {
         String(source.hebrewYearFilter ?? ''),
         String(source.hebrewMonthFilter ?? ''),
         String(source.sceneTagFilter ?? ''),
-        String(source.mediaTypeFilter ?? '')
+        String(source.mediaTypeFilter ?? ''),
+        String(source.orientationFilter ?? ''),
+        seed
     ]);
 }
 
