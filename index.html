@@ -137,6 +137,22 @@
             </div>
         </aside>
 
+        <!-- ---------- ציר הזמן העברי ----------
+             השנים והחודשים העבריים שבתצוגה (gallery-timeline-ui.js), רק במיון לפי תאריך
+             ומשני חודשים ומעלה. במסך רחב — עמודה דבוקה בצד הסוף של הגלריה; במסך צר —
+             כפתור צף שפותח את אותה רשימה. לפני הגלריה ב-DOM, כדי ש-Tab יגיע אליו לפני
+             הכרטיסים. -->
+        <nav id="galleryTimeline" class="gallery-timeline" aria-label="ציר הזמן לפי חודשים עבריים" data-open="false" hidden>
+            <button type="button" id="galleryTimelineToggle" class="gallery-timeline-toggle" onclick="toggleGalleryTimeline()" aria-expanded="false" aria-controls="galleryTimelinePanel" aria-label="קפיצה לתאריך" title="קפיצה לתאריך">
+                <i data-lucide="calendar-days" class="w-4 h-4"></i>
+                <span id="galleryTimelineCurrent" class="gallery-timeline-current"></span>
+            </button>
+            <div id="galleryTimelinePanel" class="gallery-timeline-panel">
+                <p class="gallery-timeline-title" aria-hidden="true">קפיצה לחודש</p>
+                <ol id="galleryTimelineList" class="gallery-timeline-list"></ol>
+            </div>
+        </nav>
+
         <!-- ---------- הגלריה ---------- -->
         <section id="galleryStage" class="gallery-stage" aria-label="תמונות הגלריה">
 

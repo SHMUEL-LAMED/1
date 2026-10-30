@@ -125,7 +125,8 @@ function openShortcutsHelp() {
 // המרחק של כרטיס מראש המסך לפי הפריסה, בלי ה-transform של אנימציית הכניסה:
 // כרטיס שנבנה מחדש (חזרה מאלבום, לב שנלחץ) עולה למקומו מ-20 פיקסלים מתחתיו,
 // ומדידה באמצע התנועה הייתה משאירה את הגלריה מוזזת בדיוק בהפרש הזה.
-function layoutTop(node) {
+// גם ציר הזמן העברי (gallery-timeline-ui.js) מודד בה את הכרטיסים.
+export function layoutTop(node) {
     const parent = node.offsetParent;
     if (!parent) return node.getBoundingClientRect().top;
     return parent.getBoundingClientRect().top + parent.clientTop + node.offsetTop;

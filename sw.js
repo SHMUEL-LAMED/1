@@ -30,6 +30,8 @@ const APP_SHELL = [
   "./search-history-ui.js",
   "./gallery-navigation.js",
   "./gallery-navigation-ui.js",
+  "./gallery-timeline.js",
+  "./gallery-timeline-ui.js",
   "./zip-writer.js",
   "./media-variants.js",
   "./video-hover-preview.js",

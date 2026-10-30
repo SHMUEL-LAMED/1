@@ -2606,6 +2606,130 @@ body textarea { resize: vertical; min-height: 84px; }
 #photosGrid { scroll-margin-top: calc(var(--header-h) + 12px); }
 .back-to-top:hover { background: var(--gold-foil); color: var(--ink-on-accent); }
 
+/* ---- ציר הזמן העברי (gallery-timeline-ui.js) ----
+   במסך רחב: עמודה שלישית בפריסה, בצד הסוף של הגלריה (משמאל — הדף מימין
+   לשמאל), דבוקה מתחת לכותרת כמו רשימת התיקיות. העמודה נוספת רק כשהציר מוצג
+   (data-timeline על .gallery-layout), כדי שבמיון לפי שם לא יישאר רווח ריק.
+   במסך צר: כפתור צף ליד "חזרה למעלה", שמציג את החודש הנוכחי ופותח את אותה
+   רשימה כחלונית מעליו. */
+.gallery-timeline[hidden] { display: none; }
+.gallery-timeline-list,
+.gallery-timeline-months { list-style: none; margin: 0; padding: 0; }
+.gallery-timeline-panel {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 12px 8px;
+    border-radius: var(--r-lg);
+    background: var(--glass-strong);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+}
+.gallery-timeline-title { margin: 0 8px 8px; font-size: 11px; font-weight: 800; color: var(--ink-3); }
+.gallery-timeline-year + .gallery-timeline-year { margin-top: 10px; }
+.gallery-timeline-year-label {
+    display: block;
+    padding: 2px 8px 4px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+}
+/* קו הציר: החודשים תלויים עליו, והחודש הפעיל מסומן עליו בפס זהב. */
+.gallery-timeline-months { margin-inline-start: 8px; border-inline-start: 1px solid var(--line-strong); }
+.gallery-timeline-month {
+    position: relative;
+    width: 100%;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: start;
+    transition: background .2s var(--ease), color .2s var(--ease);
+}
+.gallery-timeline-month:hover { background: var(--panel-soft); color: var(--ink); }
+.gallery-timeline-month:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.gallery-timeline-month[aria-current="true"] { background: var(--gold-tint); color: var(--gold); font-weight: 800; }
+.gallery-timeline-month[aria-current="true"]::before {
+    content: "";
+    position: absolute;
+    inset-block: 6px;
+    inset-inline-start: -2px;
+    width: 3px;
+    border-radius: var(--r-full);
+    background: var(--gold);
+}
+.gallery-timeline-count { font-size: 10px; font-weight: 700; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+.gallery-timeline-month[aria-current="true"] .gallery-timeline-count { color: var(--gold-deep); }
+.gallery-timeline-toggle { display: none; }
+
+@media (min-width: 1200px) {
+    .gallery-layout[data-timeline] {
+        grid-template-columns: 312px minmax(0, 1fr) 128px;
+        grid-template-areas: "hero hero hero" "rail stage timeline";
+    }
+    .gallery-timeline { grid-area: timeline; position: sticky; top: calc(var(--header-h) + 12px); z-index: 20; }
+    .gallery-timeline-panel { max-height: calc(100vh - var(--header-h) - 32px); }
+}
+
+@media (max-width: 1199px) {
+    .gallery-timeline {
+        position: fixed;
+        bottom: 24px;
+        inset-inline-end: 84px;
+        z-index: 44;
+        opacity: 1;
+        transition: opacity .3s var(--ease), visibility 0s;
+    }
+    /* כמו "חזרה למעלה": הכפתור מופיע רק כשהרשת על המסך, לא מעל רצועת הכניסה. */
+    .gallery-timeline:not([data-in-view]) { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .3s var(--ease), visibility 0s linear .3s; }
+    .gallery-timeline-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        min-width: 48px;
+        justify-content: center;
+        padding: 0 16px;
+        border-radius: var(--r-full);
+        background: var(--glass-strong);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid var(--gold-line);
+        color: var(--gold);
+        box-shadow: var(--shadow-2);
+        font-family: var(--font-display);
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .gallery-timeline-toggle:hover { background: var(--gold-foil); color: var(--ink-on-accent); }
+    .gallery-timeline-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+    .gallery-timeline-current:empty { display: none; }
+    /* החלונית קבועה למסך ולא לכפתור, כדי שבטלפון צר היא לא תברח מצדו השני. */
+    .gallery-timeline-panel {
+        display: none;
+        position: fixed;
+        bottom: 84px;
+        inset-inline-end: 24px;
+        width: min(260px, calc(100vw - 32px));
+        max-height: min(60vh, 420px);
+        background: var(--panel);
+        box-shadow: var(--shadow-3);
+    }
+    .gallery-timeline[data-open="true"] .gallery-timeline-panel { display: block; }
+    .gallery-timeline-month { min-height: 40px; }
+}
+
 /* ==========================================================================
    13. תצוגה מלאה (Lightbox) — אולם קולנוע, כהה תמיד
    ========================================================================== */
@@ -5311,6 +5435,10 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .admin-main-head { padding: 13px; }
     .conversation-bubble { max-width: 88%; }
     .back-to-top { bottom: 16px; inset-inline-end: 16px; width: 44px; height: 44px; }
+    /* ציר הזמן הצף: ליד "חזרה למעלה", באותו גובה. */
+    .gallery-timeline { bottom: 16px; inset-inline-end: 70px; }
+    .gallery-timeline-toggle { height: 44px; min-width: 44px; padding: 0 14px; }
+    .gallery-timeline-panel { bottom: 70px; inset-inline-end: 16px; }
     /* מתגי הגודל והפריסה נשארים גם בטלפון (קטן = יותר כרטיסים בשורה), בכפתורים
        מעט קטנים יותר כדי שסרגל הכלים לא יתארך. */
     .density-toggle button { width: 36px; height: 34px; }
@@ -5331,6 +5459,6 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
 }
 
 @media print {
-    .site-header, .settings-wrap, .floating-profile-container, #adminDrawer, .admin-sidebar, .back-to-top, .scroll-progress, #bg-container { display: none; }
+    .site-header, .settings-wrap, .floating-profile-container, #adminDrawer, .admin-sidebar, .back-to-top, .gallery-timeline, .scroll-progress, #bg-container { display: none; }
     body { background: #fff; color: #000; }
 }

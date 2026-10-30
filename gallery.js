@@ -18,6 +18,7 @@ import { installFolderHoverPreview } from './folder-preview.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
 import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
+import { timelineMonthKey } from './gallery-timeline.js';
 // מחוות התצוגה המלאה (זום, החלקה) והמצגת — כל אחד במודול משלו.
 import { initLightboxGestures, resetLightboxZoom } from './lightbox-gestures.js';
 import {
@@ -1293,6 +1294,8 @@ window._doRenderImages = function() {
     renderHebrewDateFilters(scoped);
     renderSceneFilterChips(document.getElementById('gallerySceneFilter'), scoped, activeSceneTag());
     announceSceneFilter(galleryPageItems.length);
+    // ציר הזמן העברי (gallery-timeline-ui.js) נבנה מאותה רשימה בדיוק.
+    window.updateGalleryTimeline?.(galleryPageItems);
     renderOrientationNote();
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
@@ -1449,9 +1452,10 @@ function placeGalleryCard(node, index) {
 // קיבוץ לפי חודש הצילום: במיון לפי תאריך, הכרטיס הראשון של כל חודש עברי
 // מקבל תווית "תשרי תשפ״ז". התווית תלויה בשכן, ולכן — כמו המספר — היא נכתבת
 // על האלמנט ואינה חלק מהמרקאפ שמושווה.
+// המפתח זהה לזה של ציר הזמן העברי (gallery-timeline.js), כדי שהתווית והחודש
+// המסומן בציר יסכימו תמיד.
 function dateGroupKey(item) {
-    const hebrew = item ? hebrewDateFromDateKey(captureDateKey(item)) : null;
-    return hebrew ? `${hebrew.year}-${hebrew.monthKey}` : '';
+    return timelineMonthKey(item ? hebrewDateFromDateKey(captureDateKey(item)) : null);
 }
 
 function placeDateGroupLabel(node, index) {

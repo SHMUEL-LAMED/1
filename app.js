@@ -25,6 +25,8 @@ import {
 // קיצורי המקלדת וזיכרון הגלילה בדף הגלריה; הסף של "חזרה למעלה" מגיע מהחלק הטהור.
 import { initGalleryNavigation } from './gallery-navigation-ui.js';
 import { backToTopVisible } from './gallery-navigation.js';
+// ציר הזמן העברי שליד הרשת: קפיצה לחודש וסימון החודש שבראש המסך.
+import { initGalleryTimeline } from './gallery-timeline-ui.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -1609,6 +1611,8 @@ document.addEventListener('DOMContentLoaded', () => {
         initArchiveExperience();
         scheduleIconRefresh();
         initSessionUI();
+        // לפני הגלריה, כדי שגם הציור הראשון שלה יגיע לציר.
+        initGalleryTimeline();
         initGallery();
         initSearchHistory();
         initGalleryNavigation();
