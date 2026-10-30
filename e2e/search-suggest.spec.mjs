@@ -189,6 +189,47 @@ test('ההצעות והחיפושים הקודמים באותו תפריט: הצ
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(0);
 });
 
+test('הצעה של טקסט קודם אינה חוזרת אחרי Escape, וחץ מהיר אחרי הקשה אינו נופל עליה', async ({ page, worker }) => {
+    seedSuggestGallery(worker);
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const search = page.locator('#searchInput');
+    const popup = page.locator('#searchHistoryPopup');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+    await search.click();
+    await search.pressSequentially('טיול');
+    await expect(suggestionRows(page).locator('.search-history-query')).toHaveText(['טיולים וסיורים']);
+
+    // הקשה ובדיקה באותו צעד, לפני שההשהיה עוברת: בלי זה התפריט היה נפתח מיד
+    // עם "טיולים וסיורים", שאינו מתאים ל"טיולx".
+    await search.press('Escape');
+    await expect(popup).toBeHidden();
+    const reopened = await page.evaluate(() => {
+        const input = document.getElementById('searchInput');
+        input.value = 'טיולx';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return !document.getElementById('searchHistoryPopup').hidden;
+    });
+    expect(reopened).toBe(false);
+    await expect(popup).toBeHidden();
+
+    // תפריט פתוח, הקשה שמבטלת את ההתאמה, ומיד חץ: ההצעה הישנה אינה נבחרת.
+    await search.fill('טיול');
+    await expect(suggestionRows(page)).toHaveCount(1);
+    const activeAfterArrow = await page.evaluate(() => {
+        const input = document.getElementById('searchInput');
+        input.value = 'טיולxyz';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+        return input.getAttribute('aria-activedescendant');
+    });
+    expect(activeAfterArrow).toBeNull();
+    await search.press('Enter');
+    await expect(page.locator('#folderList .collection-card.is-active')).toContainText('כל הארכיון');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(0);
+});
+
 test.describe('ברוחב טלפון', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 

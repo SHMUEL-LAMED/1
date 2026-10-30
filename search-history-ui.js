@@ -341,6 +341,10 @@ function closePopup() {
     box?.closest('.gallery-toolbar')?.classList.remove('has-open-search');
     setActive(null);
     lastCountMessage = '';
+    // ההצעות של טקסט קודם אינן נשארות לפתיחה הבאה: אחרי Escape והקשה נוספת
+    // התפריט היה נפתח מיד עם הצעה שכבר אינה מתאימה (ומכריז עליה). פתיחה
+    // מפורשת מחשבת אותן מחדש, והקלדה — אחרי ההשהיה.
+    suggestionGroups = [];
 }
 
 // ציור מחדש אחרי פעולה, עם שמירת המיקום: אותו חיפוש ואותו תא, או השורה
@@ -667,7 +671,10 @@ function handleKeyDown(event) {
                 if (openPopup()) moveRow(step);
                 return;
             }
-            moveRow(step);
+            // הצעות שעוד ממתינות להשהיה מחושבות עכשיו, כדי שחץ ו-Enter מהירים
+            // אחרי הקשה לא יפעילו הצעה של הטקסט הקודם.
+            if (suggestTimer) updateSuggestions();
+            if (isOpen) moveRow(step);
             return;
         }
         case 'ArrowLeft':
