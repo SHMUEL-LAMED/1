@@ -1,7 +1,9 @@
 // "מסך גדול" (big-screen.js) בדפדפן אמיתי, עם שעון מזויף (page.clock): הסבב
 // מתקדם לבד, פריט שאושר בינתיים נכנס מיד אחרי השקופית הנוכחית עם תג "חדש",
 // הבדיקה פעם בדקה (עם ETag) נעצרת כשהלשונית מוסתרת, הפקדים והסמן נעלמים
-// בשקט, ה-Wake Lock נלקח ומשוחרר, ו-Escape יוצא מהכול בבת אחת.
+// בשקט, ה-Wake Lock נלקח ומשוחרר, ו-Escape יוצא מהכול בבת אחת. פריט שנמחק
+// (או שאישורו בוטל) בזמן המצגת יוצא מהסבב בבדיקה הבאה — גם כשהוא השקופית
+// הנוכחית — וכשלא נשארו שני פריטים המסך נסגר; התנתקות סוגרת אותו מיד.
 import { test, expect, seedSession, imageRecord, DEFAULT_USER } from './fixtures.mjs';
 
 // הבקשות לעמוד הראשון של תיקייה — מה שהמסך הגדול טוען מחדש.
@@ -138,6 +140,108 @@ test('מדף האירוע: סבב, פריט חדש אחרי הנוכחי עם ת
     await page.clock.fastForward(180_000);
     await page.waitForTimeout(300);
     expect(folderPageRequests(worker, '1')).toHaveLength(pollsAfterExit);
+});
+
+test('פריט שנמחק בזמן המצגת יוצא מהסבב בבדיקה הבאה, גם כשהוא השקופית הנוכחית; פחות משניים — המסך נסגר', async ({ page, worker }) => {
+    await openGallery(page, worker, [imageRecord(1), imageRecord(2), imageRecord(3), imageRecord(4)]);
+    await page.locator('[data-event-folder="1"]').click();
+    await page.getByRole('dialog', { name: 'אירועים ופעילויות' }).getByRole('button', { name: 'מסך גדול' }).click();
+
+    const lightbox = page.locator('#lightboxModal');
+    const counter = page.locator('#lightboxCounter');
+    const title = page.locator('#lightboxTitle');
+    const badge = page.locator('#bigScreenNewBadge');
+    const status = page.locator('#bigScreenStatus');
+    await expect(lightbox).toHaveClass(/is-big-screen/);
+    await expect(lightbox).toHaveAttribute('data-slideshow', 'playing');
+    await expect(counter).toHaveText(/ מתוך 4$/);
+    // מושהית, כדי שהשקופית הנוכחית תהיה ידועה; הבדיקות נמשכות גם בהשהיה.
+    await page.keyboard.press('Space');
+    await expect(lightbox).toHaveAttribute('data-slideshow', 'paused');
+
+    // סדר הסבב: החדשה ביותר ראשונה.
+    let rotation = [4, 3, 2, 1];
+    const shownNumber = async () => Number((await title.textContent()).replace('תמונה ', ''));
+    const after = number => rotation[(rotation.indexOf(number) + 1) % rotation.length];
+    let polls = folderPageRequests(worker, '1').length;
+    const pollOnce = async () => {
+        await page.clock.fastForward(60_000);
+        await expect.poll(() => folderPageRequests(worker, '1').length).toBe(polls + 1);
+        polls += 1;
+    };
+    const remove = number => {
+        worker.collection('images').delete(`img_e2e_${number}`);
+        rotation = rotation.filter(entry => entry !== number);
+    };
+
+    // פריט שאינו מוצג נמחק: יוצא מהסבב, והשקופית הנוכחית נשארת.
+    const current = await shownNumber();
+    const other = rotation.find(number => number !== current && number !== after(current));
+    remove(other);
+    await pollOnce();
+    await expect(counter).toHaveText(`${rotation.indexOf(current) + 1} מתוך 3`);
+    await expect(title).toHaveText(`תמונה ${current}`);
+    await expect(status).toContainText('הוסר פריט מהמצגת');
+
+    // השקופית הנוכחית עצמה נמחקת: המסך עובר לבאה אחריה, ונשאר מושהה.
+    const next = after(current);
+    remove(current);
+    await pollOnce();
+    await expect(title).toHaveText(`תמונה ${next}`);
+    await expect(counter).toHaveText(`${rotation.indexOf(next) + 1} מתוך 2`);
+    await expect(lightbox).toHaveAttribute('data-slideshow', 'paused');
+    await expect(lightbox).toHaveClass(/is-big-screen/);
+
+    // פריט שנוסף ונמחק לפני שהוצג: יוצא, ותג "חדש" אינו מופיע על אף אחד.
+    worker.seedImages([imageRecord(5)]);
+    await pollOnce();
+    await expect(counter).toHaveText(`${rotation.indexOf(next) + 1} מתוך 3`);
+    worker.collection('images').delete('img_e2e_5');
+    await pollOnce();
+    await expect(counter).toHaveText(`${rotation.indexOf(next) + 1} מתוך 2`);
+    await page.keyboard.press('Space');
+    await expect(lightbox).toHaveAttribute('data-slideshow', 'playing');
+    const [last] = rotation.filter(number => number !== next);
+    await expect(title).toHaveText(`תמונה ${last}`, { timeout: 6000 });
+    await expect(badge).toBeHidden();
+    await expect(title).toHaveText(`תמונה ${next}`, { timeout: 6000 });
+
+    // נשאר פריט אחד בלבד: המסך הגדול נסגר בעצמו, עם הודעה, ומשחרר הכול.
+    remove(last);
+    await pollOnce();
+    await expect(lightbox).toBeHidden();
+    await expect(lightbox).not.toHaveClass(/is-big-screen/);
+    await expect(lightbox).not.toHaveAttribute('data-slideshow', /.+/);
+    await expect(page.locator('#bigScreenInfo')).toBeHidden();
+    await expect(page.locator('#customAlertMessage')).toContainText('לא נשארו מספיק פריטים');
+    await expect.poll(async () => (await wakeLog(page)).at(-1)).toBe('release');
+    await page.clock.fastForward(180_000);
+    await page.waitForTimeout(300);
+    expect(folderPageRequests(worker, '1')).toHaveLength(polls);
+});
+
+test('התנתקות באמצע מסך גדול עוצרת אותו: התצוגה, המצגת, הבדיקות וה-Wake Lock', async ({ page, worker }) => {
+    await openGallery(page, worker, [imageRecord(1), imageRecord(2), imageRecord(3)]);
+    await page.getByRole('button', { name: 'מסך גדול' }).first().click();
+    const lightbox = page.locator('#lightboxModal');
+    await expect(lightbox).toHaveClass(/is-big-screen/);
+    await expect(lightbox).toHaveAttribute('data-slideshow', 'playing');
+    await expect.poll(() => wakeLog(page)).toEqual(['request']);
+
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+    await expect(lightbox).toBeHidden();
+    await expect(lightbox).not.toHaveClass(/is-big-screen/);
+    await expect(lightbox).not.toHaveAttribute('data-slideshow', /.+/);
+    await expect(page.locator('#bigScreenInfo')).toBeHidden();
+    await expect.poll(async () => (await wakeLog(page)).at(-1)).toBe('release');
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    // אין עוד בדיקות לתיקייה, גם אחרי כמה דקות.
+    const imagePolls = () => worker.requestsTo('GET', '/data/images?').filter(entry => entry.path.includes('limit=120')).length;
+    const pollsAfterSignOut = imagePolls();
+    await page.clock.fastForward(180_000);
+    await page.waitForTimeout(300);
+    expect(imagePolls()).toBe(pollsAfterSignOut);
 });
 
 test('מסרגל הגלריה בטלפון, עם הפחתת תנועה: בלי Ken Burns, בלי גלילה לרוחב, ויציאה בכפתור', async ({ page, worker }) => {

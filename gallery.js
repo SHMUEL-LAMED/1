@@ -32,11 +32,11 @@ import {
 import { initLightboxGestures, resetLightboxZoom } from './lightbox-gestures.js';
 import {
     initLightboxSlideshow, isSlideshowActive, startSlideshow, stopSlideshow,
-    slideshowNoteNavigation, handleSlideshowKey
+    slideshowNoteNavigation, handleSlideshowKey, isSlideshowEligible
 } from './lightbox-slideshow.js';
 // "מסך גדול": המצגת הזו במסך מלא לאולם, עם פריטים חדשים שנכנסים לסבב.
 import { initBigScreen, startBigScreen, noteBigScreenSlide } from './big-screen.js';
-import { insertAfterIndex } from './big-screen-model.js';
+import { insertAfterIndex, removeFromRotation } from './big-screen-model.js';
 // כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
 import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
 import {
@@ -3323,6 +3323,34 @@ function insertLightboxItemsNext(items) {
     return fresh.length;
 }
 
+// פריטים שירדו מהתצוגה בזמן מסך גדול (נמחקו, הועברו או שאישורם בוטל) יוצאים
+// גם מהסבב: תמונה שמנהל הסיר אינה ממשיכה לרוץ באולם. כשהמוצג עכשיו ביניהם
+// מוצג הבא אחריו, כמו מעבר רגיל במצגת (זמן מלא לשקופית, גם בהשהיה). ids הם
+// מזהים אחרי safeRecordId. מחזיר כמה הוסרו.
+function removeLightboxItems(ids) {
+    const result = removeFromRotation(currentFilteredImages, window.state.currentLightboxIndex, ids, {
+        idOf: item => window.safeRecordId(item?.id),
+        isEligible: item => isSlideshowEligible(item)
+    });
+    if (!result.removed) return 0;
+    currentFilteredImages = result.items;
+    // לא נשאר דבר: מי שקרא (big-screen.js) סוגר את התצוגה.
+    if (!result.items.length) {
+        window.state.currentLightboxIndex = -1;
+        return result.removed;
+    }
+    if (result.currentRemoved) {
+        showLightboxIndex(result.index);
+        slideshowNoteNavigation();
+        return result.removed;
+    }
+    window.state.currentLightboxIndex = result.index;
+    const lbCounter = document.getElementById('lightboxCounter');
+    if (lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    preloadLightboxNeighbours();
+    return result.removed;
+}
+
 // "מסך גדול" בסרגל הגלריה ובדף האירוע: מצגת של התצוגה הנוכחית לאולם
 // (big-screen.js). שם האירוע הוא שם התיקייה הפעילה.
 window.startBigScreen = function() {
@@ -3331,6 +3359,9 @@ window.startBigScreen = function() {
         getItems: () => currentFilteredImages,
         open: items => openLightbox(items[0]?.id, items),
         insertNext: items => insertLightboxItemsNext(items),
+        removeItems: ids => removeLightboxItems(ids),
+        // בזמן טעינה התצוגה ריקה לרגע; אין להסיק ממנה שהפריטים נמחקו.
+        isViewLoading: () => Boolean(window.state.imagesLoading),
         refreshView: () => (typeof window.refreshActiveGalleryFolder === 'function' ? window.refreshActiveGalleryFolder() : Promise.resolve()),
         getEventName: () => {
             const id = window.safeRecordId(window.state.activeFolderId) || 'all';

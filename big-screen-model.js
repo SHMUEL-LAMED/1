@@ -1,6 +1,7 @@
 // big-screen-model.js — ההיגיון של "מסך גדול", בלי DOM: מתי בודקים אם נוספו
 // פריטים (ולא יותר מפעם בדקה, ובלי בדיקה כשהלשונית מוסתרת), אילו פריטים
-// חדשים ואיפה הם נכנסים לסבב, מתי הפקדים והסמן נעלמים, והשעון שבפינה.
+// חדשים ואיפה הם נכנסים לסבב, אילו פריטים יוצאים ממנו (נמחקו או שאישורם
+// בוטל), מתי הפקדים והסמן נעלמים, והשעון שבפינה.
 // big-screen.js מחבר אותו לדף, והבדיקות (big-screen-model.test.mjs) בודקות
 // אותו ישירות עם שעונים מוזרקים — כמו createSlideshowScheduler ב-lightbox-math.js.
 
@@ -33,6 +34,56 @@ export function newRotationItems(rotation, candidates, { idOf = defaultIdOf, see
         fresh.push(item);
     }
     return fresh;
+}
+
+// מזהי הפריטים שבסבב ואינם עוד בתצוגה — נמחקו, הועברו או שאישורם בוטל מאז
+// שהמסך עלה. בסדר הסבב ובלי כפילויות. התצוגה היא מה שנטען אחרי הבדיקה
+// האחרונה, ולכן פריט שאינו בה אינו אמור לרוץ באולם.
+export function removedRotationIds(rotation, candidates, { idOf = defaultIdOf } = {}) {
+    const present = new Set((candidates || []).map(idOf));
+    const gone = [];
+    const listed = new Set();
+    for (const item of rotation || []) {
+        const id = idOf(item);
+        if (!id || present.has(id) || listed.has(id)) continue;
+        listed.add(id);
+        gone.push(id);
+    }
+    return gone;
+}
+
+// מוציא מהסבב את הפריטים שב-ids, ומחזיר { items, index, removed, currentRemoved }:
+// הרשימה החדשה (המקורית אינה משתנה), איפה השקופית הנוכחית בה עכשיו, כמה
+// הוסרו, והאם הנוכחית עצמה הוסרה. אז index הוא הפריט שנשאר אחריה (ובסוף
+// הסבב — מההתחלה), ועדיף אחד שהמצגת מציגה (isEligible; סרטון כשמדלגים על
+// סרטונים אינו כזה) — כמו המעבר הרגיל לשקופית הבאה. כשלא נשאר דבר index הוא -1.
+export function removeFromRotation(rotation, index, ids, { idOf = defaultIdOf, isEligible = () => true } = {}) {
+    const list = Array.isArray(rotation) ? rotation : [];
+    const drop = new Set(ids || []);
+    const current = Math.trunc(Number(index));
+    const valid = Number.isFinite(current) && current >= 0 && current < list.length;
+    const items = [];
+    let nextIndex = -1;
+    let before = 0;
+    list.forEach((item, position) => {
+        if (drop.has(idOf(item))) return;
+        if (position === current) nextIndex = items.length;
+        if (position < current) before += 1;
+        items.push(item);
+    });
+    const removed = list.length - items.length;
+    const currentRemoved = valid && nextIndex === -1;
+    if (!items.length) return { items, index: -1, removed, currentRemoved };
+    if (nextIndex === -1) {
+        // before הוא בדיוק מקומו של הפריט שבא אחרי הנוכחי ברשימה החדשה.
+        const start = valid ? before % items.length : 0;
+        nextIndex = start;
+        for (let step = 0; step < items.length; step += 1) {
+            const position = (start + step) % items.length;
+            if (isEligible(items[position])) { nextIndex = position; break; }
+        }
+    }
+    return { items, index: nextIndex, removed, currentRemoved };
 }
 
 // הפריטים החדשים נכנסים מיד אחרי הנוכחי: הם השקופיות הבאות, ואחריהן הסבב

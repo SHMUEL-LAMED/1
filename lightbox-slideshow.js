@@ -327,6 +327,12 @@ export function isSlideshowActive() {
     return active;
 }
 
+// האם המצגת מציגה את הפריט (סרטון אינו מוצג כשמדלגים על סרטונים) — למסך
+// גדול, שמחליט אם נשארו מספיק פריטים ולאן לעבור כשהשקופית הנוכחית ירדה.
+export function isSlideshowEligible(item) {
+    return Boolean(deps) && isEligible(item);
+}
+
 export function getSlideshowState() {
     return active ? scheduler.state : 'idle';
 }

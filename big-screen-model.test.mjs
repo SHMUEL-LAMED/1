@@ -1,10 +1,11 @@
 // מסך גדול (big-screen-model.js): מרווח הבדיקה (לא פחות מדקה), עצירה כשהלשונית
-// מוסתרת, אילו פריטים חדשים ואיפה הם נכנסים לסבב, הסתרת הפקדים והשעון.
+// מוסתרת, אילו פריטים חדשים ואיפה הם נכנסים לסבב, אילו יוצאים ממנו ולאן
+// עוברים, הסתרת הפקדים והשעון.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     BIG_SCREEN_POLL_MIN_MS, BIG_SCREEN_IDLE_MS, normalizePollInterval, newRotationItems,
-    insertAfterIndex, createPollLoop, createIdleTimer, formatClock, msUntilNextMinute
+    removedRotationIds, removeFromRotation, insertAfterIndex, createPollLoop, createIdleTimer, formatClock, msUntilNextMinute
 } from './big-screen-model.js';
 
 // שעון מזויף: טיימרים לפי זמן, ו-advance מריץ את מה שהגיע זמנו בסדר.
@@ -79,6 +80,68 @@ test('הכנסה לסבב: מיד אחרי הנוכחי, בלי לשנות את 
     assert.deepEqual(ids(insertAfterIndex(rotation, Number.NaN, [item('x')])), ['x', 'a', 'b', 'c']);
     assert.deepEqual(ids(insertAfterIndex(rotation, 99, [item('x')])), ['a', 'b', 'c', 'x']);
     assert.deepEqual(ids(insertAfterIndex(null, 0, [item('x')])), ['x']);
+});
+
+test('פריטים שירדו מהתצוגה (נמחקו, אישורם בוטל): מה שבסבב ואינו בה, בסדר הסבב', () => {
+    const rotation = [item('a'), item('b'), item('c'), item('b'), { id: '' }];
+    assert.deepEqual(removedRotationIds(rotation, [item('c'), item('x')]), ['a', 'b']);
+    assert.deepEqual(removedRotationIds(rotation, rotation), []);
+    assert.deepEqual(removedRotationIds(rotation, null), ['a', 'b', 'c']);
+    assert.deepEqual(removedRotationIds(null, [item('a')]), []);
+    const idOf = entry => String(entry?.id ?? '').trim().toLowerCase();
+    assert.deepEqual(removedRotationIds([item('A '), item('b')], [item('a')], { idOf }), ['b']);
+});
+
+test('הוצאה מהסבב: השקופית הנוכחית נשארת עליה כשאינה ביניהם', () => {
+    const rotation = [item('a'), item('b'), item('c'), item('d')];
+    const result = removeFromRotation(rotation, 2, ['a', 'd']);
+    assert.deepEqual(ids(result.items), ['b', 'c']);
+    assert.equal(result.index, 1);
+    assert.equal(result.removed, 2);
+    assert.equal(result.currentRemoved, false);
+    // המקור אינו משתנה.
+    assert.deepEqual(ids(rotation), ['a', 'b', 'c', 'd']);
+    // מזהה שאינו בסבב: כלום.
+    const none = removeFromRotation(rotation, 1, ['zz']);
+    assert.deepEqual(ids(none.items), ['a', 'b', 'c', 'd']);
+    assert.equal(none.index, 1);
+    assert.equal(none.removed, 0);
+});
+
+test('הוצאה מהסבב: כשהנוכחית הוסרה — הבאה שנשארה אחריה, ובסוף הסבב מההתחלה', () => {
+    const rotation = [item('a'), item('b'), item('c'), item('d'), item('e')];
+    const middle = removeFromRotation(rotation, 1, ['b', 'c']);
+    assert.deepEqual(ids(middle.items), ['a', 'd', 'e']);
+    assert.equal(middle.currentRemoved, true);
+    assert.equal(middle.items[middle.index].id, 'd');
+    const last = removeFromRotation(rotation, 4, ['e', 'd']);
+    assert.equal(last.currentRemoved, true);
+    assert.equal(last.items[last.index].id, 'a');
+    // הבאה שהמצגת אינה מציגה (סרטון כשמדלגים על סרטונים) — מדלגים גם עליה.
+    const withVideo = [item('a'), item('v1'), item('b'), item('v2'), item('c')];
+    const skip = removeFromRotation(withVideo, 2, ['b'], { isEligible: entry => !entry.id.startsWith('v') });
+    assert.equal(skip.items[skip.index].id, 'c');
+    const wrap = removeFromRotation(withVideo, 4, ['c'], { isEligible: entry => !entry.id.startsWith('v') });
+    assert.equal(wrap.items[wrap.index].id, 'a');
+    // אין אף אחת שהמצגת מציגה: נשארים על הבאה בסדר.
+    const onlyVideos = removeFromRotation(withVideo, 0, ['a', 'b', 'c'], { isEligible: () => false });
+    assert.equal(onlyVideos.items[onlyVideos.index].id, 'v1');
+});
+
+test('הוצאה מהסבב: כשלא נשאר דבר, ובאינדקס לא תקין', () => {
+    const rotation = [item('a'), item('b')];
+    const empty = removeFromRotation(rotation, 0, ['a', 'b']);
+    assert.deepEqual(empty.items, []);
+    assert.equal(empty.index, -1);
+    assert.equal(empty.removed, 2);
+    assert.equal(empty.currentRemoved, true);
+    const invalid = removeFromRotation(rotation, -1, ['a']);
+    assert.deepEqual(ids(invalid.items), ['b']);
+    assert.equal(invalid.index, 0);
+    assert.equal(invalid.currentRemoved, false);
+    const nan = removeFromRotation(rotation, Number.NaN, ['b']);
+    assert.equal(nan.index, 0);
+    assert.deepEqual(removeFromRotation(null, 0, ['a']), { items: [], index: -1, removed: 0, currentRemoved: false });
 });
 
 test('לולאת הבדיקה: הבדיקה הראשונה אחרי מרווח שלם, ואחריה כל מרווח', async () => {

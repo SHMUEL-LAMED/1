@@ -12,13 +12,16 @@
 //     כשלא השתנה דבר), ופריטים חדשים נכנסים מיד אחרי השקופית הנוכחית עם תג
 //     "חדש". כשהלשונית מוסתרת אין בדיקות. ה-Worker מחזיר באוסף images רק
 //     פריטים מאושרים, ולכן ממתין לאישור אינו מגיע למסך.
+//   - באותה בדיקה, פריט שנמחק, הועבר או שאישורו בוטל יוצא מהסבב (גם כשהוא
+//     השקופית הנוכחית — אז עוברים לבאה). כשלא נשארו שני פריטים להצגה המסך
+//     נסגר עם הודעה.
 //   - ה-Wake Lock נשאר גם בהשהיה, עד היציאה.
 //   - Escape (או "עצור", יציאה ממסך מלא, סגירה) יוצא בבת אחת מהמצגת ומהתצוגה.
 // ההיגיון הטהור ב-big-screen-model.js.
-import { startSlideshow, stopSlideshow, isSlideshowActive, onSlideshowStop } from './lightbox-slideshow.js';
+import { startSlideshow, stopSlideshow, isSlideshowActive, onSlideshowStop, isSlideshowEligible } from './lightbox-slideshow.js';
 import {
     BIG_SCREEN_POLL_MIN_MS, BIG_SCREEN_IDLE_MS, createPollLoop, createIdleTimer,
-    newRotationItems, formatClock, msUntilNextMinute
+    newRotationItems, removedRotationIds, formatClock, msUntilNextMinute
 } from './big-screen-model.js';
 
 const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
@@ -74,7 +77,14 @@ function onActivity() {
     idleTimer?.poke();
 }
 
-// --- פריטים חדשים ---
+// --- פריטים חדשים ופריטים שירדו ---
+
+function changeNotice(added, removed) {
+    const parts = [];
+    if (added) parts.push(added === 1 ? 'נוסף פריט חדש למצגת.' : `נוספו ${added} פריטים חדשים למצגת.`);
+    if (removed) parts.push(removed === 1 ? 'הוסר פריט מהמצגת.' : `הוסרו ${removed} פריטים מהמצגת.`);
+    return parts.join(' ');
+}
 
 async function pollForNewItems() {
     if (!active) return;
@@ -86,14 +96,40 @@ async function pollForNewItems() {
         return;
     }
     if (!active) return;
-    const fresh = newRotationItems(deps.getItems(), deps.getViewItems(), { idOf, seen: seenIds });
-    if (!fresh.length) return;
-    const added = deps.insertNext(fresh);
-    for (const item of fresh) {
-        seenIds.add(idOf(item));
-        freshIds.add(idOf(item));
+    const view = deps.getViewItems();
+    // התצוגה אחרי הבדיקה היא מה שמותר להציג: מה שבסבב ואינו בה נמחק, הועבר
+    // או שאישורו בוטל. בזמן טעינה היא ריקה לרגע, ואז אין להסיק ממנה דבר.
+    const gone = deps.isViewLoading?.() ? [] : removedRotationIds(deps.getItems(), view, { idOf });
+    const fresh = newRotationItems(deps.getItems(), view, { idOf, seen: seenIds });
+    if (!gone.length && !fresh.length) return;
+    let removed = 0;
+    if (gone.length) {
+        const goneIds = new Set(gone);
+        const left = [...deps.getItems().filter(item => !goneIds.has(idOf(item))), ...fresh];
+        // המצגת דורשת שני פריטים לפחות; פחות מזה — המסך נסגר ולא מציג שוב ושוב
+        // את מה שנשאר (או את מה שכבר נמחק).
+        if (left.filter(isSlideshowEligible).length < 2) {
+            exitBigScreen();
+            deps.notify?.('המסך הגדול נסגר: לא נשארו מספיק פריטים להצגה.', false);
+            return;
+        }
+        removed = deps.removeItems(gone) || 0;
+        for (const id of gone) {
+            freshIds.delete(id);
+            // פריט שיאושר שוב יחזור לסבב כמו כל פריט חדש.
+            seenIds.delete(id);
+        }
     }
-    if (added) announce(added === 1 ? 'נוסף פריט חדש למצגת.' : `נוספו ${added} פריטים חדשים למצגת.`);
+    let added = 0;
+    if (fresh.length) {
+        added = deps.insertNext(fresh);
+        for (const item of fresh) {
+            seenIds.add(idOf(item));
+            freshIds.add(idOf(item));
+        }
+    }
+    const notice = changeNotice(added, removed);
+    if (notice) announce(notice);
 }
 
 function onVisibilityChange() {
@@ -173,7 +209,8 @@ export function startBigScreen() {
 }
 
 // options: getViewItems(), getItems(), open(items), insertNext(items) → מספר,
-// refreshView(), getEventName(), isOpen(), close(), notify(text, ok), idOf(item).
+// removeItems(ids) → מספר, isViewLoading(), refreshView(), getEventName(),
+// isOpen(), close(), notify(text, ok), idOf(item).
 export function initBigScreen(options) {
     if (deps) return;
     deps = options;
