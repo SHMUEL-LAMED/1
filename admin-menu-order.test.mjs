@@ -41,6 +41,7 @@ const CANONICAL_VIEW_ORDER = [
   "analytics",
   "backup",
   "health",
+  "brokenlinks",
   "errors",
   "faceindex",
   "variants",

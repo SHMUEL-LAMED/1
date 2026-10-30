@@ -253,6 +253,11 @@ function safeDataPart(value, label) {
     return part;
 }
 
+// אותן קבוצות מסמכים כמו ב-Worker: הגדרות שרק מנהל־על כותב, ומסמכי תחזוקה
+// פנימיים שרק מנהל־על קורא (ואינם ברשימת האוסף של אחרים).
+const SYSTEM_META_SUPER_ADMIN_WRITE_IDS = new Set(['downloadPrivacy', 'popupAnnouncement']);
+const SYSTEM_META_PRIVATE_IDS = new Set(['backgroundJobs', 'backgroundState', 'maintenanceBrokenLinks', 'maintenanceAlert']);
+
 // העתק נאמן של assertDataPermission שב-Worker (בלי מנהל-העל הראשוני).
 function assertDataPermission(actor, collectionName, method, documentId = '') {
     const approved = actor.status === 'approved';
@@ -282,8 +287,14 @@ function assertDataPermission(actor, collectionName, method, documentId = '') {
         if (method === 'PUT' && admin) return;
         if (['GET', 'DELETE'].includes(method) && superAdmin) return;
     } else if (collectionName === 'systemMeta') {
-        if (method === 'GET' && approved) return;
-        if (['PUT', 'DELETE'].includes(method) && admin) return;
+        const superAdminOnly = SYSTEM_META_PRIVATE_IDS.has(documentId) ||
+            (method !== 'GET' && SYSTEM_META_SUPER_ADMIN_WRITE_IDS.has(documentId));
+        if (superAdminOnly) {
+            if (superAdmin) return;
+        } else {
+            if (method === 'GET' && approved) return;
+            if (['PUT', 'DELETE'].includes(method) && admin) return;
+        }
     } else if (collectionName === 'trashItems') {
         if (superAdmin) return;
     }
@@ -360,6 +371,21 @@ export class FakeWorker {
         // אנשים בגלריה: אנשים, תור "לבדיקה", פרצופים בודדים, התאמות של חיפוש
         // הפנים, טביעות "זכור אותי" שנשמרו, ומיקומי פרצופים שהדפדפן השלים.
         this.people = { persons: new Map(), review: [], singles: [], unclustered: 0, matches: [], me: new Map(), boxes: [], clusterRuns: 0 };
+        // התחזוקה היומית (ראו "תחזוקה יומית" ב-Worker): הגיבויים שב-R2 (יום → בתים)
+        // והדוח האחרון של הקישורים השבורים, בצורה ש-/maintenance/broken-links מחזיר.
+        // maintenanceSupported=false מדמה Worker ישן שעדיין אינו מכיר את הנתיבים.
+        this.maintenance = { backups: new Map(), brokenLinks: { report: null, scanning: null }, supported: true };
+    }
+
+    requireSuperAdminActor(request) {
+        const actor = this.requireApprovedActor(request);
+        if (actor.role !== 'super_admin') throw apiError('לחשבון אין הרשאה לבצע פעולה זו.', 403, 'permission_denied');
+        return actor;
+    }
+
+    seedBackup(day, text = '{"format":"simchas-gallery-d1-backup","tables":[]}') {
+        this.maintenance.backups.set(day, zlib.gzipSync(Buffer.from(text)));
+        return this;
     }
 
     collection(name) {
@@ -555,7 +581,13 @@ export class FakeWorker {
             return { success: true, id: documentId, data: structuredClone(docs.get(documentId)) };
         }
 
-        if (method === 'GET') return this.listDocuments(docs, url, listKind || 'list');
+        if (method === 'GET') {
+            // כמו ב-Worker: המסמכים הפנימיים של systemMeta אינם ברשימה של מי שאינו מנהל־על.
+            const visible = collectionName === 'systemMeta' && actor.role !== 'super_admin'
+                ? new Map([...docs].filter(([id]) => !SYSTEM_META_PRIVATE_IDS.has(id)))
+                : docs;
+            return this.listDocuments(visible, url, listKind || 'list');
+        }
 
         if (method === 'PUT' && documentId) {
             let payload = {};
@@ -569,6 +601,10 @@ export class FakeWorker {
             if (['images', 'pendingImages'].includes(collectionName)) {
                 const admin = actor.status === 'approved' && ['admin', 'super_admin'].includes(actor.role);
                 nextData = normalizeDescriptionFields(nextData, existing, admin);
+            }
+            // כמו ב-Worker: מי ששמר הגדרה נקבע לפי החשבון המאומת.
+            if (collectionName === 'systemMeta' && Object.prototype.hasOwnProperty.call(nextData, 'updatedBy')) {
+                nextData.updatedBy = actor.uid;
             }
             // משתמש רגיל אינו משנה את הדרגה או את מצב האישור של עצמו.
             if (collectionName === 'userProfiles' && documentId === actor.uid && actor.role !== 'super_admin') {
@@ -1283,6 +1319,37 @@ export class FakeWorker {
             if (method === 'GET' && url.pathname === '/face/index/summary') {
                 this.requireApprovedActor(request);
                 return json({ success: true, totalImages: 0, indexedImages: 0, remainingImages: 0, failedImages: 0, faceCount: 0, ready: true });
+            }
+            if (url.pathname.startsWith('/maintenance/') && !this.maintenance.supported) {
+                return json({ success: false, message: 'הנתיב המבוקש אינו קיים.' }, 404);
+            }
+            if (method === 'GET' && url.pathname === '/maintenance/backups') {
+                this.requireSuperAdminActor(request);
+                const backups = [...this.maintenance.backups].sort(([a], [b]) => b.localeCompare(a))
+                    .map(([day, bytes]) => ({ day, size: bytes.length, compressed: true, uploadedAt: Date.parse(`${day}T03:00:00Z`) }));
+                return json({ success: true, retentionDays: 30, backups });
+            }
+            if (method === 'POST' && url.pathname === '/maintenance/backup') {
+                this.requireSuperAdminActor(request);
+                const day = new Date().toISOString().slice(0, 10);
+                const created = !this.maintenance.backups.has(day);
+                if (created) this.seedBackup(day);
+                return json({ success: true, created, day, size: this.maintenance.backups.get(day).length, compressed: true, pruned: [] });
+            }
+            if (method === 'GET' && url.pathname.startsWith('/maintenance/backups/')) {
+                this.requireSuperAdminActor(request);
+                const day = decodeURIComponent(url.pathname.slice('/maintenance/backups/'.length));
+                const bytes = this.maintenance.backups.get(day);
+                if (!bytes) throw apiError('הגיבוי לא נמצא.', 404, 'not_found');
+                return route.fulfill({
+                    status: 200,
+                    headers: { ...cors, 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="simchas-gallery-d1-${day}.json.gz"`, 'Cache-Control': 'private, no-store' },
+                    body: bytes
+                });
+            }
+            if (method === 'GET' && url.pathname === '/maintenance/broken-links') {
+                this.requireSuperAdminActor(request);
+                return json({ success: true, listMax: 300, ...structuredClone(this.maintenance.brokenLinks) });
             }
             if (method === 'POST' && url.pathname === '/drive/token') {
                 this.actor(request);

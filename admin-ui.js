@@ -10,6 +10,7 @@
 // openModal, showConfirm, r2Request), ולכן admin-app.js טוען קודם אותה.
 
 import { pickCardSource } from './media-variants.js';
+import { trashPurgeLabel } from './maintenance-model.js';
 
 const { checkAdminPermission, checkSuperAdminPermission, canViewSuperAdminData } = window;
 const { openModal, closeModal, showConfirm, scheduleIconRefresh } = window;
@@ -152,6 +153,15 @@ const ADMIN_VIEWS = [
         description: 'בדיקת Cloudflare, האחסון, זיהוי הפנים וחיבור Drive.',
         icon: 'shield-check',
         keywords: 'בדיקה תקינות שרת חיבור'
+    },
+    {
+        id: 'brokenlinks',
+        group: 'כלי מערכת',
+        title: 'קישורים שבורים',
+        description: 'תמונות שהקובץ שלהן חסר באחסון, וקבצים באחסון שאין להם רשומה. בדיקה יומית, בלי מחיקה.',
+        icon: 'unlink',
+        superAdminOnly: true,
+        keywords: 'קישור שבור חסר יתום קובץ אחסון r2 בדיקה'
     },
     {
         id: 'errors',
@@ -328,6 +338,12 @@ function ensureAdminErrorsModule() {
     return (adminErrorsModulePromise ||= import('./admin-errors.js'));
 }
 
+// הגיבויים היומיים והקישורים השבורים (מנהל־על) נטענים רק כשאחד המסכים נפתח.
+let maintenanceModulePromise = null;
+function ensureMaintenanceModule() {
+    return (maintenanceModulePromise ||= import('./maintenance-admin.js'));
+}
+
 // גם המדריך למנהלים נטען רק כשפותחים אותו. הסעיף המבוקש מקישור "?" במסך
 // אחר נשמר עד שהמודול מגיע; בלעדיו נפתח הסעיף שבכתובת #guide/<מזהה>.
 let adminGuideModulePromise = null;
@@ -378,6 +394,11 @@ function runViewHook(viewId) {
     if (viewId === 'activity') window.renderActivityLogs?.();
     if (viewId === 'analytics') window.loadAdvancedAnalytics?.();
     if (viewId === 'health') window.runSystemHealthCheck?.();
+    if ((viewId === 'backup' || viewId === 'brokenlinks') && window.state?.isSuperAdmin) {
+        ensureMaintenanceModule()
+            .then(() => (viewId === 'backup' ? window.loadCloudBackups?.() : window.loadBrokenLinksReport?.()))
+            .catch(error => console.error('Maintenance module failed to load:', error));
+    }
     if (viewId === 'errors') {
         ensureAdminErrorsModule()
             .then(() => window.loadClientErrors?.())
@@ -1167,7 +1188,9 @@ window.renderTrashItems = function() {
         title.textContent = `${typeLabels[item.originalType] || 'פריט'} — ${item.targetName || item.originalId}`;
         const meta = document.createElement('p');
         meta.className = 'admin-row-meta';
-        meta.textContent = `${formatDate(item.deletedAt)} · נמחק על ידי ${item.deletedByName || 'מנהל־על'}`;
+        // הניקוי היומי בענן מוחק לצמיתות אחרי TRASH_RETENTION_DAYS; הספירה כאן מאותו קבוע.
+        const purgeLabel = trashPurgeLabel(item.deletedAt);
+        meta.textContent = `${formatDate(item.deletedAt)} · נמחק על ידי ${item.deletedByName || 'מנהל־על'}${purgeLabel ? ` · ${purgeLabel}` : ''}`;
         text.append(title, meta);
 
         const actions = document.createElement('div');
