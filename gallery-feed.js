@@ -19,6 +19,7 @@
 //   state.latestImagesHasMore   — האם יש בארכיון עוד מעבר להן
 //   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
 //   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
+//   loadAllFolderImages(id)     — תיקייה שלמה (עד תקרה), לאלבום להדפסה
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
 
@@ -357,6 +358,34 @@ async function prefetchFolderImages(folderId) {
     return [...page.items];
 }
 
+// כל הפריטים של תיקייה, עד limit — לאלבום להדפסה מעמוד האירוע
+// (print-album-ui.js), שצריך את התיקייה כולה ולא רק את מה שנגלל. התיקייה
+// הפעילה מתקדמת דרך loadMoreImages, כדי שהרשת והמטמון יישארו באותו מסלול
+// של הגלילה; תיקייה אחרת נמשכת עמוד אחר עמוד אל המטמון בלבד. shouldStop
+// נבדק בין עמודים (ביטול בחלון האלבום). מחזיר { items, hasMore }.
+async function loadAllFolderImages(folderId, { limit: maxItems = Infinity, shouldStop = () => false } = {}) {
+    const id = safeId(folderId);
+    if (!id || id === 'favorites' || feedStopped) return { items: [], hasMore: false };
+    if (id === activeFolderId() && !feedCache.has(id)) await loadFolderImages(id);
+    if (!feedCache.has(id)) await prefetchFolderImages(id);
+    let entry = feedCache.get(id);
+    while (entry && entry.hasMore && entry.nextCursor && entry.items.length < maxItems && !shouldStop() && !feedStopped) {
+        if (id === activeFolderId()) {
+            const result = await loadMoreImages();
+            if (result.error) throw result.error;
+            if (result.done && !result.added) break;
+        } else {
+            const page = await fetchFolderPage(id, entry.nextCursor);
+            const known = new Set(entry.items.map(item => safeId(item.id)));
+            entry.items.push(...page.items.filter(item => !known.has(safeId(item.id))));
+            entry.nextCursor = page.nextCursor;
+            entry.hasMore = page.hasMore;
+        }
+        entry = feedCache.get(id);
+    }
+    return { items: entry ? [...entry.items] : [], hasMore: Boolean(entry?.hasMore) };
+}
+
 // פריט אחד לפי מזהה, לקישור ישיר (#media/<id>, ראו media-link.js) לפריט שעוד
 // לא נטען. אותה שאילתה ואותן הרשאות כמו הגלריה: פריט שנמחק, שממתין לאישור
 // או שאינו קיים מחזיר null. לפני אישור הצפייה אין פנייה לרשת.
@@ -384,5 +413,6 @@ window.getLoadedFolderImages = getLoadedFolderImages;
 window.getAllLoadedImages = getAllLoadedImages;
 window.isFolderFullyLoaded = isFolderFullyLoaded;
 window.prefetchFolderImages = prefetchFolderImages;
+window.loadAllFolderImages = loadAllFolderImages;
 window.fetchGalleryImageById = fetchImageById;
 window.isGalleryFeedActive = isGalleryFeedActive;

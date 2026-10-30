@@ -89,6 +89,9 @@ const ensurePeopleModule = defineLazyModule(() => import('./people.js'), [
     'openPeopleDirectory', 'filterPeopleDirectory', 'handlePeopleRoute', 'closePeopleAlbum',
     'openFindMe', 'findMeFromProfile', 'findMeFromSelfie', 'findMeWithSaved', 'forgetFindMe'
 ]);
+// אלבום להדפסה (print-album-ui.js) — נטען רק בלחיצה על "אלבום להדפסה" בעמוד
+// האירוע או על "אלבום PDF" בסרגל הבחירה המרובה.
+defineLazyModule(() => import('./print-album-ui.js'), ['openFolderPrintAlbum', 'openSelectionPrintAlbum']);
 window.ensurePeopleModule = ensurePeopleModule;
 window.ensureCaptureDatesModule = ensureCaptureDatesModule;
 window.ensureFaceSearchModule = ensureFaceSearchModule;
@@ -357,6 +360,8 @@ function closeModal(id) {
     if (id === 'userUploadModal') {
         window.resetUploadPauseState?.();
     }
+    // סגירת חלון האלבום (ביטול, X או Escape) עוצרת את הטעינה שעוד רצה.
+    if (id === 'printAlbumModal') window.abortPrintAlbum?.();
     if (id === 'lightboxModal') {
         // עוצר מצגת פעילה ומאפס זום גם כשהתצוגה נסגרת ב-Escape הכללי.
         window.onLightboxClosed?.();

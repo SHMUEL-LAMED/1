@@ -541,6 +541,9 @@ window.openEventPage = function(event, folderId) {
         window.closeModal('eventPageModal');
         window.startGallerySlideshow();
     };
+    // אלבום להדפסה של התיקייה כולה (print-album-ui.js); עמוד האירוע נשאר פתוח מתחתיו.
+    const printButton = document.getElementById('eventPrintAlbumBtn');
+    if (printButton) printButton.onclick = () => window.openFolderPrintAlbum(id);
     const followButton = document.getElementById('eventFollowButton');
     if (followButton) {
         const isFollowing = window.state.followedFolders.has(id);
