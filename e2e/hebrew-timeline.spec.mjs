@@ -146,6 +146,28 @@ test.describe('מסך רחב: עמודה בצד הסוף של הגלריה', () 
         await expect(months.first()).toHaveAttribute('aria-current', 'true');
     });
 
+    test('עמוד נוסף שבונה את הרשימה מחדש אינו מפיל את הפוקוס מהחודש שעליו עומדים', async ({ page, worker }) => {
+        seedTimelineGallery(worker);
+        await seedSession(page, { worker });
+        await page.goto('/');
+
+        await expect(cards(page)).toHaveCount(48);
+        const months = monthButtons(page);
+        await months.nth(2).focus();
+        // כמו עמוד שהגיע מהענן: פריט מחודש חדש (כסלו תשפ״ה) בסוף הרשימה.
+        await page.evaluate(() => {
+            window.state.images = [...window.state.images, { ...window.state.images[0], id: 'late', title: 'late', takenAt: Date.parse('2024-12-10T10:00:00Z'), takenDate: '2024-12-10' }];
+            window._doRenderImages();
+        });
+        await expect(months).toHaveCount(5);
+        await expect(months.nth(2)).toBeFocused();
+        await expect(months.nth(2).locator('.gallery-timeline-month-name')).toHaveText('אב');
+
+        // שער הגישה (session-ui.js) מסתיר את הציר כמו את הרשת, גם לפני שהפריטים נמחקו.
+        await page.evaluate(() => document.body.classList.add('gallery-locked'));
+        await expect(page.locator('#galleryTimeline')).toBeHidden();
+    });
+
     test('מוסתר במיון לפי שם או אקראי ובחודש יחיד; "הישן ביותר" הופך את הסדר', async ({ page, worker }) => {
         seedTimelineGallery(worker);
         await seedSession(page, { worker });
@@ -227,6 +249,14 @@ test.describe('טלפון: כפתור צף "קפיצה לתאריך"', () => {
         expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(390);
         await page.locator('.site-header .brand-title').tap();
         await expect(panel).toBeHidden();
+
+        // Tab שיוצא מהחלונית (מקלדת חיצונית) סוגר אותה.
+        await toggle.tap();
+        await expect(panel).toBeVisible();
+        await monthButtons(page).last().focus();
+        await page.keyboard.press('Tab');
+        await expect(panel).toBeHidden();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
         // בחירת חודש: החלונית נסגרת, הדף קופץ לכרטיס הראשון שלו והכפתור מתעדכן.
         await toggle.tap();

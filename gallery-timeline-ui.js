@@ -61,7 +61,9 @@ function renderList() {
     if (signature === renderedSignature) return;
     renderedSignature = signature;
     activeIndex = -1;
-    let monthIndex = 0;
+    // עמוד נוסף מהענן בונה את הרשימה מחדש; מי שעומד עליה במקלדת היה מאבד את
+    // הפוקוס לגוף הדף. הוא חוזר לאותו חודש (לפי המפתח) ברשימה החדשה.
+    const focusedKey = list.contains(document.activeElement) ? document.activeElement.dataset.monthKey : '';
     list.replaceChildren(...timeline.years.map(year => {
         const item = document.createElement('li');
         item.className = 'gallery-timeline-year';
@@ -77,7 +79,9 @@ function renderList() {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'gallery-timeline-month';
-            button.dataset.monthIndex = String(monthIndex++);
+            // האינדקס ב-months ולא מונה רץ: החודשים מקובצים כאן לפי שנה.
+            button.dataset.monthIndex = String(timeline.months.indexOf(month));
+            button.dataset.monthKey = month.key;
             button.setAttribute('aria-label', timelineMonthLabel(month));
             const name = document.createElement('span');
             name.className = 'gallery-timeline-month-name';
@@ -93,6 +97,7 @@ function renderList() {
         item.append(heading, months);
         return item;
     }));
+    if (focusedKey) monthButtons().find(button => button.dataset.monthKey === focusedKey)?.focus({ preventScroll: true });
 }
 
 function monthButtons() {
@@ -156,8 +161,11 @@ function measure() {
     lastMeasureAt = now();
     if (!available) return;
     const grid = document.getElementById('photosGrid');
-    // הכפתור הצף מופיע רק כשהרשת על המסך, לא מעל רצועת הכניסה.
-    nav.toggleAttribute('data-in-view', gridInView(grid));
+    // הכפתור הצף מופיע רק כשהרשת על המסך, לא מעל רצועת הכניסה. חלונית
+    // שנשארה פתוחה הייתה נעלמת איתו ומופיעה שוב פתוחה, ולכן היא נסגרת.
+    const inView = gridInView(grid);
+    nav.toggleAttribute('data-in-view', inView);
+    if (!inView && isCompact() && isOpen()) setOpen(false);
     if (pinnedIndex >= 0) {
         if (pinnedRestY === null && pinnedUntil > lastMeasureAt) {
             setActive(pinnedIndex);
@@ -313,6 +321,11 @@ export function initGalleryTimeline() {
     // לחיצה מחוץ לחלונית סוגרת אותה, בלי להזיז את הפוקוס.
     document.addEventListener('pointerdown', event => {
         if (isOpen() && !nav.contains(event.target)) setOpen(false);
+    });
+    // וכך גם Tab שיוצא ממנה: חלונית פתוחה שאין בה פוקוס הייתה נשארת צפה מעל
+    // הכרטיסים שאליהם עבר המשתמש.
+    nav.addEventListener('focusout', event => {
+        if (isCompact() && isOpen() && event.relatedTarget && !nav.contains(event.relatedTarget)) setOpen(false);
     });
     window.addEventListener('scroll', () => scheduleMeasure(), { passive: true });
     window.addEventListener('scrollend', () => {

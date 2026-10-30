@@ -5084,7 +5084,8 @@ body.gallery-locked #galleryLoadMore,
 body.gallery-locked .folder-rail,
 body.gallery-locked #bulkSelectionBar,
 body.gallery-locked #tempSearchBanner,
-body.gallery-locked #emptyState { display: none; }
+body.gallery-locked #emptyState,
+body.gallery-locked .gallery-timeline { display: none; }
 body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "stage"; }
 
 /* פריטים שמוצגים רק למנהל־על. .hidden של Tailwind מנצח כאן, ולכן די
