@@ -2,7 +2,7 @@
 // קריאה ל-AI, שבבי "סוג הרגע" מסננים (לצד בוררי התאריך העברי), התצוגה המלאה
 // מציגה כיתוב ותגיות, ומנהל עורך אותם משם. הנתונים נזרעים כפי שה-Worker
 // שומר אותם ברשומת המדיה: caption ו-sceneTags (מזהים).
-import { test, expect, seedSession, imageRecord } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, openGalleryFilters, closeGalleryFilters } from './fixtures.mjs';
 
 function seedDescribedGallery(worker) {
     worker.seedFolders().seedImages([
@@ -44,6 +44,8 @@ test('שבבי סוג הרגע מסננים את הגלריה, מכריזים ע
     await page.goto('/');
     await expect(cardTitles(page)).toHaveCount(4);
 
+    // השבבים בחלונית "סינון" של סרגל הכלים.
+    await openGalleryFilters(page);
     const filter = page.locator('#gallerySceneFilter');
     await expect(filter).toBeVisible();
     // רק תגיות שיש להן פריטים, בסדר הטקסונומיה, עם מונה.
@@ -103,6 +105,7 @@ test('שבב סוג רגע בתיקייה שטרם נטענה כולה מושך 
         .filter(entry => new URL(entry.path, 'https://fake.invalid').searchParams.has('after'));
     expect(cursorRequests()).toHaveLength(0);
 
+    await openGalleryFilters(page);
     await chip(page, 'dance').click();
     await expect(chip(page, 'dance')).toHaveAttribute('aria-pressed', 'true');
     // המונה אינו נתקע על "מחפש גם בפריטים ישנים…": העמוד השני נטען והתוצאה מלאה.
@@ -124,7 +127,11 @@ test('בלי כיתובים ותגיות אין שורת שבבים ואין ת�
     await seedSession(page, { worker });
     await page.goto('/');
     await expect(cardTitles(page)).toHaveCount(2);
+    // גם בחלונית הסינון: בלי תגיות אין שבבים ואין את קבוצת "סוג הרגע".
+    await openGalleryFilters(page);
     await expect(page.locator('#gallerySceneFilter')).toBeHidden();
+    await expect(page.locator('#galleryFilterSceneHeading')).toBeHidden();
+    await closeGalleryFilters(page);
     await page.locator('#photosGrid .gallery-card .gallery-media').first().click();
     await expect(page.locator('#lightboxModal')).toBeVisible();
     await expect(page.locator('#lightboxDescription')).toBeHidden();
@@ -239,6 +246,7 @@ test('מנהל עורך כיתוב ותגיות מהתצוגה המלאה; הע�
     await page.locator('#searchInput').fill('שיעור קצר');
     await expect(cardTitles(page)).toHaveText(['תמונה 3']);
     await page.locator('#searchInput').fill('');
+    await openGalleryFilters(page);
     await chip(page, 'lesson').click();
     await expect(cardTitles(page)).toHaveText(['תמונה 3']);
 });
@@ -257,6 +265,8 @@ test.describe('בטלפון (390px)', () => {
         await seedSession(page, { worker, role: 'admin' });
         await page.goto('/');
         await expect(cardTitles(page)).toHaveCount(tags.length);
+        // בטלפון השבבים בגיליון הסינון התחתון.
+        await openGalleryFilters(page);
         const filter = page.locator('#gallerySceneFilter');
         await expect(filter).toBeVisible();
         await expect(filter.locator('.scene-chip')).toHaveCount(tags.length + 1);
@@ -272,7 +282,7 @@ test.describe('בטלפון (390px)', () => {
             .map(animation => animation.finished.catch(() => {}))));
         await settleAnimations();
         expect(await noHorizontalScroll()).toBe(true);
-        // השורה עצמה נגללת לרוחב בתוך גבולותיה.
+        // השבבים נשברים לשורות בתוך הגיליון, בגבולות המסך.
         const box = await filter.boundingBox();
         expect(box.x).toBeGreaterThanOrEqual(0);
         expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -285,6 +295,7 @@ test.describe('בטלפון (390px)', () => {
         await expect(cardTitles(page)).toHaveCount(4);
         expect(await noHorizontalScroll()).toBe(true);
 
+        await closeGalleryFilters(page);
         await page.locator('#photosGrid .gallery-card .gallery-media').first().click();
         await expect(page.locator('#lightboxModal')).toBeVisible();
         await expect(page.locator('#lightboxDescription')).toBeVisible();

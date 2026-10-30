@@ -1209,6 +1209,26 @@ window.clearGallerySearch = function() {
     window.renderImages();
 };
 
+// מאפס את כל המסננים (שנה, חודש, טווח תאריכים, סוג הרגע, סוג המדיה, אורך
+// הסרטון וכיוון) ומשאיר את טקסט החיפוש. "נקה הכל" בחלונית הסינון ובשורת
+// המסננים הפעילים (gallery-filter-panel.js).
+window.clearGalleryFilters = function() {
+    const state = window.state;
+    state.hebrewYearFilter = '';
+    state.hebrewMonthFilter = '';
+    state.dateRangeFrom = '';
+    state.dateRangeTo = '';
+    state.sceneTagFilter = '';
+    state.mediaTypeFilter = '';
+    state.videoLengthFilter = '';
+    state.orientationFilter = '';
+    syncMediaTypeSelect();
+    syncVideoLengthSelect();
+    syncOrientationSelect();
+    window.renderImages();
+    window.noteGallerySearchChange?.();
+};
+
 // מחזיר חיפוש שמור: הטקסט וכל הסינונים, ומריץ אותו. תיקייה שכבר אינה קיימת
 // מוחלפת ב"כל התמונות" ({ folderMissing: true }).
 window.applyGallerySearch = async function(search = {}) {
@@ -1642,6 +1662,8 @@ window._doRenderImages = function() {
     window.updateGalleryTimeline?.(galleryPageItems);
     renderOrientationNote();
     renderVideoLengthNote();
+    // המונה שעל "סינון" ושבבי המסננים הפעילים (gallery-filter-panel.js).
+    window.syncGalleryFilterPanel?.(galleryPageItems.length);
     // renderDateRangeControl מיקם את החלונית הפתוחה לפני שציר הזמן הופיע או
     // נעלם (במסך רחב הוא עמודה שלישית — הגלריה משנה את רוחבה, הסרגל נשבר
     // אחרת והכפתור זז) ולפני שבורר האורך נוסף לסרגל. מיקום לפי הפריסה הקודמת

@@ -237,7 +237,7 @@ html[data-theme="light"] {
     --ink: #f3f5fb;
     --ink-2: #c5cddc;
     --ink-3: #8f9ab0;
-    --ink-4: #6b768c;
+    --ink-4: #8590a6;
     --ink-on-accent: #1a1204;
 
     /* זהב — המבטא של הארכיון */
@@ -279,13 +279,45 @@ html[data-theme="light"] {
     --shadow-glow: 0 0 0 1px var(--gold-line), 0 22px 60px -26px rgba(245, 196, 81, .55);
     --shadow-gold: 0 10px 30px -12px rgba(245, 196, 81, .55);
 
-    /* מידות */
-    --r-sm: 11px;
-    --r-md: 15px;
-    --r-lg: 20px;
-    --r-xl: 26px;
-    --r-2xl: 32px;
+    /* מידות. רדיוסים: --r-sm לשבבים קטנים ולשורות, --r-md לפקדים (כפתור,
+       בורר, שדה), --r-lg לכרטיסים ולחלוניות, --r-xl ומעלה למשטחים גדולים. */
+    --r-sm: 10px;
+    --r-md: 12px;
+    --r-lg: 18px;
+    --r-xl: 24px;
+    --r-2xl: 30px;
     --r-full: 999px;
+
+    /* סולם הריווח: כל gap ו-padding חדש נלקח מכאן. */
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 20px;
+    --s-6: 24px;
+    --s-8: 32px;
+
+    /* גובה הפקדים: אותו גובה לכפתור, לבורר ולשדה שיושבים באותה שורה.
+       --control-touch הוא המינימום למגע בטלפון. */
+    --control-sm: 34px;
+    --control: 40px;
+    --control-lg: 46px;
+    --control-touch: 44px;
+
+    /* סולם הטקסט: עברית קריאה ב-12px לפחות; 11px רק לתוויות משנה. */
+    --fs-2xs: 11px;
+    --fs-xs: 12px;
+    --fs-sm: 13px;
+    --fs-md: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 19px;
+    --fs-2xl: clamp(22px, 2.6vw, 28px);
+
+    /* גובה החלונית הצפה (סינון, חיפוש) ושכבת הכפתורים הצפים בפינה. */
+    --shadow-pop: 0 24px 60px -22px rgba(0, 0, 0, .85), 0 0 0 1px var(--line-strong);
+    --fab-size: 46px;
+    --fab-gap: 10px;
+    --fab-edge: 20px;
     --header-h: 84px;
     --page-max: 1320px;
     --gutter: clamp(12px, 3vw, 32px);
@@ -348,17 +380,18 @@ html[data-theme="light"] {
 
     --ink: #171412;
     --ink-2: #3b3630;
-    --ink-3: #6b645a;
-    --ink-4: #8c847a;
+    --ink-3: #5d564c;
+    --ink-4: #6e675d;
     --ink-on-accent: #fffaf0;
 
-    --gold: #a86f07;
-    --gold-2: #8a5a05;
-    --gold-3: #6f4804;
-    --gold-deep: #8a5a05;
+    --gold: #8f5e04;
+    --gold-2: #7a5004;
+    --gold-3: #5f3f03;
+    --gold-deep: #7a5004;
     --gold-tint: rgba(168, 111, 7, .1);
-    --gold-line: rgba(168, 111, 7, .3);
-    --gold-foil: linear-gradient(135deg, #d9a52e 0%, #b8780c 35%, #935f06 65%, #c78d1e 100%);
+    --gold-line: rgba(168, 111, 7, .32);
+    /* הטקסט שעל הזהב (--ink-on-accent) עומד ביחס 4.5:1 לפחות במרכז הגרדיאנט. */
+    --gold-foil: linear-gradient(135deg, #a5751a 0%, #93650a 30%, #7f5304 65%, #96680f 100%);
 
     --cyan: #0a7c8d;
     --cyan-tint: rgba(10, 124, 141, .1);
@@ -413,6 +446,8 @@ html[data-theme="light"] {
     --skeleton-shine: rgba(255, 255, 255, .7);
 
     --header-scrolled-shadow: 0 18px 40px -24px rgba(28, 22, 10, .4);
+
+    --shadow-pop: 0 24px 60px -24px rgba(28, 22, 10, .45), 0 0 0 1px var(--line-strong);
 
     --focus-ring: 0 0 0 2px var(--panel), 0 0 0 4px var(--gold);
 }
@@ -570,6 +605,8 @@ html[data-theme="light"] .aurora-orb { opacity: .75; }
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(50%); } }
 @keyframes ring-pulse { 0% { box-shadow: 0 0 0 0 var(--gold-line); } 100% { box-shadow: 0 0 0 18px transparent; } }
 @keyframes bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fade-only { from { opacity: 0; } to { opacity: 1; } }
 
 .animate-fade-in { animation: fade-in .28s var(--ease) both; }
 .modal-animate-popup { animation: pop-in .32s var(--ease) both; }
@@ -724,17 +761,18 @@ html[data-scrolled] .site-header-inner::after {
     text-overflow: ellipsis;
 }
 
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.header-actions { display: flex; align-items: center; gap: var(--s-2); }
 
+/* כל פקדי הכותרת באותו גובה (--control) ובאותו רדיוס של פקד. */
 .theme-toggle,
 .header-status,
 .admin-back-link {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    height: 40px;
+    height: var(--control);
     padding: 0 14px;
-    border-radius: var(--r-full);
+    border-radius: var(--r-md);
     border: 1px solid var(--line);
     background: var(--panel-soft);
     color: var(--ink-2);
@@ -755,7 +793,9 @@ html[data-scrolled] .site-header-inner::after {
 .theme-toggle:active,
 .admin-back-link:active { transform: translateY(0) scale(.97); }
 
-.header-status { color: var(--ink-3); }
+/* מצב החיבור הוא מידע ולא פקד: בלי מסגרת ורקע, רק נקודה וטקסט — כך הכותרת
+   נשארת עם שני כפתורים ופרופיל, ולא עם ארבע "גלולות" שוות משקל. */
+.header-status { color: var(--ink-3); border-color: transparent; background: transparent; padding: 0 var(--s-2); }
 .header-status::before {
     content: "";
     width: 7px;
@@ -764,9 +804,9 @@ html[data-scrolled] .site-header-inner::after {
     background: currentColor;
     box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
 }
-.header-status[data-state="online"] { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
+.header-status[data-state="online"] { color: var(--green); }
 .header-status[data-state="online"]::before { animation: pulse-soft 2.4s ease-in-out infinite; }
-.header-status[data-state="locked"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+.header-status[data-state="locked"] { color: var(--gold); }
 
 /* רצועת "סביבת ניסוי": מופיעה רק כשהאתר פונה ל-Worker של הניסוי — app.js
    מסמן html[data-api-environment="staging"]. היא יושבת על הקצה העליון של
@@ -828,6 +868,10 @@ html[data-api-environment="staging"] .env-ribbon::before {
 /* הסמל שבכפתור שומר על גודלו: כשהשורה צפופה (כותרת לוח בטלפון) הטקסט
    הוא שמתכווץ, ולא הסמל — אחרת "מצב מהיר" נשאר עם סמל של שבריר פיקסל. */
 :is(.btn-primary-gold, .btn-secondary-dark, .btn-google-login, .btn-danger-soft, .btn-ghost) > :is(svg, i) { flex: none; }
+/* גובה מינימלי אחיד לכל סוגי הכפתורים: ראשי (זהב), משני, רפאים וסכנה. ה-padding
+   שבמרקאפ (utilities) קובע רק את הרוחב והמרווח הפנימי — לא כפתורים בשלושה גבהים. */
+:is(.btn-primary-gold, .btn-secondary-dark, .btn-google-login, .btn-danger-soft, .btn-ghost) { min-height: var(--control-sm); }
+:is(.btn-primary-gold, .btn-secondary-dark, .btn-google-login, .btn-danger-soft, .btn-ghost):focus-visible { border-radius: var(--r-md); }
 
 .btn-primary-gold {
     background: var(--gold-foil);
@@ -870,8 +914,8 @@ html[data-api-environment="staging"] .env-ribbon::before {
 }
 .btn-danger-soft:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 20%, transparent); transform: translateY(-1px); }
 
-.btn-ghost { color: var(--ink-3); }
-.btn-ghost:hover { color: var(--ink); background: var(--panel-soft); }
+.btn-ghost { color: var(--ink-2); }
+.btn-ghost:hover:not(:disabled) { color: var(--ink); background: var(--panel-soft); border-color: var(--line); }
 
 .btn-google-login {
     background: #ffffff;
@@ -885,34 +929,10 @@ button:disabled,
 .btn-primary-gold:disabled,
 .btn-secondary-dark:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 
-.face-search-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    border-radius: var(--r-md);
-    border: 1px solid var(--gold-line);
-    background: linear-gradient(135deg, var(--gold-tint), transparent);
-    color: var(--gold);
-    font-weight: 800;
-    overflow: hidden;
-    transition: background .2s var(--ease), transform .2s var(--ease-spring), box-shadow .2s var(--ease);
-}
-.face-search-button::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--gold) 22%, transparent) 50%, transparent 70%);
-    background-size: 250% 100%;
-    animation: shimmer 5s linear infinite;
-    pointer-events: none;
-}
-.face-search-button:hover { background: color-mix(in srgb, var(--gold) 20%, transparent); transform: translateY(-2px); box-shadow: var(--shadow-gold); }
 
 .icon-button {
-    width: 42px;
-    height: 42px;
+    width: var(--control);
+    height: var(--control);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -956,13 +976,15 @@ body textarea {
 input::placeholder,
 textarea::placeholder { color: var(--ink-4); }
 
+/* background-color ולא background: הקיצור היה מאפס את background-repeat של
+   חץ הבחירה, והחץ היה מצטייר שוב ושוב לכל רוחב הבורר בזמן הפוקוס. */
 input:focus,
 select:focus,
 textarea:focus {
     outline: none;
     border-color: var(--gold-line);
     box-shadow: 0 0 0 4px var(--gold-tint);
-    background: var(--panel-3);
+    background-color: var(--panel-3);
 }
 
 /* חץ הבחירה הוא SVG חד, בצבע קבוע לכל מצב תצוגה (data URI אינו יורש currentColor). */
@@ -1544,8 +1566,16 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 
 @media (max-width: 640px) {
-    .entry-identity { flex-direction: column; align-items: flex-start; }
-    .entry-door { width: 100%; justify-content: center; }
+    /* בטלפון הפוסטר מתכנס: הסמל קטן ולצד השם, הפסיפס נמוך יותר — כך הגלריה
+       עצמה מתחילה קרוב יותר לראש המסך. */
+    .home-intro { gap: 14px; padding: 18px; border-radius: var(--r-xl); }
+    .entry-identity { gap: 12px; align-items: flex-start; }
+    .entry-emblem { width: 46px; height: 46px; border-radius: 14px; }
+    .entry-emblem::after { inset: -4px; border-radius: 17px; }
+    .entry-title { margin: 4px 0 6px; }
+    .entry-lede { font-size: 13px; line-height: 1.6; }
+    .entry-door { width: 100%; justify-content: center; padding: 13px 20px; }
+    .hero-mosaic { --mosaic-row: 52px; }
     .entry-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
     .entry-facts > div { padding: 10px 10px; }
     .entry-facts dd { font-size: 19px; }
@@ -1801,25 +1831,159 @@ body textarea { resize: vertical; min-height: 84px; }
    12. סרגל הכלים ורשת הגלריה
    ========================================================================== */
 
+/* סרגל הכלים בשלוש שכבות (index.html):
+   1. .toolbar-main — חיפוש, "סינון" ו"תצוגה" (מיון, גודל, פריסה). השורה החשובה.
+   2. .toolbar-actions — הכלים, בשני אשכולות עם מפריד, ומונה הפריטים בקצה.
+   3. .active-filters — שבבי המסננים הפעילים; מוצגת רק כשיש מסנן.
+   הבוררים של הסינון עצמם בחלונית .filter-panel (gallery-filter-panel.js). */
 .gallery-toolbar {
     position: sticky;
     top: calc(var(--header-h) + 6px);
     z-index: 30;
+    container-type: inline-size;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    padding: 10px 12px;
-    background: var(--glass);
+    flex-direction: column;
+    gap: var(--s-2);
+    padding: var(--s-2);
+    background: var(--glass-strong);
     backdrop-filter: blur(20px) saturate(160%);
     -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-2);
 }
-.gallery-toolbar .admin-menu-search { background: var(--panel-soft); border-radius: var(--r-full); }
+.gallery-toolbar .admin-menu-search { height: var(--control); background: var(--panel-2); border-radius: var(--r-md); }
 .gallery-toolbar .admin-menu-search:focus-within { border-color: var(--gold-line); box-shadow: 0 0 0 4px var(--gold-tint); }
+
+.toolbar-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2);
+    min-width: 0;
+}
+.toolbar-main > .gallery-search { flex: 1 1 200px; }
+
+/* כפתור "סינון": בגובה השדה, עם מונה זהב של המסננים הפעילים. */
+.toolbar-filter-toggle {
+    position: relative;
+    flex: none;
+    height: var(--control);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: 0 var(--s-4);
+    border-radius: var(--r-md);
+    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    color: var(--ink);
+    font-size: var(--fs-sm);
+    font-weight: 800;
+    white-space: nowrap;
+    transition: background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease);
+}
+.toolbar-filter-toggle:hover { background: var(--panel-3); border-color: var(--gold-line); }
+.toolbar-filter-toggle[aria-expanded="true"],
+.toolbar-filter-toggle[data-active="true"] { border-color: var(--gold-line); background: var(--gold-tint); color: var(--gold); }
+.toolbar-filter-toggle:focus-visible { border-radius: var(--r-md); }
+.toolbar-filter-toggle svg { width: 16px; height: 16px; flex: none; }
+.filter-count {
+    min-width: 20px;
+    height: 20px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0 6px;
+    border-radius: var(--r-full);
+    background: var(--gold-foil);
+    color: var(--ink-on-accent);
+    font-size: var(--fs-2xs);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+.filter-count[hidden] { display: none; }
+
+/* "תצוגה": מיון ושני המתגים, בקבוצה אחת עם כותרת קטנה. */
+.toolbar-view {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+    padding: 3px;
+    padding-inline-start: var(--s-3);
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+}
+.toolbar-group-label {
+    font-size: var(--fs-2xs);
+    font-weight: 800;
+    color: var(--ink-3);
+    margin-inline-end: var(--s-1);
+}
+body select.toolbar-select {
+    width: auto;
+    height: var(--control-sm);
+    padding-block: 0;
+    padding-inline-start: var(--s-3);
+    border-radius: var(--r-sm);
+    background-color: var(--panel-2);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+}
+.toolbar-icon-button {
+    width: var(--control-sm);
+    height: var(--control-sm);
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--ink-3);
+    transition: background .2s var(--ease), color .2s var(--ease);
+}
+.toolbar-icon-button:hover { background: var(--panel-3); color: var(--ink); }
+
+/* שורת הכלים: שני אשכולות ומפריד, והמונה נדחף לקצה. */
+.toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2);
+    min-width: 0;
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--line-soft);
+}
+.toolbar-cluster { display: flex; align-items: center; gap: var(--s-1); flex: none; }
+.toolbar-divider { width: 1px; height: 22px; flex: none; background: var(--line); }
+
+/* כפתור כלי: שקט (בלי מסגרת) עד ריחוף. כלי ה-AI והאנשים מקבלים סמל זהב. */
+.tool-button {
+    position: relative;
+    height: var(--control-sm);
+    flex: none;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 var(--s-3);
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    white-space: nowrap;
+    transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+}
+.tool-button:hover { background: var(--panel-3); border-color: var(--line); color: var(--ink); transform: none; box-shadow: none; }
+.tool-button:focus-visible { border-radius: var(--r-sm); }
+.tool-button svg { width: 16px; height: 16px; flex: none; color: var(--ink-3); }
+.tool-button.is-accent svg { color: var(--gold); }
+/* סרגל צר (מסך בינוני, או ציר הזמן תופס עמודה): כלי הצפייה נשארים סמלים
+   עם שם נגיש, כדי שהשורה לא תישבר לשתיים. */
+@container (max-width: 860px) {
+    .tool-button-text,
+    .toolbar-group-label { display: none; }
+    .toolbar-view { padding-inline-start: 3px; }
+}
 
 /* חיפושים אחרונים ושמורים: התפריט שנפתח מתחת לשדה החיפוש (search-history-ui.js).
    הפוקוס נשאר בשדה, ולכן התא הפעיל (aria-activedescendant) מסומן כאן ב-is-active. */
@@ -1916,45 +2080,45 @@ body textarea { resize: vertical; min-height: 84px; }
     .gallery-toolbar.has-open-search { position: relative; z-index: 31; }
 }
 
-.gallery-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-
-/* מתג צפיפות התצוגה */
+/* מתגי הגודל והפריסה: מתג מקטעים שקט בתוך קבוצת "תצוגה"; הבחירה מסומנת
+   במשטח בהיר ובסמל זהב, לא בגרדיאנט מלא — כדי שהכפתור הראשי היחיד בסרגל
+   יישאר בולט. */
 .density-toggle {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    padding: 3px;
-    border-radius: var(--r-full);
-    border: 1px solid var(--line);
-    background: var(--panel-soft);
+    padding: 2px;
+    border-radius: var(--r-sm);
+    background: var(--panel-softer);
 }
+.density-toggle + .density-toggle { margin-inline-start: 2px; padding-inline-start: 4px; border-inline-start: 1px solid var(--line); border-start-start-radius: 0; border-end-start-radius: 0; }
 .density-toggle button {
-    width: 38px;
-    height: 34px;
+    width: 32px;
+    height: 30px;
     display: grid;
     place-items: center;
-    border-radius: var(--r-full);
-    color: var(--ink-4);
-    transition: background .2s var(--ease), color .2s var(--ease);
+    border-radius: 8px;
+    color: var(--ink-3);
+    transition: background .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease);
 }
-.density-toggle button:hover { color: var(--ink); }
-.density-toggle button[aria-pressed="true"] { background: var(--gold-foil); color: var(--ink-on-accent); box-shadow: var(--shadow-gold); }
+.density-toggle button:hover { color: var(--ink); background: var(--panel-soft); }
+.density-toggle button:focus-visible { border-radius: 8px; }
+.density-toggle button[aria-pressed="true"] { background: var(--panel-3); color: var(--gold); box-shadow: 0 0 0 1px var(--gold-line) inset, var(--shadow-1); }
 .density-toggle svg { width: 15px; height: 15px; }
 
-/* כפתור "קיצורי מקלדת" שליד מתג הצפיפות — באותו גובה ובאותה גלולה. */
+/* כפתור "קיצורי מקלדת" שבסוף קבוצת "תצוגה". */
 .shortcuts-help-button {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 30px;
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: var(--r-full);
-    border: 1px solid var(--line);
-    background: var(--panel-soft);
-    color: var(--ink-4);
-    transition: color .2s var(--ease), border-color .2s var(--ease);
+    border-radius: 8px;
+    color: var(--ink-3);
+    transition: color .2s var(--ease), background .2s var(--ease);
 }
-.shortcuts-help-button:hover { color: var(--ink); border-color: var(--gold-line); }
+.shortcuts-help-button:hover { color: var(--ink); background: var(--panel-soft); }
+.shortcuts-help-button:focus-visible { border-radius: 8px; }
 .shortcuts-help-button svg { width: 16px; height: 16px; }
 
 /* חלון קיצורי המקלדת: קבוצה לכל הקשר, ובכל שורה המקשים ומה שהם עושים. */
@@ -1989,18 +2153,161 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 
 #imageCounter {
+    flex: none;
+    margin-inline-start: auto;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 7px 14px;
-    border-radius: var(--r-full);
-    background: var(--panel-soft);
-    border: 1px solid var(--line);
+    padding: 0 var(--s-1);
     color: var(--ink-3);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 800;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
 }
+
+/* ---- המסננים הפעילים: שבב לכל מסנן, × להסרה ו"נקה הכל" ---- */
+.active-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--line-soft);
+}
+.active-filters[hidden] { display: none; }
+.active-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.active-filter-chip {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding-inline: 12px 6px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    color: var(--ink);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    transition: background .2s var(--ease), border-color .2s var(--ease);
+}
+.active-filter-chip:hover { background: color-mix(in srgb, var(--gold) 20%, transparent); }
+.active-filter-chip:focus-visible { border-radius: var(--r-full); }
+.active-filter-kind { color: var(--ink-3); font-weight: 700; }
+.active-filter-label { color: var(--gold); font-weight: 800; }
+.active-filter-remove {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--panel-soft);
+    color: var(--ink-2);
+    font-size: 15px;
+    line-height: 1;
+}
+.active-filter-chip:hover .active-filter-remove { background: var(--gold); color: var(--ink-on-accent); }
+.active-filters-clear {
+    min-height: 32px;
+    padding: 0 var(--s-2);
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.active-filters-clear:hover { color: var(--danger); }
+
+/* ---- חלונית הסינון ----
+   במסך רחב: חלונית צפה מתחת לסרגל, בצד ההתחלה, שאינה חוסמת את הדף.
+   בטלפון (בסוף הקובץ): גיליון תחתון מעל רקע מעומעם. */
+.filter-backdrop { display: none; }
+.filter-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    inset-inline-start: 0;
+    z-index: 46;
+    width: min(720px, 100%);
+    max-height: min(78vh, calc(100vh - var(--header-h) - 110px));
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+    /* כניסה בשקיפות בלבד: בלי תזוזה, כדי שהפקדים יעמדו במקומם מהרגע הראשון. */
+    animation: fade-only .18s var(--ease) both;
+}
+.filter-panel[hidden] { display: none; }
+.filter-panel-head {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    border-bottom: 1px solid var(--line);
+}
+.filter-sheet-grip { display: none; }
+.filter-panel-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--ink);
+}
+.filter-panel-title svg { width: 16px; height: 16px; color: var(--gold); }
+.filter-panel-close {
+    width: var(--control-sm);
+    height: var(--control-sm);
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--ink-3);
+}
+.filter-panel-close:hover { background: var(--panel-3); color: var(--ink); }
+.filter-panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--s-5);
+    padding: var(--s-4);
+}
+/* במסך רחב שתי עמודות: התאריך (עם גבולות הטווח שנפתחים מתחתיו) מימין, וסוג
+   המדיה ו"סוג הרגע" משמאל — כך החלונית אינה גבוהה מהמסך ואין גלילה בתוכה. */
+.filter-group { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.filter-panel-body > .filter-group:first-child { grid-row: span 2; }
+.filter-group-scenes:has(> .scene-filter[hidden]) { display: none; }
+.filter-group-title {
+    font-size: var(--fs-2xs);
+    font-weight: 800;
+    letter-spacing: .08em;
+    color: var(--ink-3);
+}
+.filter-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s-2); }
+.filter-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.filter-field-label { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+/* אורך הסרטון מוצג רק ב"סרטונים בלבד" — gallery.js מסתיר את הבורר, והתווית שלו הולכת איתו. */
+.filter-field:has(> select[hidden]) { display: none; }
+body .filter-field select { height: var(--control); padding-block: 0; font-size: var(--fs-sm); }
+.filter-panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2);
+    padding: var(--s-3) var(--s-4);
+    border-top: 1px solid var(--line);
+    background: var(--panel-2);
+}
+.filter-panel-foot .btn-primary-gold { min-height: var(--control); padding: 0 var(--s-5); font-size: var(--fs-sm); }
+.filter-panel-foot .btn-ghost { min-height: var(--control); padding: 0 var(--s-3); font-size: var(--fs-sm); }
 
 /* ה-display מגיע מ-utility שבמרקאפ ולא מכאן: כלל ID גובר על .hidden,
    וכך הרשת לא הייתה נסתרת כשאין פריטים להצגה. */
@@ -2598,6 +2905,17 @@ body textarea { resize: vertical; min-height: 84px; }
 /* עמוד האירוע: כרטיס הפעולות נצמד לגובה תוכנו ואינו נמתח לאורך כל העמודה. */
 #eventPageModal aside.admin-panel { align-self: start; position: sticky; top: 0; }
 #eventPageModal .modal-card { background: var(--panel); }
+/* החלון בגובה התוכן שלו (עד גובה המסך) ובמרכז, ולא עמוד ריק לכל הגובה. */
+#eventPageModal:not(.hidden) { display: flex; align-items: center; }
+#eventPageModal .modal-card { width: 100%; height: auto; max-height: 100%; }
+#eventPageModal .modal-card > :last-child { min-height: 0; }
+/* הפעולות: הראשית ברוחב מלא, והמשניות ברשת של שתיים, בגובה אחיד. */
+#eventPageModal aside.admin-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
+#eventPageModal aside.admin-panel > .btn-primary-gold { grid-column: 1 / -1; }
+#eventPageModal aside.admin-panel > button { min-height: var(--control); padding-block: 8px; padding-inline: 10px; font-size: var(--fs-xs); white-space: nowrap; }
+@media (min-width: 1024px) {
+    #eventPageModal .modal-card > .grid { grid-template-columns: minmax(0, 1fr) 380px; }
+}
 #eventPageModal h4 { font-family: var(--font-display); font-size: 17px; }
 #eventPageModal #eventPageTitle { font-family: var(--font-display); font-weight: 900; text-shadow: 0 6px 30px rgba(0, 0, 0, .5); }
 
@@ -2625,15 +2943,18 @@ body textarea { resize: vertical; min-height: 84px; }
 .image-fallback[class*="w-8"] span { display: none; }
 .has-fallback { background: var(--panel-3); color: var(--ink-4); }
 
-/* ---- כפתור חזרה למעלה ---- */
+/* ---- הכפתורים הצפים: "חזרה למעלה" וציר הזמן ----
+   ערימה אחת בפינת הסוף (שמאל), זה מעל זה, במידות מ---fab-*: "חזרה למעלה"
+   למטה, וכפתור "קפיצה לתאריך" מעליו. באנר העדכונים יושב בפינה שמנגד, והודעת
+   המערכת במרכז — כך אף אחד מהם אינו עולה על אחר. */
 
 .back-to-top {
     position: fixed;
-    bottom: 24px;
-    inset-inline-end: 24px;
+    bottom: var(--fab-edge);
+    inset-inline-end: var(--fab-edge);
     z-index: 45;
-    width: 48px;
-    height: 48px;
+    width: var(--fab-size);
+    height: var(--fab-size);
     display: grid;
     place-items: center;
     border-radius: 50%;
@@ -2735,8 +3056,8 @@ body textarea { resize: vertical; min-height: 84px; }
 @media (max-width: 1199px) {
     .gallery-timeline {
         position: fixed;
-        bottom: 24px;
-        inset-inline-end: 84px;
+        bottom: calc(var(--fab-edge) + var(--fab-size) + var(--fab-gap));
+        inset-inline-end: var(--fab-edge);
         z-index: 44;
         opacity: 1;
         transition: opacity .3s var(--ease), visibility 0s;
@@ -2747,8 +3068,8 @@ body textarea { resize: vertical; min-height: 84px; }
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        height: 48px;
-        min-width: 48px;
+        height: var(--fab-size);
+        min-width: var(--fab-size);
         justify-content: center;
         padding: 0 16px;
         border-radius: var(--r-full);
@@ -2770,8 +3091,8 @@ body textarea { resize: vertical; min-height: 84px; }
     .gallery-timeline-panel {
         display: none;
         position: fixed;
-        bottom: 84px;
-        inset-inline-end: 24px;
+        bottom: calc(var(--fab-edge) + 2 * (var(--fab-size) + var(--fab-gap)));
+        inset-inline-end: var(--fab-edge);
         width: min(260px, calc(100vw - 32px));
         max-height: min(60vh, 420px);
         background: var(--panel);
@@ -2812,7 +3133,9 @@ body textarea { resize: vertical; min-height: 84px; }
     pointer-events: none;
 }
 #lightboxModal h4 { color: var(--cinema-ink); font-family: var(--font-display); font-weight: 700; font-size: 17px; }
-#lightboxModal .lightbox-sub { color: var(--cinema-accent); opacity: .92; }
+#lightboxModal .lightbox-sub { color: var(--cinema-ink-soft); margin-top: 2px; line-height: 1.5; }
+/* הסגירה מרוחקת מעט משאר הפעולות ובולטת מהן, כדי שלא תילחץ בטעות במקום "הורדה". */
+#lightboxModal .lightbox-actions > button:last-child { margin-inline-start: 8px; background: var(--cinema-button-hover); }
 #lightboxModal .lightbox-nav {
     width: 52px;
     height: 52px;
@@ -3032,37 +3355,34 @@ body textarea { resize: vertical; min-height: 84px; }
    13א. כיתובים ותגיות סצנה (scene-tags.js, media-description.js)
    ========================================================================== */
 
-/* שבבי "סוג הרגע" בסרגל הכלים: שורה מלאה משלהם, גלילה אופקית בתוך השורה
-   בלבד — הדף עצמו לעולם אינו נגלל לרוחב, גם ב-390px. position: relative
-   הכרחי: בלעדיו טקסט ה-sr-only שבשבבים (position: absolute) נמדד מול אב
-   רחוק, יוצא מגבולות הגלילה ומרחיב את הדף כולו. */
+/* שבבי "סוג הרגע" בחלונית הסינון: נשברים לשורות בתוך החלונית — הדף עצמו
+   לעולם אינו נגלל לרוחב, גם ב-360px. position: relative הכרחי: בלעדיו טקסט
+   ה-sr-only שבשבבים (position: absolute) נמדד מול אב רחוק ומרחיב את הדף. */
 .scene-filter {
     position: relative;
-    flex: 1 1 100%;
     min-width: 0;
     max-width: 100%;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
     padding: 2px;
 }
 .scene-filter[hidden] { display: none; }
 /* כמה פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון (gallery.js). */
 .gallery-filter-note {
-    flex: 1 1 100%;
     margin: 0;
-    font-size: 12px;
+    padding-inline: var(--s-1);
+    font-size: var(--fs-xs);
     color: var(--ink-3);
 }
 .gallery-filter-note[hidden] { display: none; }
-/* "טווח תאריכים" בסרגל הכלים (gallery.js, renderDateRangeControl): כפתור בגובה
-   הבוררים שלצידו, וחלונית קטנה עם שני גבולות — חודש ושנה עבריים לכל אחד. */
-.date-range { position: relative; flex: none; }
+/* "טווח תאריכים" בחלונית הסינון (gallery.js, renderDateRangeControl): כפתור
+   ברוחב מלא, שפותח מתחתיו — בתוך החלונית — שני גבולות, חודש ושנה עבריים לכל אחד. */
+.date-range { position: relative; }
 .date-range-toggle {
-    min-height: 36px;
+    width: 100%;
+    min-height: var(--control);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -3071,6 +3391,7 @@ body textarea { resize: vertical; min-height: 84px; }
     border: 1px solid var(--line);
     background: var(--panel-2);
     color: var(--ink-2);
+    font-size: var(--fs-sm);
     font-weight: 700;
     white-space: nowrap;
     transition: border-color .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
@@ -3080,18 +3401,15 @@ body textarea { resize: vertical; min-height: 84px; }
 .date-range-toggle[data-active="true"] { border-color: var(--gold-line); background: var(--gold-tint); color: var(--gold); }
 .date-range-toggle svg { width: 16px; height: 16px; flex: none; }
 .date-range-panel {
-    position: absolute;
-    top: calc(100% + 6px);
-    inset-inline-start: 0;
-    z-index: 45;
-    width: min(320px, calc(100vw - 32px));
+    position: static;
+    width: 100%;
+    margin-top: var(--s-2);
     display: grid;
     gap: 10px;
     padding: 12px;
-    background: var(--panel);
-    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
     border-radius: var(--r-md);
-    box-shadow: var(--shadow-3);
 }
 .date-range-panel[hidden] { display: none; }
 .date-range-heading { margin: 0; font-size: 12px; font-weight: 800; color: var(--ink-3); }
@@ -3102,12 +3420,6 @@ body textarea { resize: vertical; min-height: 84px; }
 .date-range-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .date-range-actions button { min-height: 40px; }
 .date-range-actions button:disabled { opacity: .55; cursor: not-allowed; }
-@media (max-width: 767px) {
-    /* בטלפון החלונית אינה צפה: היא נפתחת בשורה מלאה משלה בתוך סרגל הכלים,
-       כך שאינה יוצאת מהמסך לשום צד ואינה מסתירה את הכרטיסים. */
-    .date-range.is-open { flex: 1 1 100%; }
-    .date-range-panel { position: static; width: 100%; margin-top: 6px; box-shadow: none; }
-}
 .scene-chip {
     position: relative;
     flex: 0 0 auto;
@@ -4420,16 +4732,18 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 .admin-menu-search:focus-within { border-color: var(--gold-line); box-shadow: 0 0 0 4px var(--gold-tint); }
 .admin-menu-search svg { width: 16px; height: 16px; color: var(--ink-4); flex: none; }
-.admin-menu-search input {
+/* body בסלקטור: בלעדיו "body input[type=search]" (שדות קלט) היה גובר, ומצייר
+   שדה עם מסגרת משלו בתוך התיבה — תיבה בתוך תיבה. */
+body .admin-menu-search input {
     flex: 1;
     min-width: 0;
-    height: 42px;
+    height: 38px;
     padding: 0;
     background: transparent;
     border: none;
     font-size: 13px;
 }
-.admin-menu-search input:focus { outline: none; box-shadow: none; background: transparent; }
+body .admin-menu-search input:focus { outline: none; box-shadow: none; background: transparent; }
 .admin-menu-search kbd {
     flex: none;
     padding: 2px 7px;
@@ -4469,16 +4783,16 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 
 .admin-nav-label::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+/* כותרת מקטע בתפריט (תוכן / אנשים / תחזוקה / הגדרות / מדריך, admin-ui.js). */
 .admin-nav-label {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 10px 5px;
-    font-size: 9px;
+    padding: 14px 12px 4px;
+    font-size: var(--fs-2xs);
     font-weight: 800;
-    letter-spacing: .16em;
-    text-transform: uppercase;
-    color: var(--ink-4);
+    letter-spacing: .06em;
+    color: var(--ink-3);
 }
 
 .admin-nav-item {
@@ -4487,11 +4801,11 @@ body textarea { resize: vertical; min-height: 84px; }
     align-items: center;
     gap: 10px;
     width: 100%;
-    min-height: 40px;
-    padding: 9px 12px;
+    min-height: 38px;
+    padding: 7px 12px;
     border-radius: var(--r-md);
     color: var(--ink-2);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     font-weight: 700;
     text-align: start;
     border: 1px solid transparent;
@@ -4513,7 +4827,7 @@ body textarea { resize: vertical; min-height: 84px; }
     transform: scaleY(.4);
     transition: opacity .2s var(--ease), transform .3s var(--ease-spring);
 }
-.admin-nav-item:hover { background: var(--panel-soft); color: var(--ink); transform: translateX(-2px); }
+.admin-nav-item:hover { background: var(--panel-soft); color: var(--ink); }
 .admin-nav-item.is-active {
     background: linear-gradient(90deg, var(--gold-tint), transparent 80%);
     border-color: var(--gold-line);
@@ -4540,21 +4854,23 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 .admin-nav-count[data-empty="true"] { display: none; }
 
+/* היציאה היא פעולה משנית: כפתור רפאים בצבע סכנה, ורק בריחוף מקבל רקע. */
 .admin-logout {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 11px;
+    min-height: var(--control);
+    padding: 0 12px;
     border-radius: var(--r-md);
-    border: 1px solid var(--danger-line);
-    background: var(--danger-tint);
+    border: 1px solid var(--line);
+    background: transparent;
     color: var(--danger);
-    font-size: 12px;
+    font-size: var(--fs-xs);
     font-weight: 800;
 }
-.admin-logout:hover { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+.admin-logout:hover { background: var(--danger-tint); border-color: var(--danger-line); }
 
 /* ---- אזור התוכן ---- */
 
@@ -4567,7 +4883,7 @@ body textarea { resize: vertical; min-height: 84px; }
     justify-content: space-between;
     gap: 14px;
     flex-wrap: wrap;
-    padding: 18px 20px;
+    padding: var(--s-4) var(--s-5);
     border-radius: var(--r-lg);
     background:
         radial-gradient(500px 160px at 100% 0%, var(--gold-tint), transparent 70%),
@@ -4587,21 +4903,21 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 .admin-main-head-text { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .admin-main-icon {
-    width: 50px;
-    height: 50px;
+    width: 44px;
+    height: 44px;
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 16px;
+    border-radius: var(--r-md);
     background: var(--gold-foil);
     color: var(--ink-on-accent);
     box-shadow: var(--shadow-gold);
 }
-.admin-main-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
-.admin-main-head p { font-size: 12px; color: var(--ink-4); margin-top: 2px; }
+.admin-main-head h2 { font-family: var(--font-display); font-size: var(--fs-2xl); font-weight: 700; line-height: 1.2; }
+.admin-main-head p { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 2px; line-height: 1.5; }
 .admin-main-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-main-actions .btn-primary-gold,
-.admin-main-actions .btn-secondary-dark { padding: 10px 16px; font-size: 12px; }
+.admin-main-actions .btn-secondary-dark { padding: 0 16px; font-size: var(--fs-xs); }
 
 .admin-view { display: none; flex-direction: column; gap: 14px; animation: rise .35s var(--ease) both; }
 .admin-view.is-active { display: flex; }
@@ -4622,11 +4938,12 @@ body textarea { resize: vertical; min-height: 84px; }
     align-items: center;
     justify-content: space-between;
     gap: 10px 12px;
-    padding: 14px 18px;
+    padding: var(--s-3) var(--s-5);
+    min-height: 60px;
     border-bottom: 1px solid var(--line);
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
 }
-.admin-panel-head h3 { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink); }
+.admin-panel-head h3 { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: var(--fs-lg); font-weight: 700; color: var(--ink); }
 /* פס זהב קצר לפני כל כותרת לוח — עוגן עין קבוע בכל המסכים. */
 .admin-panel-head h3::before {
     content: "";
@@ -4640,9 +4957,9 @@ body textarea { resize: vertical; min-height: 84px; }
 .admin-panel-head h3 svg { width: 17px; height: 17px; color: var(--gold); }
 .admin-panel-head .btn-secondary-dark,
 .admin-panel-head .btn-primary-gold,
-.admin-panel-head .btn-danger-soft { min-height: 36px; padding-inline: 14px; border-radius: var(--r-full); }
-.admin-panel-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-.admin-panel-body > p { font-size: 12px; color: var(--ink-3); line-height: 1.7; }
+.admin-panel-head .btn-danger-soft { min-height: var(--control-sm); padding-inline: 14px; border-radius: var(--r-md); font-size: var(--fs-xs); }
+.admin-panel-body { padding: var(--s-5); display: flex; flex-direction: column; gap: var(--s-3); }
+.admin-panel-body > p { font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.7; }
 .admin-panel-foot {
     padding: 13px 18px;
     border-top: 1px solid var(--line);
@@ -4972,12 +5289,26 @@ body textarea { resize: vertical; min-height: 84px; }
     .admin-nav-item::before { display: none; }
     .admin-nav-item span { overflow: visible; }
 
-    /* כרטיס הזהות והיציאה נשארים, אך בגובה מינימלי כדי שהתוכן עצמו
-       יתחיל קרוב לראש המסך. */
-    .admin-identity-card { padding: 9px 11px; }
-    .admin-identity-avatar { width: 34px; height: 34px; }
-    .admin-logout { order: 10; padding: 9px; font-size: 11px; }
-    .admin-main-head { position: sticky; top: calc(var(--header-h) + 4px); z-index: 20; }
+    /* כרטיס הזהות והיציאה בשורה אחת, החיפוש מתחתם והתפריט בשורה נגללת —
+       כך התוכן עצמו מתחיל קרוב לראש המסך, ולא אחרי ארבעה כרטיסים מלאים. */
+    .admin-sidebar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "identity logout" "search search" "results results" "empty empty" "nav nav";
+        /* בלי רווח בין שורות: שורת התוצאות ושורת "לא נמצא" ריקות רוב הזמן,
+           והרווח היה מצטבר מעליהן. הריווח בא מ-margin של מה שמוצג. */
+        gap: 0 var(--s-2);
+    }
+    .admin-sidebar > :is(.admin-menu-search, #adminMenuResults, #adminMenuNoResults, .admin-nav) { margin-top: var(--s-2); }
+    .admin-identity-card { grid-area: identity; padding: 7px 10px; }
+    .admin-identity-card .admin-identity-mail { display: none; }
+    .admin-identity-card .admin-grade-badge { display: none; }
+    .admin-identity-avatar { width: 32px; height: 32px; }
+    .admin-sidebar > .admin-menu-search { grid-area: search; }
+    .admin-sidebar > #adminMenuResults { grid-area: results; }
+    .admin-sidebar > #adminMenuNoResults { grid-area: empty; }
+    .admin-nav { grid-area: nav; }
+    .admin-logout { grid-area: logout; width: auto; height: 100%; padding: 0 12px; font-size: var(--fs-2xs); }
 }
 
 /* ---- מצב מהיר לאישור העלאות (pending-swipe.js) ----
@@ -5846,9 +6177,6 @@ body .admin-guide-search input { flex: 1; min-width: 0; height: 42px; padding: 0
    אנשים בגלריה ו"התמונות שלי" (people.js) וניהול האנשים (face-people.js)
    ========================================================================== */
 
-/* כפתורי הכלים בסרגל: יעד מגע של 40px לפחות. */
-.people-tool-button { min-height: 40px; }
-
 /* חיתוך הפרצוף: מסגרת ריבועית, והתמונה הקטנה ממוקמת בתוכה לפי מיקום הפרצוף
    (faceCropStyle ב-people-model.js). בלי מיקום — התמונה כולה, ממורכזת. */
 .face-crop {
@@ -6057,9 +6385,69 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .brand-kicker { display: none; }
     .brand-mark { width: 40px; height: 40px; }
     .header-status { display: none; }
-    /* בטלפון סרגל הכלים נשבר לכמה שורות, ולכן אינו נצמד לראש המסך. */
-    .gallery-toolbar { padding: 8px; position: static; }
-    .collections-grid { max-height: min(42vh, 330px); }
+    /* בטלפון סרגל הכלים אינו נצמד לראש המסך, ובלי backdrop-filter: הוא היה
+       הופך לבסיס של position: fixed, והגיליון של הסינון היה נכלא בתוכו (וכך גם
+       container-type, שמוסיף contain: layout). */
+    .gallery-toolbar { padding: 8px; position: static; container-type: normal; background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    /* שורה ראשונה: החיפוש ו"סינון"; שנייה: "תצוגה" ברוחב מלא; שלישית: הכלים. */
+    .toolbar-main > .gallery-search { flex: 1 1 0; min-width: 0; }
+    .toolbar-filter-toggle { padding: 0 var(--s-3); }
+    .toolbar-view { flex: 1 1 100%; min-width: 0; justify-content: space-between; padding-inline-start: 3px; }
+    .toolbar-group-label { display: none; }
+    body select.toolbar-select { flex: 1 1 auto; min-width: 0; max-width: 150px; }
+    /* כשהגיליון פתוח הכפתורים הצפים אינם עולים עליו. */
+    html.filter-sheet-open :is(.gallery-timeline, .back-to-top, #newUpdatesBanner) { visibility: hidden; }
+    /* הכלים בשורה אחת שנגללת לרוחב בתוך עצמה; המונה בסופה. */
+    .toolbar-actions { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-inline: -8px; padding-inline: 8px; }
+    .toolbar-actions::-webkit-scrollbar { display: none; }
+    .tool-button-text { display: none; }
+    .tool-button { padding: 0 10px; background: var(--panel-soft); border-color: var(--line-soft); }
+    /* הסינון: גיליון תחתון מעל רקע מעומעם, ברוחב המסך, עם ידית אחיזה. */
+    html.filter-sheet-open { overflow: hidden; }
+    .filter-backdrop:not([hidden]) {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 89;
+        background: var(--overlay);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        animation: fade-in .2s var(--ease) both;
+    }
+    .filter-panel {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        inset-inline: 0;
+        z-index: 90;
+        width: 100%;
+        max-height: min(88vh, calc(100dvh - 32px));
+        border-radius: var(--r-xl) var(--r-xl) 0 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        animation: sheet-up .28s var(--ease) both;
+    }
+    .filter-panel-head { padding-top: var(--s-5); }
+    .filter-sheet-grip {
+        display: block;
+        position: absolute;
+        top: 8px;
+        inset-inline: 0;
+        margin-inline: auto;
+        width: 40px;
+        height: 4px;
+        border-radius: var(--r-full);
+        background: var(--line-strong);
+    }
+    .filter-panel-body { display: flex; flex-direction: column; align-items: stretch; }
+    .filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body .filter-field select { height: var(--control-touch); }
+    .scene-chip { min-height: var(--control-touch); }
+    .filter-panel-foot .btn-primary-gold { flex: 1; min-height: var(--control-touch); }
+    .collections-grid { max-height: min(40vh, 300px); padding: 10px; }
+    .collections-header { padding: 14px 14px 12px; }
+    .collections-copy { display: none; }
+    .collections-emblem { width: 38px; height: 38px; border-radius: 12px; }
+    .collections-summary { margin-top: 10px; padding: 8px 12px; }
     #photosGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
     #photosGrid[data-density="large"] { grid-template-columns: minmax(0, 1fr); }
     #photosGrid[data-density="compact"] { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -6068,11 +6456,9 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
     .modal-body, .modal-head, .modal-foot { padding: 14px; }
     .admin-main-head { padding: 13px; }
     .conversation-bubble { max-width: 88%; }
-    .back-to-top { bottom: 16px; inset-inline-end: 16px; width: 44px; height: 44px; }
-    /* ציר הזמן הצף: ליד "חזרה למעלה", באותו גובה. */
-    .gallery-timeline { bottom: 16px; inset-inline-end: 70px; }
-    .gallery-timeline-toggle { height: 44px; min-width: 44px; padding: 0 14px; }
-    .gallery-timeline-panel { bottom: 70px; inset-inline-end: 16px; }
+    /* הערימה הצפה קרובה יותר לקצה, ובגודל מגע. */
+    :root { --fab-size: 44px; --fab-edge: 14px; --fab-gap: 8px; }
+    .gallery-timeline-toggle { padding: 0 14px; font-size: 12px; }
     /* מתגי הגודל והפריסה נשארים גם בטלפון (קטן = יותר כרטיסים בשורה), בכפתורים
        מעט קטנים יותר כדי שסרגל הכלים לא יתארך. */
     .density-toggle button { width: 36px; height: 34px; }

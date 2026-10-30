@@ -1,7 +1,7 @@
 // מיון אקראי, "תמונה אקראית" וסינון לפי כיוון, בדפדפן אמיתי: הסדר האקראי
 // נשאר יציב עד "ערבב מחדש", הכפתור פותח פריט מהתצוגה המסוננת בלי לחזור על
 // הקודם, והכיוון נגזר מהמידות שברשומה, מצטרף לשאר הסינונים ונשמר בחיפושים.
-import { test, expect, seedSession, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, variantEntries, API_ORIGIN, DEFAULT_USER, openGalleryFilters, closeGalleryFilters } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
 
 const USER_KEY = storageKeyFor(DEFAULT_USER.uid);
@@ -144,6 +144,8 @@ test('כיוון: לאורך, לרוחב וריבועית מהמידות שבר�
     const orientation = page.locator('#galleryOrientationFilter');
     const note = page.locator('#galleryOrientationNote');
     await expect(cards).toHaveCount(5);
+    // הבורר בחלונית "סינון" של סרגל הכלים.
+    await openGalleryFilters(page);
     await expect(orientation).toHaveAttribute('aria-label', 'סינון לפי כיוון');
     await expect(orientation.locator('option')).toHaveText(['כל הכיוונים', 'לאורך', 'לרוחב', 'ריבועית']);
     await expect(note).toBeHidden();
@@ -175,6 +177,7 @@ test('כיוון: לאורך, לרוחב וריבועית מהמידות שבר�
 
     // ביטול: הכול חוזר, וההערה נעלמת.
     await search.fill('');
+    await openGalleryFilters(page);
     await orientation.selectOption('');
     await expect(cards).toHaveCount(5);
     await expect(note).toBeHidden();
@@ -196,9 +199,14 @@ test('בטלפון: הכפתורים והבוררים נגישים בלי גלי
     await page.goto('/');
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(3);
     await page.locator('#gallerySortSelect').selectOption('random');
-    for (const id of ['#galleryRandomItemButton', '#galleryReshuffleButton', '#galleryOrientationFilter']) {
+    for (const id of ['#galleryRandomItemButton', '#galleryReshuffleButton']) {
         await expect(page.locator(id)).toBeVisible();
     }
+    // בורר הכיוון בגיליון הסינון; גם פתוח אין גלילה אופקית.
+    await openGalleryFilters(page);
+    await expect(page.locator('#galleryOrientationFilter')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await closeGalleryFilters(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.locator('#galleryRandomItemButton').click();
     await expect(page.locator('#lightboxModal')).toBeVisible();

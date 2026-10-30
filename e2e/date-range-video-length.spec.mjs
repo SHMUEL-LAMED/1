@@ -2,7 +2,7 @@
 // מחודש ושנה עד חודש ושנה (גם בשנה מעוברת וגם כשנבחר הפוך), מצטרפת לשאר
 // הסינונים ונשמרת בחיפושים; בורר האורך מוצג ב"סרטונים בלבד", מסנן לפי duration
 // שברשומה, ולסרטון בלעדיו קורא את האורך מהמטא-דאטה של הקובץ — פעם אחת, עם מטמון.
-import { test, expect, seedSession, imageRecord, API_ORIGIN, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, API_ORIGIN, DEFAULT_USER, openGalleryFilters } from './fixtures.mjs';
 import { storageKeyFor } from '../search-history.js';
 import { DURATION_CACHE_KEY } from '../video-length.js';
 
@@ -76,7 +76,9 @@ test('טווח תאריכים: מחודש ושנה עד חודש ושנה, יח�
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toBeHidden();
 
-    // פתיחה: הפוקוס עובר לשנת ההתחלה, והחודש מושבת עד שנבחרת שנה.
+    // פתיחה (בחלונית "סינון" של סרגל הכלים): הפוקוס עובר לשנת ההתחלה, והחודש
+    // מושבת עד שנבחרת שנה.
+    await openGalleryFilters(page);
     await toggle.click();
     await expect(panel).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -158,7 +160,8 @@ test('טווח תאריכים: מחודש ושנה עד חודש ושנה, יח�
     await expect(page.locator('#galleryDateRangeLabel')).toHaveText('מאדר ב׳ תשפ״ד עד אדר ב׳ תשפ״ד');
     await expect(titles(page)).toHaveText(['פורים תשפ״ד']);
 
-    // לחיצה מחוץ לחלונית סוגרת אותה.
+    // לחיצה מחוץ לחלונית סוגרת אותה (החיפוש סגר את חלונית הסינון — פותחים שוב).
+    await openGalleryFilters(page);
     await toggle.click();
     await expect(panel).toBeVisible();
     await page.locator('#imageCounter').click();
@@ -188,6 +191,8 @@ test('אורך סרטון: מוצג ב"סרטונים בלבד", מסנן לפי
     const length = page.locator('#galleryVideoLengthFilter');
     const note = page.locator('#galleryVideoLengthNote');
     await expect(cards).toHaveCount(6);
+    // בחלונית "סינון": בורר האורך מוסתר עד "סרטונים בלבד".
+    await openGalleryFilters(page);
     await expect(length).toBeHidden();
     await expect(note).toBeHidden();
     // בלי סינון לפי אורך — אין שום בדיקה של קבצים.
@@ -255,6 +260,7 @@ test('אורך סרטון: אורך שנמדד בביקור קודם נלקח מ
     });
     await seedSession(page, { worker });
     await page.goto('/');
+    await openGalleryFilters(page);
     await page.locator('#galleryMediaTypeFilter').selectOption('video');
     await page.locator('#galleryVideoLengthFilter').selectOption('long');
     await expect(titles(page)).toHaveText(['סרטון בלי אורך']);
@@ -285,6 +291,7 @@ test('אורך סרטון וכיוון: סרטון שהכיוון מסתיר א�
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(5);
 
     // הכיוון קודם, כדי שגם בדרך לא יהיה רגע שבו הסרטונים לרוחב מוצגים עם סינון אורך.
+    await openGalleryFilters(page);
     await page.locator('#galleryOrientationFilter').selectOption('portrait');
     await page.locator('#galleryMediaTypeFilter').selectOption('video');
     await page.locator('#galleryVideoLengthFilter').selectOption('short');
@@ -304,9 +311,9 @@ test('אורך סרטון וכיוון: סרטון שהכיוון מסתיר א�
     await expect.poll(() => new Set(mediaRequests).size).toBe(2);
 });
 
-// מעל רוחב טלפון החלונית צפה. הסרגל נשבר לשורות לפי הרוחב, והכפתור יכול
-// לשבת ליד הקצה השמאלי — שם החלונית הייתה חורגת מהמסך (820px, ו-1280px עם
-// בורר האורך). היא מוזזת פנימה, גם כשהכיתוב שבכפתור משנה את רוחבו.
+// מעל רוחב טלפון גבולות הטווח נפתחים בתוך חלונית הסינון הצפה. כשהכפתור
+// ישב בסרגל עצמו, ליד הקצה השמאלי, החלונית חרגה מהמסך (820px, ו-1280px עם
+// בורר האורך). הבדיקה נשארת: בכל רוחב, גם כשהכיתוב שבכפתור משתנה, אין חריגה.
 for (const width of [820, 900, 1280]) {
     test(`ברוחב ${width}px: חלונית הטווח כולה בתוך המסך, בלי גלילה אופקית`, async ({ page, worker }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -314,6 +321,7 @@ for (const width of [820, 900, 1280]) {
         await seedSession(page, { worker });
         await page.goto('/');
         await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(5);
+        await openGalleryFilters(page);
         await page.locator('#galleryMediaTypeFilter').selectOption('video');
         await page.locator('#galleryDateRangeToggle').click();
         const panel = page.locator('#galleryDateRangePanel');
@@ -332,13 +340,14 @@ for (const width of [820, 900, 1280]) {
     });
 }
 
-test('בטלפון: חלונית הטווח נפתחת בתוך הסרגל, בלי גלילה אופקית', async ({ page, worker }) => {
+test('בטלפון: חלונית הטווח נפתחת בתוך גיליון הסינון, בלי גלילה אופקית', async ({ page, worker }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     seedDatedGallery(worker);
     await seedSession(page, { worker });
     await page.goto('/');
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(5);
     const toggle = page.locator('#galleryDateRangeToggle');
+    await openGalleryFilters(page);
     await toggle.click();
     const panel = page.locator('#galleryDateRangePanel');
     await expect(panel).toBeVisible();
@@ -369,7 +378,8 @@ test('ברוחב 1280px: חלונית הטווח נשארת בתוך המסך כ
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(3);
     const layout = page.locator('.gallery-layout');
     await expect(layout).toHaveAttribute('data-timeline', '');
-    // בורר האורך מרחיב את הסרגל, כך שהכפתור יושב ליד הקצה השמאלי.
+    // בורר האורך מוצג גם הוא (כשהבוררים ישבו בסרגל, הוא הרחיב אותו).
+    await openGalleryFilters(page);
     await page.locator('#galleryMediaTypeFilter').selectOption('video');
     await page.evaluate(() => window.setGallerySort('name'));
     await expect(layout).not.toHaveAttribute('data-timeline');

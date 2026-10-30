@@ -1643,6 +1643,22 @@ export async function signInViaGoogle(page, user = {}) {
     return credential;
 }
 
+// בוררי הסינון (שנה, חודש, טווח, סוג מדיה, כיוון, אורך, סוג הרגע) יושבים
+// בחלונית "סינון" של סרגל הכלים (gallery-filter-panel.js), ולכן בדיקה שבוחרת
+// בהם פותחת אותה קודם — כמו המשתמש. אם היא כבר פתוחה, אין לחיצה נוספת.
+export async function openGalleryFilters(page) {
+    const panel = page.locator('#galleryFilterPanel');
+    if (!(await panel.isVisible())) await page.locator('#galleryFilterToggle').click();
+    await expect(panel).toBeVisible();
+}
+
+// סוגר את החלונית ב"הצגת N פריטים" שבתחתית, למשל לפני לחיצה על כרטיס.
+export async function closeGalleryFilters(page) {
+    const panel = page.locator('#galleryFilterPanel');
+    if (await panel.isVisible()) await page.locator('#galleryFilterDone').click();
+    await expect(panel).toBeHidden();
+}
+
 export function readStoredToken(page) {
     return page.evaluate(key => localStorage.getItem(key), TOKEN_KEY);
 }

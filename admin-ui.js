@@ -228,6 +228,34 @@ const ADMIN_VIEWS = [
 
 const VIEW_GROUPS = ['סקירה', 'תוכן הגלריה', 'תקשורת ואנשים', 'כלי מערכת'];
 
+// מקטעי התפריט שבצד: "סקירה כללית" בראש בלי כותרת, ואחריה תוכן / אנשים /
+// תחזוקה / הגדרות / מדריך. זו חלוקה של התצוגה בלבד — רשימת המסכים, הסדר שלה
+// והקבוצות (VIEW_GROUPS, שנבדקות ב-admin-menu-order.test.mjs) נשארים כפי
+// שהם. מסך חדש שאינו מופיע כאן נכנס למקטע לפי הקבוצה שלו (NAV_SECTION_BY_GROUP).
+const NAV_SECTIONS = [
+    { id: 'home', label: '' },
+    { id: 'content', label: 'תוכן' },
+    { id: 'people', label: 'אנשים' },
+    { id: 'maintenance', label: 'תחזוקה' },
+    { id: 'settings', label: 'הגדרות' },
+    { id: 'guide', label: 'מדריך' }
+];
+const NAV_SECTION_BY_VIEW = {
+    dashboard: 'home',
+    guide: 'guide',
+    pending: 'content', drive: 'content', folders: 'content', deletions: 'content', trash: 'content',
+    aititles: 'content', capturedates: 'content', variants: 'content',
+    users: 'people', messages: 'people', faceindex: 'people',
+    activity: 'maintenance', analytics: 'maintenance', stats: 'maintenance', backup: 'maintenance', health: 'maintenance',
+    brokenlinks: 'maintenance', errors: 'maintenance', tools: 'maintenance',
+    downloads: 'settings', popup: 'settings'
+};
+const NAV_SECTION_BY_GROUP = { 'סקירה': 'home', 'תוכן הגלריה': 'content', 'תקשורת ואנשים': 'people', 'כלי מערכת': 'maintenance' };
+
+function navSectionOf(view) {
+    return NAV_SECTION_BY_VIEW[view.id] || NAV_SECTION_BY_GROUP[view.group] || 'maintenance';
+}
+
 function viewById(id) {
     return ADMIN_VIEWS.find(view => view.id === id);
 }
@@ -258,14 +286,17 @@ function renderAdminNav() {
     if (!nav) return;
     nav.replaceChildren();
 
-    VIEW_GROUPS.forEach(group => {
-        const views = allowedViews().filter(view => view.group === group);
+    NAV_SECTIONS.forEach(section => {
+        const views = allowedViews().filter(view => navSectionOf(view) === section.id);
         if (!views.length) return;
 
-        const label = document.createElement('p');
-        label.className = 'admin-nav-label';
-        label.textContent = group;
-        nav.appendChild(label);
+        if (section.label) {
+            const label = document.createElement('p');
+            label.className = 'admin-nav-label';
+            label.dataset.navSection = section.id;
+            label.textContent = section.label;
+            nav.appendChild(label);
+        }
 
         views.forEach(view => {
             const button = document.createElement('button');

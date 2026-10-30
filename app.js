@@ -32,6 +32,8 @@ import { initGalleryTimeline } from './gallery-timeline-ui.js';
 // מוני השימוש (ביקור, צפיות, הורדות) למסך "סטטיסטיקות": מצטברים בדפדפן
 // ונשלחים בדיווח אחד, ולא בקשה לכל צפייה.
 import { installUsageBeacon } from './usage-beacon.js';
+// חלונית "סינון" של סרגל הכלים והשבבים של המסננים הפעילים.
+import { initGalleryFilterPanel } from './gallery-filter-panel.js';
 
 // שני הדפים חולקים את הקובץ הזה, ולכן הוא חייב לדעת היכן הוא רץ:
 // <html data-page="admin"> בדף הניהול, וכל השאר נחשב לדף הגלריה.
@@ -43,7 +45,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v71';
+const SITE_VERSION = 'v72';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -1657,6 +1659,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initSessionUI();
         // לפני הגלריה, כדי שגם הציור הראשון שלה יגיע לציר.
         initGalleryTimeline();
+        initGalleryFilterPanel();
         initGallery();
         initSearchHistory();
         initGalleryNavigation();
