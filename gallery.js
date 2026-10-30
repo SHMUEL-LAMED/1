@@ -960,7 +960,8 @@ document.addEventListener('pointerdown', event => {
 });
 
 // שינוי רוחב (סיבוב הטלפון, חלון שהוקטן) מזיז את הכפתור — החלונית נמדדת
-// מחדש. המאזין נרשם ב-initGallery.
+// מחדש. המאזין נרשם ב-initGallery, ובסוף כל ציור של הגלריה היא נמדדת שוב
+// (ציר הזמן שהופיע או נעלם, ראו _doRenderImages).
 function placeOpenDateRangePanel() {
     const panel = document.getElementById('galleryDateRangePanel');
     if (panel && !panel.hidden) placeDateRangePanel(panel);
@@ -1287,25 +1288,25 @@ function getFilteredSortedImages() {
             ].some(value => String(value || '').toLowerCase().includes(q));
         });
     }
-    // אורך הסרטון והכיוון אחרונים, כדי שהמונים של "אורך לא ידוע" ו"בלי מידות"
-    // יספרו רק פריטים שהיו מוצגים לולא הסינון הזה.
+    // אורך הסרטון והכיוון אחרונים, ובמעבר אחד: המונים של "אורך לא ידוע"
+    // ו"בלי מידות" סופרים רק פריטים שהיו מוצגים לולא הסינון שלהם — כלומר
+    // שעוברים את כל השאר, כולל זה של השני. סרטון לרוחב שהכיוון מסתיר אינו
+    // נכנס ל-videoLengthUnknown, ולכן גם אינו נבדק ברשת (renderVideoLengthNote).
+    // פריט ששניהם חסרים לו אינו נספר באף אחד: גם אורך שיימצא לא יציג אותו.
     const videoLength = activeVideoLengthFilter();
-    videoLengthUnknown = [];
-    if (videoLength) {
-        filtered = filtered.filter(img => {
-            if (!window.isVideoRecord(img)) return false;
-            const bucket = videoLengthBucket(videoDuration(img));
-            if (!bucket) videoLengthUnknown.push(img);
-            return bucket === videoLength;
-        });
-    }
     const orientation = activeOrientationFilter();
+    videoLengthUnknown = [];
     orientationUnknownCount = 0;
-    if (orientation) {
+    if (videoLength || orientation) {
         filtered = filtered.filter(img => {
-            const value = mediaOrientation(img);
-            if (!value) orientationUnknownCount += 1;
-            return value === orientation;
+            if (videoLength && !window.isVideoRecord(img)) return false;
+            const bucket = videoLength ? videoLengthBucket(videoDuration(img)) : '';
+            const lengthMatches = !videoLength || bucket === videoLength;
+            const shape = orientation ? mediaOrientation(img) : '';
+            const orientationMatches = !orientation || shape === orientation;
+            if (videoLength && !bucket && orientationMatches) videoLengthUnknown.push(img);
+            if (orientation && !shape && lengthMatches) orientationUnknownCount += 1;
+            return lengthMatches && orientationMatches;
         });
     }
     return sortGalleryItems(filtered, scoped);
@@ -1606,6 +1607,12 @@ window._doRenderImages = function() {
     window.updateGalleryTimeline?.(galleryPageItems);
     renderOrientationNote();
     renderVideoLengthNote();
+    // renderDateRangeControl מיקם את החלונית הפתוחה לפני שציר הזמן הופיע או
+    // נעלם (במסך רחב הוא עמודה שלישית — הגלריה משנה את רוחבה, הסרגל נשבר
+    // אחרת והכפתור זז) ולפני שבורר האורך נוסף לסרגל. מיקום לפי הפריסה הקודמת
+    // היה משאיר אותה חורגת מהקצה השמאלי, עם גלילה אופקית — ולכן היא נמדדת
+    // שוב כאן, כשהפריסה כבר סופית.
+    placeOpenDateRangePanel();
     galleryPageSource = { images: window.state.images, length: window.state.images?.length || 0 };
     galleryRenderPending = false;
 

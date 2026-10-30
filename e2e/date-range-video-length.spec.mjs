@@ -262,6 +262,48 @@ test('אורך סרטון: אורך שנמדד בביקור קודם נלקח מ
     expect(mediaRequests).toEqual([]);
 });
 
+// אורך הסרטון והכיוון יחד: כל מונה של "לא ידוע" סופר רק פריטים שעוברים את
+// כל שאר הסינונים. סרטון לרוחב שאינו מוצג בגלל הכיוון אינו נבדק ברשת ואינו
+// נספר בהערת האורך, וסרטון בלי מידות שאינו מוצג בגלל האורך אינו נספר בהערת
+// הכיוון.
+test('אורך סרטון וכיוון: סרטון שהכיוון מסתיר אינו נבדק ואינו נספר', async ({ page, worker }) => {
+    worker.seedFolders().seedImages([
+        videoRecord(1, 'קצר לאורך', { duration: 30, width: 720, height: 1280 }),
+        // בלי duration, לרוחב: היו נבדקים לולא הכיוון.
+        videoRecord(2, 'בלי אורך לרוחב', { width: 1920, height: 1080 }),
+        videoRecord(3, 'עוד בלי אורך לרוחב', { width: 1280, height: 720 }),
+        // בלי מידות: ארוך — מוסתר ממילא בגלל האורך; קצר — נספר בהערת הכיוון.
+        videoRecord(4, 'ארוך בלי מידות', { duration: 600 }),
+        videoRecord(5, 'קצר בלי מידות', { duration: 20 })
+    ]);
+    const mediaRequests = [];
+    page.on('request', request => {
+        if (/img_e2e_[23]\.mp4/.test(request.url())) mediaRequests.push(request.url());
+    });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(5);
+
+    // הכיוון קודם, כדי שגם בדרך לא יהיה רגע שבו הסרטונים לרוחב מוצגים עם סינון אורך.
+    await page.locator('#galleryOrientationFilter').selectOption('portrait');
+    await page.locator('#galleryMediaTypeFilter').selectOption('video');
+    await page.locator('#galleryVideoLengthFilter').selectOption('short');
+    await expect(titles(page)).toHaveText(['קצר לאורך']);
+    // שני הסרטונים בלי מידות נספרו עד עכשיו; עם סינון האורך — רק הקצר.
+    await expect(page.locator('#galleryOrientationNote')).toHaveText('פריט אחד בלי מידות שמורות אינו נכלל בסינון לפי כיוון.');
+    await expect(page.locator('#galleryVideoLengthNote')).toBeHidden();
+    // ציור נוסף (מיון אחר) — ועדיין אין בדיקה של הקבצים.
+    await page.locator('#gallerySortSelect').selectOption('oldest');
+    await expect(titles(page)).toHaveText(['קצר לאורך']);
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
+    expect(mediaRequests).toEqual([]);
+
+    // בלי סינון כיוון — עכשיו הם היו מוצגים, ולכן נבדקים ונספרים.
+    await page.locator('#galleryOrientationFilter').selectOption('');
+    await expect(page.locator('#galleryVideoLengthNote')).toBeVisible();
+    await expect.poll(() => new Set(mediaRequests).size).toBe(2);
+});
+
 // מעל רוחב טלפון החלונית צפה. הסרגל נשבר לשורות לפי הרוחב, והכפתור יכול
 // לשבת ליד הקצה השמאלי — שם החלונית הייתה חורגת מהמסך (820px, ו-1280px עם
 // בורר האורך). היא מוזזת פנימה, גם כשהכיתוב שבכפתור משנה את רוחבו.
@@ -307,4 +349,57 @@ test('בטלפון: חלונית הטווח נפתחת בתוך הסרגל, בל
     await page.locator('#galleryDateRangeFromYear').selectOption({ label: 'תשפ״ז' });
     await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+// ברוחב 1280px ציר הזמן הוא עמודה שלישית בפריסה, והוא מופיע ונעלם עם המיון
+// ועם מספר החודשים שבתצוגה — גם כשהחלונית פתוחה (טווח של חודש אחד מעלים
+// אותו). הגלריה משנה אז את רוחבה, הסרגל נשבר אחרת והכפתור זז — והחלונית
+// צריכה להימדד מחדש, בלי לחרוג מהמסך.
+test('ברוחב 1280px: חלונית הטווח נשארת בתוך המסך כשציר הזמן מופיע ונעלם', async ({ page, worker }) => {
+    const width = 1280;
+    await page.setViewportSize({ width, height: 900 });
+    // סרטונים משלושה חודשים, כדי שגם ב"סרטונים בלבד" יהיה ציר.
+    worker.seedFolders().seedImages([
+        videoRecord(1, 'סרטון תשרי', { duration: 30, ...capture('2026-09-28T16:30:00Z', '2026-09-28') }),
+        videoRecord(2, 'סרטון כסלו', { duration: 30, ...capture('2025-11-25T10:00:00Z', '2025-11-25') }),
+        videoRecord(3, 'סרטון אדר', { duration: 30, ...capture('2024-03-24T10:00:00Z', '2024-03-24') })
+    ]);
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(3);
+    const layout = page.locator('.gallery-layout');
+    await expect(layout).toHaveAttribute('data-timeline', '');
+    // בורר האורך מרחיב את הסרגל, כך שהכפתור יושב ליד הקצה השמאלי.
+    await page.locator('#galleryMediaTypeFilter').selectOption('video');
+    await page.evaluate(() => window.setGallerySort('name'));
+    await expect(layout).not.toHaveAttribute('data-timeline');
+    await page.locator('#galleryDateRangeToggle').click();
+    const panel = page.locator('#galleryDateRangePanel');
+    await expect(panel).toBeVisible();
+    const inside = async () => {
+        await expect.poll(async () => {
+            const box = await panel.boundingBox();
+            const noScroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+            return { left: box.x >= 0, right: box.x + box.width <= width, noScroll };
+        }).toEqual({ left: true, right: true, noScroll: true });
+    };
+    await inside();
+    // המיון חוזר לתאריך בזמן שהחלונית פתוחה: ציר הזמן מופיע.
+    await page.evaluate(() => window.setGallerySort('newest'));
+    await expect(layout).toHaveAttribute('data-timeline', '');
+    await expect(panel).toBeVisible();
+    await inside();
+    await page.evaluate(() => window.setGallerySort('name'));
+    await expect(layout).not.toHaveAttribute('data-timeline');
+    await inside();
+    // טווח של חודש אחד מעלים את הציר, וביטולו מחזיר אותו.
+    await page.evaluate(() => window.setGallerySort('newest'));
+    await expect(layout).toHaveAttribute('data-timeline', '');
+    await inside();
+    await page.locator('#galleryDateRangeFromYear').selectOption({ label: 'תשפ״ז' });
+    await expect(layout).not.toHaveAttribute('data-timeline');
+    await inside();
+    await page.locator('#galleryDateRangeFromYear').selectOption('');
+    await expect(layout).toHaveAttribute('data-timeline', '');
+    await inside();
 });
