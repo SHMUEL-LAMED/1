@@ -5619,6 +5619,132 @@ body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); gri
 .admin-errors-table .error-actions button { padding: 5px 11px; font-size: 10px; }
 .admin-errors-table .admin-empty { text-align: center; }
 
+/* "?" שבראש מסך: קישור לסעיף המתאים במדריך למנהלים. עיגול קטן ושקט, ומטרת
+   מגע של 36px כמו שאר כפתורי הכותרת. */
+.admin-help-link {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    transition: color .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease);
+}
+.admin-help-link:hover { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+
+/* מסך "מדריך למנהלים": תוכן העניינים דבוק בצד כשהתפריט של הלוח בצד, ומעל
+   הסעיפים כשהלוח בעמודה אחת (שם כותרת המסך היא שדבוקה, ראו למעלה). */
+.admin-guide { display: grid; gap: 14px; align-items: start; }
+@media (min-width: 1101px) {
+    .admin-guide { grid-template-columns: 230px minmax(0, 1fr); }
+    .admin-guide-toc { position: sticky; top: calc(var(--header-h) + 8px); }
+}
+.admin-guide-toc { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.admin-guide-toc ol { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.admin-guide-toc a {
+    display: block;
+    padding: 8px 11px;
+    border-radius: var(--r-sm);
+    color: var(--ink-3);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: color .2s var(--ease), background .2s var(--ease);
+}
+.admin-guide-toc a:hover { color: var(--ink); background: var(--panel-soft); }
+.admin-guide-toc a[aria-current] { color: var(--gold); background: var(--gold-tint); }
+/* בעמודה אחת תוכן העניינים הוא שורה שנגללת לרוחב בתוך עצמה, כמו תפריט הלוח. */
+@media (max-width: 1100px) {
+    .admin-guide-toc ol { flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+    .admin-guide-toc li { flex: none; }
+    .admin-guide-toc a {
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+        border-radius: var(--r-full);
+        padding: 6px 13px;
+        font-size: 11px;
+    }
+}
+.admin-guide-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.admin-guide-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-guide-toolbar .btn-secondary-dark { min-height: 40px; }
+.admin-guide-search {
+    flex: 1 1 240px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-radius: var(--r-md);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.admin-guide-search:focus-within { border-color: var(--gold-line); box-shadow: 0 0 0 4px var(--gold-tint); }
+.admin-guide-search svg { width: 16px; height: 16px; color: var(--ink-4); flex: none; }
+body .admin-guide-search input { flex: 1; min-width: 0; height: 42px; padding: 0; background: transparent; border: none; font-size: 13px; }
+.admin-guide-search input:focus { outline: none; box-shadow: none; background: transparent; }
+.admin-guide-sections { display: flex; flex-direction: column; gap: 10px; }
+.admin-guide-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+    border-radius: var(--r-lg);
+}
+.admin-guide-summary::-webkit-details-marker { display: none; }
+.admin-guide-summary::after {
+    content: "\25BE";
+    flex: none;
+    margin-inline-start: auto;
+    color: var(--ink-4);
+    transition: transform .2s var(--ease);
+}
+.admin-guide-section[open] > .admin-guide-summary::after { transform: rotate(180deg); }
+.admin-guide-section[open] > .admin-guide-summary { border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.admin-guide-summary:hover { background: var(--panel-soft); }
+.admin-guide-summary:focus-visible { box-shadow: inset 0 0 0 2px var(--gold); }
+.admin-guide-summary-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.admin-guide-summary-text strong { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink); }
+.admin-guide-summary-text small { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+.admin-guide-tag {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--violet-line);
+    background: var(--violet-tint);
+    color: var(--violet);
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.admin-guide-content { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.75; color: var(--ink-2); }
+.admin-guide-content strong { color: var(--ink); font-weight: 800; }
+.admin-guide-subtitle { margin-top: 4px; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--gold); }
+.admin-guide-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding-inline-start: 20px; list-style: disc; }
+.admin-guide-list.is-steps { list-style: decimal; }
+.admin-guide-list li::marker { color: var(--gold); font-weight: 800; }
+.admin-guide-note {
+    padding: 10px 13px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    color: var(--ink);
+}
+.admin-guide-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.admin-guide-actions .btn-secondary-dark { min-height: 40px; }
+
 /* צינור ההודעות והתראות בתיבה האישית. */
 .profile-inbox-list .is-unread { border-color: var(--gold-line); }
 

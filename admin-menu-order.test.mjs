@@ -27,6 +27,7 @@ function registeredViews() {
 
 const CANONICAL_VIEW_ORDER = [
   "dashboard",
+  "guide",
   "pending",
   "drive",
   "folders",

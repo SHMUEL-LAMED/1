@@ -191,16 +191,26 @@
                 </div>
             </section>
 
+            <!-- ============ מסך: מדריך למנהלים ============
+                 התוכן נבנה ב-admin-guide-ui.js מתוך admin-guide.js, שנטען רק
+                 כשהמסך נפתח. כפתורי "?" שבמסכים האחרים פותחים כאן סעיף. -->
+            <section id="view-guide" class="admin-view" data-view="guide" aria-label="מדריך למנהלים">
+                <div id="adminGuideRoot">
+                    <p class="admin-empty" role="status">המדריך נטען…</p>
+                </div>
+            </section>
+
             <!-- ============ מסך: אישור העלאות ============ -->
             <section id="view-pending" class="admin-view" data-view="pending" aria-label="אישור העלאות">
                 <div class="admin-panel">
                     <div class="admin-panel-head">
                         <h3><i data-lucide="image-plus"></i> בקשות העלאה לאישור <span id="pendingCountBadge" class="admin-pane-count">0</span></h3>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 items-center">
                             <button type="button" id="pendingSwipeOpenBtn" onclick="openPendingSwipe()" class="btn-primary-gold px-3 py-1.5 text-[11px]" aria-haspopup="dialog" aria-controls="pendingSwipe" title="פריט אחד בכל פעם: החלקה, כפתורים או מקלדת">
                                 <i data-lucide="zap" class="w-3.5 h-3.5"></i> מצב מהיר
                             </button>
                             <button type="button" onclick="toggleSelectAllPending()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">סמן הכל</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('uploads')" data-guide-target="uploads" aria-label="הסבר במדריך למנהלים: העלאות ואישור תוכן" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
                         </div>
                     </div>
                     <div id="accPending" class="accordion-content admin-panel-body">
@@ -222,7 +232,10 @@
             <!-- ============ מסך: סנכרון Drive ============ -->
             <section id="view-drive" class="admin-view" data-view="drive" aria-label="סנכרון Google Drive">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="folder-sync"></i> סנכרון מ־Google Drive</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="folder-sync"></i> סנכרון מ־Google Drive</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('drive')" data-guide-target="drive" aria-label="הסבר במדריך למנהלים: סנכרון Google Drive" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div id="accDriveSync" class="accordion-content admin-panel-body">
                         <p>חבר חשבון Drive, הדבק קישור לתיקייה וסנכרן תמונות, סרטונים ותיקיות משנה ישירות לגלריה.</p>
 
@@ -287,7 +300,10 @@
             <!-- ============ מסך: תיקיות ============ -->
             <section id="view-folders" class="admin-view" data-view="folders" aria-label="ניהול תיקיות">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="folder-plus"></i> יצירת תיקייה ריקה</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="folder-plus"></i> יצירת תיקייה ריקה</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('folders')" data-guide-target="folders" aria-label="הסבר במדריך למנהלים: תיקיות ואירועים" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div id="accEmptyFolder" class="accordion-content admin-panel-body">
                         <form onsubmit="handleCreateEmptyFolder(event)" class="flex flex-col gap-3">
                             <label class="block"><span class="field-label">שם התיקייה</span>
@@ -381,7 +397,10 @@
                 <div id="superAdminUsersCard" class="hidden super-admin-only admin-panel">
                     <div class="admin-panel-head">
                         <h3><i data-lucide="user-cog"></i> בקשות הצטרפות <span id="pendingUsersCountBadge" class="admin-pane-count">0</span></h3>
-                        <button type="button" onclick="forceRefreshUsers()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                        <div class="flex gap-2 items-center">
+                            <button type="button" onclick="forceRefreshUsers()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענון</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('users')" data-guide-target="users" aria-label="הסבר במדריך למנהלים: משתמשים, דרגות והרשאות" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                        </div>
                     </div>
                     <div id="accUserApprovals" class="accordion-content admin-panel-body">
                         <p>מנהל־על יכול לאשר משתמשים, לשנות דרגות ולחסום חשבונות.</p>
@@ -423,7 +442,10 @@
             <!-- ============ מסך: הודעת פופ-אפ ============ -->
             <section id="view-popup" class="admin-view" data-view="popup" aria-label="הודעת פופ-אפ">
                 <div class="admin-panel hidden super-admin-only">
-                    <div class="admin-panel-head"><h3><i data-lucide="megaphone"></i> הודעת פופ-אפ לאתר</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="megaphone"></i> הודעת פופ-אפ לאתר</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('popup')" data-guide-target="popup" aria-label="הסבר במדריך למנהלים: הודעת פופ-אפ" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div id="accPopupAnnouncement" class="accordion-content admin-panel-body">
                         <div id="popupAnnouncementPreview" class="hidden rounded-xl overflow-hidden border border-white/10">
                             <img id="popupAnnouncementPreviewImg" src="" alt="" class="w-full block">
@@ -570,6 +592,7 @@
                         <div class="flex gap-2">
                             <button type="button" onclick="clearResolvedClientErrors()" class="btn-danger-soft px-3 py-1.5 text-[11px] hidden super-admin-only">ניקוי שטופלו לפני 30 יום</button>
                             <button type="button" onclick="loadClientErrors()" class="btn-secondary-dark px-3 py-1.5 text-[11px]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> רענן</button>
+                            <button type="button" class="admin-help-link" onclick="openAdminGuide('errors')" data-guide-target="errors" aria-label="הסבר במדריך למנהלים: שגיאות ותקלות" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
                         </div>
                     </div>
                     <div class="admin-panel-body">
@@ -603,7 +626,10 @@
             <!-- ============ מסך: אינדוקס פנים ============ -->
             <section id="view-faceindex" class="admin-view" data-view="faceindex" aria-label="אנשים, פרצופים ואינדוקס">
                 <div class="admin-panel" id="peopleManagerPanel">
-                    <div class="admin-panel-head"><h3><i data-lucide="users-round"></i> אנשים בגלריה — קיבוץ אוטומטי ושמות</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="users-round"></i> אנשים בגלריה — קיבוץ אוטומטי ושמות</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('people')" data-guide-target="people" aria-label="הסבר במדריך למנהלים: אנשים ופרצופים" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div class="admin-panel-body">
                         <p>פרצופים דומים מקובצים לאנשים מעצמם, אחרי כל אינדוקס. כל קבוצה חדשה ממתינה כאן לאישור ולשם; רק אנשים מאושרים עם שם מוצגים למשתמשי הגלריה, עם אלבום שמתעדכן בכל תמונה חדשה. פרצוף שאינו ודאי מגיע ללשונית „לבדיקה” ואינו משויך עד שתחליט.</p>
                         <div class="people-admin-run">
@@ -651,7 +677,10 @@
             <!-- ============ מסך: תצוגות מקדימות ============ -->
             <section id="view-variants" class="admin-view" data-view="variants" aria-label="תצוגות מקדימות">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="images"></i> תצוגות מקדימות למדיה הקיימת</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="images"></i> תצוגות מקדימות למדיה הקיימת</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('backfills')" data-guide-target="backfills" aria-label="הסבר במדריך למנהלים: תצוגות מקדימות ותאריכי צילום" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div class="admin-panel-body">
                         <p>לכל תמונה נוצרות גרסה קטנה לכרטיס וגרסה בינונית לתצוגה המלאה (WebP, ובדפדפן שיודע לקודד גם עותק AVIF), ולכל סרטון פוסטר במקום ריבוע שחור. קובץ חדש מקבל אותן בהעלאה; הריצה כאן משלימה את מה שהועלה לפני כן או נכשל. המקור נשמר תמיד. אפשר לעצור ולהמשיך בכל שלב — ההמשך מדלג על מה שכבר נשמר.</p>
                         <p id="variantsSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">בודק אילו פריטים חסרים תצוגות מקדימות…</p>
@@ -670,7 +699,10 @@
             <!-- ============ מסך: תאריכי צילום ============ -->
             <section id="view-capturedates" class="admin-view" data-view="capturedates" aria-label="תאריכי צילום">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="calendar-clock"></i> תאריכי צילום למדיה הקיימת</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="calendar-clock"></i> תאריכי צילום למדיה הקיימת</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('backfills')" data-guide-target="backfills" aria-label="הסבר במדריך למנהלים: תצוגות מקדימות ותאריכי צילום" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div class="admin-panel-body">
                         <p>הגלריה ממיינת ומציגה כל פריט לפי יום הצילום שלו (ובתאריך עברי), ולא לפי יום ההעלאה. קובץ חדש מקבל את התאריך בהעלאה, מה-EXIF של התמונה או מהסרטון; הריצה כאן משלימה את מה שהועלה לפני כן. היא קוראת רק את תחילת הקובץ שבאחסון — לא את כולו — ולקבצים שסונכרנו מ-Google Drive, כשהחיבור פעיל, את התאריך ש-Drive שמר. אפשר לעצור ולהמשיך בכל שלב — ההמשך מדלג על מה שכבר נבדק. תמונה שהועלתה מהאתר לפני התכונה נשמרה דחוסה ובלי EXIF, ולכן תישאר לפי יום ההעלאה.</p>
                         <p id="captureDatesSummary" class="rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[11px] font-bold">בודק אילו פריטים עדיין לא נבדקו…</p>
@@ -687,7 +719,10 @@
 
             <section id="view-aititles" class="admin-view" data-view="aititles" aria-label="שמות, כיתובים ותגיות עם AI">
                 <div class="admin-panel">
-                    <div class="admin-panel-head"><h3><i data-lucide="sparkles"></i> שמות, כיתובים ותגיות עם AI</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="sparkles"></i> שמות, כיתובים ותגיות עם AI</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('ai')" data-guide-target="ai" aria-label="הסבר במדריך למנהלים: כיתובים ותגיות סצנה עם AI" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <div class="admin-panel-body">
                         <p>כל תמונה מקבלת, בקריאה אחת ל־AI, שם קצר, כיתוב של משפט או שניים ותגיות של סוג הרגע (ריקוד, הקפות, שיעור או דרשה, סעודה…). כך החיפוש בגלריה מוצא תמונות לפי מה שקורה בהן, מיד ובלי AI בזמן החיפוש. תמונות חדשות מקבלות את כל אלה אוטומטית ברקע; כאן משלימים לתמונות הקיימות. את הכיתוב והתגיות אפשר לערוך מהתצוגה המלאה בגלריה, ועריכה ידנית לא תוחלף. העיבוד משתמש במפתח ה־AI שכבר מוגדר בשרת, בקריאה אחת לכל תמונה.</p>
                         <p id="aiTitlesSummary" class="field-hint"></p>

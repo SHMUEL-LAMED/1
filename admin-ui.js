@@ -30,6 +30,14 @@ const ADMIN_VIEWS = [
         keywords: 'בית ראשי דשבורד סיכום מצב'
     },
     {
+        id: 'guide',
+        group: 'סקירה',
+        title: 'מדריך למנהלים',
+        description: 'איך עובדים עם הלוח: העלאות, Drive, אנשים, AI, הרשאות והכלים החדשים בגלריה.',
+        icon: 'book-open',
+        keywords: 'מדריך עזרה הסבר הוראות שאלות איך תיעוד'
+    },
+    {
         id: 'pending',
         group: 'תוכן הגלריה',
         title: 'אישור העלאות',
@@ -211,6 +219,13 @@ function allowedViews() {
     return ADMIN_VIEWS.filter(viewIsAllowed);
 }
 
+// המדריך (admin-guide-ui.js) מציג "מעבר למסך" רק למסכים שהמנהל רשאי לפתוח,
+// ולכן הוא שואל כאן — רשימת המסכים נשארת במקום אחד.
+window.adminViewInfo = function(viewId) {
+    const view = viewById(viewId);
+    return view ? { id: view.id, title: view.title, allowed: viewIsAllowed(view) } : null;
+};
+
 // ==========================================================================
 // 2. הניווט
 // ==========================================================================
@@ -293,7 +308,8 @@ window.openAdminView = function(viewId) {
     if (icon) icon.innerHTML = `<i data-lucide="${safeIconName(view.icon)}" class="w-5 h-5"></i>`;
 
     try {
-        if (window.location.hash !== `#${view.id}`) {
+        // #guide/<סעיף> נשאר כמו שהוא כשהמדריך נפתח שוב: הסעיף הוא חלק מהמסך.
+        if (window.location.hash.split('/')[0] !== `#${view.id}`) {
             window.history.replaceState(null, '', `#${view.id}`);
         }
     } catch (error) {
@@ -312,6 +328,24 @@ function ensureAdminErrorsModule() {
     return (adminErrorsModulePromise ||= import('./admin-errors.js'));
 }
 
+// גם המדריך למנהלים נטען רק כשפותחים אותו. הסעיף המבוקש מקישור "?" במסך
+// אחר נשמר עד שהמודול מגיע; בלעדיו נפתח הסעיף שבכתובת #guide/<מזהה>.
+let adminGuideModulePromise = null;
+let pendingGuideSection = '';
+function ensureAdminGuideModule() {
+    return (adminGuideModulePromise ||= import('./admin-guide-ui.js'));
+}
+
+function guideSectionFromHash() {
+    const [viewPart, ...sectionPart] = String(window.location.hash || '').replace('#', '').split('/');
+    return viewPart === 'guide' ? sectionPart.join('/') : '';
+}
+
+window.openAdminGuide = function(sectionId = '') {
+    pendingGuideSection = String(sectionId || '');
+    window.openAdminView('guide');
+};
+
 // כל מסך טוען את הנתונים שלו ברגע שנפתח, ולא בטעינת הדף. כך הלוח נפתח מיד
 // ואינו מושך מידע שאיש אינו מסתכל עליו.
 function runViewHook(viewId) {
@@ -319,6 +353,18 @@ function runViewHook(viewId) {
         window.renderAdminAttention();
         renderQuickActions();
         window.updateAdminOverview?.();
+    }
+    if (viewId === 'guide') {
+        const requested = Boolean(pendingGuideSection);
+        const section = pendingGuideSection || guideSectionFromHash();
+        pendingGuideSection = '';
+        ensureAdminGuideModule()
+            .then(module => module.renderAdminGuide({ section, requested }))
+            .catch(error => {
+                console.error('Admin guide module failed to load:', error);
+                const root = document.getElementById('adminGuideRoot');
+                if (root) root.textContent = 'לא ניתן לטעון את המדריך. רענן ונסה שוב.';
+            });
     }
     if (viewId === 'pending') window.renderPendingImages?.();
     if (viewId === 'users') {
@@ -1344,6 +1390,8 @@ window.copyAdminDiagnostics = async function() {
 function initialViewFromHash() {
     const hash = String(window.location.hash || '').replace('#', '');
     if (hash === 'messages') return 'messages';
+    // #guide/<מזהה> פותח סעיף במדריך; המודול עצמו בודק שהמזהה מוכר.
+    if (hash.split('/')[0] === 'guide') return 'guide';
     return viewById(hash) ? hash : 'dashboard';
 }
 
