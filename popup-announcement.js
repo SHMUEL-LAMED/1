@@ -194,8 +194,14 @@ window.handlePopupAnnouncementClick = function() {
     window.closePopupAnnouncement();
     if (config.linkType === 'latest') {
         if (typeof window.setActiveFolder === 'function') window.setActiveFolder('all');
-        window.state.gallerySort = 'newest';
-        window.renderImages?.();
+        // דרך setGallerySort, כדי שבורר המיון וכפתור "ערבב מחדש" (שמוצג רק
+        // במיון אקראי) יתאימו למיון החדש.
+        if (typeof window.setGallerySort === 'function') {
+            window.setGallerySort('newest');
+        } else {
+            window.state.gallerySort = 'newest';
+            window.renderImages?.();
+        }
     } else if (config.linkType === 'folder' && config.folderId) {
         if (typeof window.setActiveFolder === 'function') window.setActiveFolder(config.folderId);
     } else if (config.linkType === 'feature') {

@@ -54,6 +54,15 @@ test('אקראי: סדר מעורבב שנשאר יציב בציור מחדש ו
     const reshuffled = await titles(page);
     expect([...reshuffled].sort()).toEqual([...newest].sort());
     await expect(sort).toHaveValue('random');
+
+    // "לעדכונים האחרונים" מהודעה קופצת מחזיר למיון לפי תאריך, והבורר והכפתור מתעדכנים.
+    await page.evaluate(() => {
+        window.state.popupAnnouncementConfig = { linkType: 'latest' };
+        window.handlePopupAnnouncementClick();
+    });
+    await expect(sort).toHaveValue('newest');
+    await expect(reshuffle).toBeHidden();
+    await expect.poll(() => titles(page)).toEqual(newest);
 });
 
 test('תמונה אקראית: נפתחת מהתצוגה המסוננת, ואינה חוזרת פעמיים ברצף', async ({ page, worker }) => {
@@ -142,7 +151,7 @@ test('כיוון: לאורך, לרוחב וריבועית מהמידות שבר�
     await orientation.selectOption('portrait');
     await expect(cards.locator('.gallery-title')).toHaveText(['ריקודים בסרטון', 'ריקודים לאורך']);
     await expect(note).toBeVisible();
-    await expect(note).toHaveText('1 פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון.');
+    await expect(note).toHaveText('פריט אחד בלי מידות שמורות אינו נכלל בסינון לפי כיוון.');
     await expect(note).toHaveAttribute('role', 'status');
 
     // יחד עם סוג המדיה: רק התמונה לאורך.

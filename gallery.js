@@ -763,7 +763,9 @@ function renderOrientationNote() {
     const note = document.getElementById('galleryOrientationNote');
     if (!note) return;
     const count = activeOrientationFilter() ? orientationUnknownCount : 0;
-    const text = count ? `${count} פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון.` : '';
+    const text = !count ? ''
+        : count === 1 ? 'פריט אחד בלי מידות שמורות אינו נכלל בסינון לפי כיוון.'
+            : `${count} פריטים בלי מידות שמורות אינם נכללים בסינון לפי כיוון.`;
     note.hidden = !count;
     if (note.textContent !== text) note.textContent = text;
 }
