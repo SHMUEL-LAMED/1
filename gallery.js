@@ -38,7 +38,9 @@ import {
 import { initBigScreen, startBigScreen, noteBigScreenSlide } from './big-screen.js';
 import { insertAfterIndex, removeFromRotation } from './big-screen-model.js';
 // כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
-import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
+import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel } from './scene-tags.js';
+// הטקסט החלופי של התמונה: הכיתוב, אחרת השם, אחרת "תמונה שצולמה ב…" (media-alt.js).
+import { mediaAltText } from './media-alt.js';
 import {
     renderSceneFilterChips, installSceneFilterChips, renderLightboxDescription,
     installLightboxDescription, openDescriptionEditor
@@ -48,6 +50,8 @@ import {
     parseMediaRoute, mediaHash, mediaShareUrl, mediaShareData, canUseNativeShare,
     isShareCancel, hashToRestore, findRecordById, withRecord
 } from './media-link.js';
+// הטעינה הראשונה: אילו תמונות יורדות מיד ובעדיפות גבוהה (first-load.js).
+import { aboveFoldCardCount, heroTileLoading, MAX_EAGER_CARDS } from './first-load.js';
 
 let currentFilteredImages = [];
 
@@ -129,6 +133,7 @@ window.checkNewUpdates = function() {
 // כנגמר עכשיו — כדי שהמשתמש הבא יתחיל מהרשומה שלו באחסון. מי שחוזר תוך
 // הביקור מקבל ממנה את אותה נקודה, כמו ברענון.
 function resetNewUpdatesState() {
+    newUpdatesGeneration += 1;
     for (const uid of visitBaselines.keys()) touchVisit({ userId: uid });
     visitBaselines.clear();
     setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
@@ -136,7 +141,14 @@ function resetNewUpdatesState() {
 
 // כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
 const RECENT_UPDATES_LIMIT = 200;
+// מתקדם בכל לחיצה על "צפה עכשיו" ובכל איפוס (התנתקות, החלפת חשבון, אובדן
+// אישור — resetNewUpdatesState), כמו mediaLinkGeneration של הקישורים הישירים:
+// תשובה שחוזרת אחרי שהחשבון התחלף אינה ממלאת את tempSearchResults, אחרת
+// הרשימה של המשתמש הקודם הייתה מוצגת למי שבא אחריו.
+let newUpdatesGeneration = 0;
 async function showNewUpdates() {
+    const generation = ++newUpdatesGeneration;
+    const uid = window.state.currentUser?.uid || '';
     markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
@@ -158,6 +170,9 @@ async function showNewUpdates() {
     } catch (error) {
         console.warn('Recent updates query failed:', error);
     }
+    // גם המזהה נבדק, ולא רק המונה: החלפת חשבון שלא עברה דרך האיפוס אינה
+    // מקבלת את הרשימה. לחיצה חדשה בינתיים — רק התשובה האחרונה מוצגת.
+    if (generation !== newUpdatesGeneration || (window.state.currentUser?.uid || '') !== uid || !canViewGallery()) return;
     window.state.tempSearchResults = since
         ? recent.filter(img => isNewSince(img, since))
         : recent.filter(img => (img.createdAt || 0) >= weekAgo);
@@ -405,8 +420,22 @@ function galleryDownloadName(item, blob, fallbackName = 'תמונה') {
     return withDownloadExtension(safeDownloadFileName(item?.title, fallbackName), blob.type || item?.mimeType);
 }
 
+// לפני השמירה הקובץ עובר את download-privacy-ui.js: המיקום (GPS) יוצא מ-JPEG,
+// וסימן המים מצויר כשהוא מופעל. המודול נטען רק בהורדה הראשונה; אם הטעינה
+// עצמה נכשלה (למשל אין רשת אחרי עדכון גרסה), ההורדה אינה ממשיכה עם הקובץ
+// המקורי — המיקום שבו הוא בדיוק מה שאסור שיֵצא.
+let downloadPrivacyModulePromise = null;
+async function prepareGalleryDownload(blob, item) {
+    downloadPrivacyModulePromise ||= import('./download-privacy-ui.js').catch(error => {
+        downloadPrivacyModulePromise = null;
+        throw error;
+    });
+    const { prepareDownloadBlob } = await downloadPrivacyModulePromise;
+    return prepareDownloadBlob(blob, item);
+}
+
 async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
-    const blob = await fetchGalleryMediaBlob(item);
+    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
     saveBlobAs(blob, galleryDownloadName(item, blob, fallbackName));
 }
 
@@ -456,7 +485,7 @@ window.downloadSelectedMedia = async function(button) {
                 const index = next++;
                 const item = selected[index];
                 try {
-                    const blob = await fetchGalleryMediaBlob(item);
+                    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
                     files[index] = { item, blob, data: new Uint8Array(await blob.arrayBuffer()) };
                 } catch (error) {
                     console.error('Bulk media download failed:', error);
@@ -1392,9 +1421,12 @@ function renderHeroMosaic() {
     const key = tiles.map(tile => tile.id).join('|');
     if (mosaic.dataset.mosaicKey === key) return;
     mosaic.dataset.mosaicKey = key;
-    mosaic.innerHTML = tiles.map((tile, index) =>
-        `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="lazy" decoding="async" onerror="this.parentElement.remove()"></span>`
-    ).join('');
+    // הפוסטר תמיד בראש הדף, ולכן האריחים אינם עצלים; הראשון, הגדול, הוא
+    // התמונה הראשונה שהמבקר רואה ויורד בעדיפות גבוהה (first-load.js).
+    mosaic.innerHTML = tiles.map((tile, index) => {
+        const { loading, fetchPriority } = heroTileLoading(index);
+        return `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" onerror="this.parentElement.remove()"></span>`;
+    }).join('');
 }
 
 // „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.
@@ -1634,7 +1666,8 @@ window._doRenderImages = function() {
     const keep = typeof IntersectionObserver !== 'function'
         ? Infinity
         : (sameView ? Math.max(GALLERY_FIRST_BATCH, galleryRenderedCards.length) : GALLERY_FIRST_BATCH);
-    syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
+    const headRebuilt = syncGalleryCards(grid, galleryPageItems.slice(0, Math.min(keep, galleryPageItems.length)));
+    if (headRebuilt) prioritizeAboveFoldCards();
     if (galleryRevealPending) {
         galleryRevealPending = false;
         revealGalleryStart(grid);
@@ -1645,6 +1678,23 @@ window._doRenderImages = function() {
     // זיכרון הגלילה (gallery-navigation-ui.js): חזרה מאלבום של אדם למקום בגלריה.
     window.noteGalleryRendered?.();
 };
+
+// השורה הראשונה של הרשת, כשהיא בתוך המסך, יורדת מיד ובעדיפות גבוהה; כל
+// השאר נשארים עצלים. הכרטיסים נבנים עם loading="lazy" (המרקאפ שמושווה אינו
+// תלוי במיקום), והתמונות שבשורה מתעדכנות כאן לפני שהדפדפן התחיל להוריד
+// אותן. רץ רק כשנבנה כרטיס חדש בראש הרשת — הקריאה של המיקומים מחייבת layout,
+// ורינדור שלא נגע בראש הרשת אינו צריך אותה.
+function prioritizeAboveFoldCards() {
+    const cards = galleryRenderedCards.slice(0, MAX_EAGER_CARDS).map(card => card.node).filter(node => node?.isConnected);
+    if (!cards.length || typeof cards[0].getBoundingClientRect !== 'function') return;
+    const count = aboveFoldCardCount(cards.map(node => node.getBoundingClientRect()), window.innerHeight);
+    for (const node of cards.slice(0, count)) {
+        const image = node.querySelector('img.gallery-card-img');
+        if (!image) continue;
+        image.loading = 'eager';
+        image.fetchPriority = 'high';
+    }
+}
 
 // הכיתוב שליד סרגל הכלים: כמה מוצג, וכמה יש בתיקייה כשלא הכול נטען עדיין.
 function galleryCounterLabel(shownCount) {
@@ -1705,6 +1755,9 @@ function syncGalleryCards(grid, items) {
     const isEditBlocked = galleryEditBlocked();
     const previous = new Map(galleryRenderedCards.map(card => [card.id, card]));
     const next = [];
+    // האם נבנה כרטיס חדש בראש הרשת — שם אולי צריך להעלות עדיפות (ראו
+    // prioritizeAboveFoldCards). כרטיס שנשמר כפי שהיה כבר קיבל את שלו.
+    let headRebuilt = false;
     items.forEach((img, index) => {
         const id = window.safeRecordId(img.id);
         const html = buildGalleryCard(img, isEditBlocked);
@@ -1721,6 +1774,7 @@ function syncGalleryCards(grid, items) {
             node = insertGalleryCard(grid, html, grid.children[index] || null);
             if (measuredRatio) node.style.setProperty('--media-ratio', measuredRatio.trim());
             window.scheduleIconRefresh(node);
+            if (index < MAX_EAGER_CARDS) headRebuilt = true;
         } else if (grid.children[index] !== node) {
             grid.insertBefore(node, grid.children[index] || null);
         }
@@ -1730,6 +1784,7 @@ function syncGalleryCards(grid, items) {
     for (const stale of previous.values()) stale.node.remove();
     while (grid.children.length > items.length) grid.lastElementChild.remove();
     galleryRenderedCards = next;
+    return headRebuilt;
 }
 
 // מוסיפה מנה שלמה בסוף הרשת בפעולת DOM אחת, ומרעננת אייקונים רק על מה שנוסף.
@@ -1796,6 +1851,10 @@ function buildGalleryCard(img, isEditBlocked) {
     const isFavorite = window.state.favorites.has(imageId);
     const isSelected = window.state.selectedMediaIds.has(imageId);
     const title = window.escapeHtml(img.title || (isVideo ? 'סרטון ללא שם' : 'תמונה ללא שם'));
+    // ה-aria-label של כפתור התמונה גובר על ה-alt שבתוכו, ולכן קורא מסך שומע
+    // רק אותו: גם בו הכיתוב, אחרת השם, אחרת התאריך העברי (media-alt.js) —
+    // בלי זה הכיתוב שב-alt לא היה מוקרא ברשת בכלל.
+    const altText = window.escapeHtml(mediaAltText(img));
     // הכרטיס מציג את התצוגה הקטנה (thumb) כשקיימת; סרטון מקבל אותה כפוסטר
     // במקום ריבוע שחור. אם התצוגה לא נטענת — נופלים אל המקור.
     const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
@@ -1810,13 +1869,13 @@ function buildGalleryCard(img, isEditBlocked) {
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
            <span class="gallery-badge"><i data-lucide="video" class="w-3 h-3"></i><span class="gallery-badge-label">סרטון${durationLabel ? ' ·' : ''}</span>${durationLabel ? `<span class="gallery-badge-duration">${durationLabel}</span>` : ''}</span>`
-        : buildCardPicture(cardSource, normalizeCaption(img.caption) ? window.escapeHtml(normalizeCaption(img.caption)) : title);
+        : buildCardPicture(cardSource, altText);
     // היחס נכתב תמיד, גם ברשת הרגילה (שם אינו משפיע), כדי שמעבר לפסיפס יהיה CSS
     // בלבד ולא רינדור מחדש. בלי מידות ברשומה — הוא מגיע מהתמונה כשהיא נטענת.
     const mediaRatio = mediaAspectRatio(img);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}${isNew ? ' (חדש)' : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}">
                 ${mediaHtml}
                 ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 <span class="gallery-number">01</span>
@@ -1852,9 +1911,9 @@ function buildCardDate(img) {
 // ב-<picture> עם מקור AVIF כשנשמר כזה. דפדפן שאינו מפענח AVIF מדלג על
 // ה-<source> ונשאר עם ה-WebP/JPEG; תצוגה שלא נטענת נופלת אל המקור.
 // כשהתמונה נטענת — handleCardImageLoad (עצירת השלד והיחס של הכרטיס).
-function buildCardPicture(source, title) {
+function buildCardPicture(source, altText) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${title}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
@@ -3605,9 +3664,9 @@ function updateLightbox(immediate = false) {
     if(lbDetails) lbDetails.innerText = `${isVideo ? `סרטון${formatMediaDuration(img.duration) ? ` (${formatMediaDuration(img.duration)})` : ''}` : 'תמונה'} • ${lightboxDateLabel(img)} • תיקייה: ${f ? f.name : 'כללי'}`;
 
     // הכיתוב ותגיות הסצנה, וכפתור העריכה למנהל. הכיתוב הוא גם הטקסט החלופי
-    // של התמונה לקוראי מסך, כשיש כזה.
+    // של התמונה לקוראי מסך, כשיש כזה; אחרת השם או התאריך (media-alt.js).
     renderLightboxDescription(img, { canEdit: Boolean(window.state.isAdminLoggedIn) });
-    if (lbImage && !isVideo) lbImage.alt = normalizeCaption(img.caption) || img.title || 'תצוגת תמונה';
+    if (lbImage && !isVideo) lbImage.alt = mediaAltText(img);
 
     const lbDownload = document.getElementById('lightboxDownload');
     if(lbDownload) {

@@ -206,6 +206,76 @@ test('"סגור" של משתמש אחד אינו מסתיר את הבאנר של
     expect(seenKeys).toEqual([`${UPDATES_SEEN_KEY}:${DEFAULT_USER.uid}`]);
 });
 
+// "צפה עכשיו" מושך את החדשים מהשרת. אם החשבון מתחלף עד שהתשובה חוזרת, היא
+// שייכת למשתמש הקודם: אסור לה למלא את tempSearchResults ולהציג את "עדכונים
+// אחרונים" שלו למי שנכנס אחריו (newUpdatesGeneration ב-gallery.js).
+async function holdRecentUpdatesQuery(page) {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let markRequested;
+    const requested = new Promise(resolve => { markRequested = resolve; });
+    // השאילתה של "עדכונים אחרונים" (200 החדשים) מוחזקת עד שהבדיקה משחררת
+    // אותה, ואז ממשיכה אל הזיוף של ה-Worker כרגיל.
+    await page.route(url => url.pathname === '/data/images' && url.searchParams.get('limit') === '200', async route => {
+        markRequested();
+        await gate;
+        await route.fallback();
+    });
+    return { requested, release: () => release() };
+}
+
+test('תשובה מאוחרת של "צפה עכשיו" אחרי החלפת חשבון נזרקת ואינה מוצגת למשתמש הבא', async ({ page, worker }) => {
+    const now = Date.now();
+    personalBannerGallery(worker, now);
+    await seedVisit(page, { [VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 2 * HOUR } });
+    await seedSession(page, { worker });
+    const held = await holdRecentUpdatesQuery(page);
+    await page.goto('/');
+
+    const banner = page.locator('#newUpdatesBanner');
+    await expect(page.locator('#newUpdatesBannerText')).toHaveText('נוספו 2 פריטים מאז הביקור הקודם שלך.');
+    await banner.getByRole('button', { name: 'צפה עכשיו' }).click();
+    await held.requested;
+
+    await signOut(page);
+    await signInAs(page, SECOND_USER);
+    held.release();
+    await expect.poll(() => worker.requestsTo('GET', '/data/images?').filter(entry => entry.path.includes('limit=200')).length).toBe(1);
+    await page.waitForLoadState('networkidle');
+
+    // הגלריה של המשתמש השני נשארת מלאה, בלי הבאנר של התוצאות הזמניות.
+    await expect(page.locator('#tempSearchBanner')).toBeHidden();
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+    expect(await page.evaluate(() => window.state.tempSearchResults)).toBeNull();
+
+    // ו"צפה עכשיו" של המשתמש השני עצמו עובד כרגיל: ביקור ראשון — השבוע האחרון.
+    await expect(banner).toBeVisible();
+    await banner.getByRole('button', { name: 'צפה עכשיו' }).click();
+    held.release();
+    await expect(page.locator('#tempSearchBanner')).toContainText('תמונות מהשבוע האחרון');
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+});
+
+test('תשובה מאוחרת של "צפה עכשיו" אחרי התנתקות אינה פותחת את התוצאות מאחורי שער הכניסה', async ({ page, worker }) => {
+    const now = Date.now();
+    personalBannerGallery(worker, now);
+    await seedVisit(page, { [VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 2 * HOUR } });
+    await seedSession(page, { worker });
+    const held = await holdRecentUpdatesQuery(page);
+    await page.goto('/');
+
+    await page.locator('#newUpdatesBanner').getByRole('button', { name: 'צפה עכשיו' }).click();
+    await held.requested;
+    await signOut(page);
+    held.release();
+    await expect.poll(() => worker.requestsTo('GET', '/data/images?').filter(entry => entry.path.includes('limit=200')).length).toBe(1);
+    await page.waitForLoadState('networkidle');
+
+    expect(await page.evaluate(() => window.state.tempSearchResults)).toBeNull();
+    await expect(page.locator('#tempSearchBanner')).toBeHidden();
+    await expect(page.locator('#tempSearchBanner')).toBeEmpty();
+});
+
 // 125 תמונות חדשות בתיקייה הראשונה ממלאות את העמוד הראשון של "כל הארכיון",
 // ולכן מהתיקייה השנייה עוד לא נטען דבר.
 function previewGallery(now) {

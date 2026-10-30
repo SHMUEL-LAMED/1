@@ -5,6 +5,7 @@
 // הניהול משלימה תצוגות לפריטים ישנים בלי לחזור על מה שכבר נשמר.
 import { readFileSync } from 'node:fs';
 import { CARD_IMAGE_SIZES } from '../media-variants.js';
+import { aboveFoldCardCount } from '../first-load.js';
 import {
     test, expect, seedSession, imageRecord, mediaUrl, variantEntries, variantUrl,
     MEDIA_SIZE, DEFAULT_USER, API_ORIGIN, variantAvifUrl, withAvif
@@ -60,7 +61,8 @@ test('הכרטיס מציג את התצוגה הקטנה, התצוגה המלא�
     expect(await plain.getAttribute('data-fallback-src')).toBeNull();
     expect(await plain.getAttribute('srcset')).toBeNull();
 
-    // התמונה עם התצוגות: thumb בכרטיס, עם נפילה אל המקור, וטעינה עצלה.
+    // התמונה עם התצוגות: thumb בכרטיס, עם נפילה אל המקור, וטעינה עצלה — אלא
+    // אם הכרטיס בשורה הראשונה שבתוך המסך, שיורדת מיד (first-load.js).
     const card = cards.nth(1).locator('img.gallery-card-img');
     await expect(card).toHaveAttribute('src', variantUrl('img_e2e_1', 'thumb'));
     await expect(card).toHaveAttribute('data-fallback-src', mediaUrl('img_e2e_1'));
@@ -68,7 +70,12 @@ test('הכרטיס מציג את התצוגה הקטנה, התצוגה המלא�
     await expect(card).toHaveAttribute('sizes', CARD_IMAGE_SIZES);
     // בלי עותקי AVIF אין <picture>: התמונה היא ילד ישיר של הכרטיס.
     await expect(cards.nth(1).locator('picture')).toHaveCount(0);
-    await expect(card).toHaveAttribute('loading', 'lazy');
+    const rects = await cards.evaluateAll(nodes => nodes.map(node => {
+        const { top, bottom } = node.getBoundingClientRect();
+        return { top, bottom };
+    }));
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    await expect(card).toHaveAttribute('loading', aboveFoldCardCount(rects, viewportHeight) > 1 ? 'eager' : 'lazy');
     await expect(card).toHaveAttribute('decoding', 'async');
     // מסך רגיל (1x) ברוחב 1280: לפי sizes הכרטיס ברוחב 360px, ולכן נבחרת thumb.
     await expect.poll(() => card.evaluate(element => element.complete && element.naturalWidth > 0 && element.currentSrc)).toBe(variantUrl('img_e2e_1', 'thumb'));
@@ -127,7 +134,11 @@ test('סרטון מקבל את הפוסטר שלו, ותצוגה שנמחקה נ
     await expect(fallen).toHaveAttribute('src', mediaUrl('img_e2e_2'));
     await expect.poll(() => fallen.evaluate(element => element.complete && element.naturalWidth)).toBe(MEDIA_SIZE);
     expect(await fallen.getAttribute('data-fallback-src')).toBeNull();
-    expect(worker.requestsTo('GET', '/media/variants/img_e2e_2/thumb.webp')).toHaveLength(1);
+    // פעם אחת לכרטיס ופעם לכל היותר לאריח שלה בפסיפס (האריחים אינם עצלים,
+    // ותשובת 404 אינה נשמרת במטמון), ולא ניסיון חוזר מעבר לזה.
+    const thumbRequests = worker.requestsTo('GET', '/media/variants/img_e2e_2/thumb.webp').length;
+    expect(thumbRequests).toBeGreaterThanOrEqual(1);
+    expect(thumbRequests).toBeLessThanOrEqual(2);
 
     // הסרטון: thumb כפוסטר הכרטיס, poster בתצוגה המלאה, thumb ברקע.
     const video = cards.nth(1).locator('video.gallery-card-img');

@@ -22,7 +22,9 @@ window.updateAdminPanelUI = function() {
     if (superAdminChatsCard) superAdminChatsCard.classList.add('hidden');
     if (superAdminUsersCard) superAdminUsersCard.classList.add('hidden');
     if (superAdminDeletionRequestsCard) superAdminDeletionRequestsCard.classList.add('hidden');
-    if (!window.state.isAdminLoggedIn) return;
+    // מי שאיבד את הרשאת הניהול: "מצב מהיר" (אם פתוח) נסגר ב-render שלו, בלי
+    // לשלוח את ההחלטה שבחלון הביטול.
+    if (!window.state.isAdminLoggedIn) { window.refreshPendingSwipe?.(); return; }
 
     const currentUser = window.state.currentUser;
     const adminName = document.getElementById('adminCurrentUserName');
@@ -614,6 +616,9 @@ window.rejectUserAccess = function(uid) {
 };
 
 window.renderPendingImages = function() {
+    // המצב המהיר (כשהוא פתוח) מתעדכן יחד עם הרשימה: פריט שמנהל אחר כבר
+    // טיפל בו יוצא מהתור, ופריט חדש שהגיע נכנס לסופו.
+    window.refreshPendingSwipe?.();
     const list = document.getElementById('pendingList'); if (!list) return;
     // תמונות הממתינות לאישור — מדרגה 3 ומעלה.
     if (!window.canViewAdminData?.()) { list.innerHTML = ''; return; }
@@ -661,6 +666,44 @@ function toggleSelectAllPending() {
     checkboxes.forEach(cb => cb.checked = anyUnchecked);
 }
 
+// אישור פריט ממתין אחד — המסלול היחיד לאישור, גם ל"אשר נבחרים" וגם
+// ל"מצב מהיר" (pending-swipe.js). כך יעד השמירה, האישור ב-R2 והתיעוד
+// ב-pendingImages זהים בשני המקומות ואינם יכולים להתפצל.
+async function approvePendingRecord(img, targetFolderId) {
+    let finalFolderId = targetFolderId;
+    if (!targetFolderId || targetFolderId === 'auto') {
+        const fName = img.originalFolderName || 'כללי'; let existing = window.state.folders.find(f => f.name === fName);
+        if (!existing) {
+            existing = { id: 'folder_' + crypto.randomUUID(), name: fName, icon: 'folder', isDefault: false };
+            await window.saveFolderToCloud(existing);
+        }
+        finalFolderId = existing.id;
+    }
+    const activeImage = await window.approveImageInR2({
+        ...img,
+        folderId: finalFolderId,
+        createdAt: Date.now(),
+        status: 'active'
+    });
+    await window.saveImageToCloud(activeImage);
+    // שומרים תיעוד של האישור במקום למחוק, כדי שמנהל דרגה 3 לא יקבל הרשאת מחיקה עקיפה.
+    const { doc, setDoc } = window.firestoreModules;
+    await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'pendingImages', img.id), {
+        status: 'approved',
+        approvedAt: Date.now(),
+        approvedBy: window.state.currentUser?.uid || ''
+    }, { merge: true });
+    return activeImage;
+}
+
+// Remove approved items from local pendingImages state immediately
+function forgetApprovedPending(approvedIds) {
+    if (!approvedIds.size) return;
+    window.state.pendingImages = (window.state.pendingImages || []).filter(img => !approvedIds.has(window.safeRecordId(img.id)));
+    window.renderPendingImages?.();
+    window.updatePendingBadge?.();
+}
+
 async function approveSelectedPending(confirmed = false) {
     if (!window.checkAdminPermission()) return;
     const checkboxes = document.querySelectorAll('input[name="pendingImgCheck"]:checked');
@@ -683,29 +726,7 @@ async function approveSelectedPending(confirmed = false) {
         const img = window.state.pendingImages.find(i => i.id === cb.value);
         if (img) {
             try {
-                let finalFolderId = targetFolderId;
-                if (targetFolderId === 'auto') {
-                    const fName = img.originalFolderName || 'כללי'; let existing = window.state.folders.find(f => f.name === fName);
-                    if (!existing) {
-                        existing = { id: 'folder_' + crypto.randomUUID(), name: fName, icon: 'folder', isDefault: false };
-                        await window.saveFolderToCloud(existing);
-                    }
-                    finalFolderId = existing.id;
-                }
-                const activeImage = await window.approveImageInR2({
-                    ...img,
-                    folderId: finalFolderId,
-                    createdAt: Date.now(),
-                    status: 'active'
-                });
-                await window.saveImageToCloud(activeImage);
-                // שומרים תיעוד של האישור במקום למחוק, כדי שמנהל דרגה 3 לא יקבל הרשאת מחיקה עקיפה.
-                const { doc, setDoc } = window.firestoreModules;
-                await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'pendingImages', img.id), {
-                    status: 'approved',
-                    approvedAt: Date.now(),
-                    approvedBy: window.state.currentUser?.uid || ''
-                }, { merge: true });
+                await approvePendingRecord(img, targetFolderId);
                 approvedIds.add(window.safeRecordId(img.id));
                 approvedCount++;
             } catch (error) {
@@ -714,12 +735,7 @@ async function approveSelectedPending(confirmed = false) {
             }
         }
     }
-    // Remove approved items from local pendingImages state immediately
-    if (approvedIds.size) {
-        window.state.pendingImages = (window.state.pendingImages || []).filter(img => !approvedIds.has(window.safeRecordId(img.id)));
-        window.renderPendingImages?.();
-        window.updatePendingBadge?.();
-    }
+    forgetApprovedPending(approvedIds);
     if (approvedCount) await window.logActivity('approved_images', 'image', '', `${approvedCount} תמונות`);
     window.showNotification(
         failedCount
@@ -729,6 +745,19 @@ async function approveSelectedPending(confirmed = false) {
     );
 }
 
+// דחיית פריט ממתין אחד: מנהל־על מעביר לסל המחזור (וממנו אפשר לשחזר),
+// ומנהל דרגה 3 שולח בקשת מחיקה — בדיוק כמו "בקש מחיקה" שבמסך. מחזיר
+// 'trash' או 'request', כדי שהמצב המהיר ידע מה לכתוב.
+async function rejectPendingRecord(imageId) {
+    if (window.state.isSuperAdmin) {
+        await window.movePendingImageToTrash(imageId);
+        return 'trash';
+    }
+    const image = (window.state.pendingImages || []).find(item => window.safeRecordId(item.id) === window.safeRecordId(imageId));
+    await window.requestContentDeletion('pendingImage', imageId, image?.title || 'תמונה ממתינה');
+    return 'request';
+}
+
 function rejectSelectedPending() {
     if (!window.checkAdminPermission()) return;
     const checkboxes = document.querySelectorAll('input[name="pendingImgCheck"]:checked');
@@ -736,10 +765,7 @@ function rejectSelectedPending() {
     if (!window.state.isSuperAdmin) {
         window.showConfirm('שליחת בקשת מחיקה', 'לשלוח למנהל־העל בקשת מחיקה עבור התמונות שנבחרו?', async () => {
             try {
-                await Promise.all(Array.from(checkboxes, cb => {
-                    const image = window.state.pendingImages.find(item => window.safeRecordId(item.id) === window.safeRecordId(cb.value));
-                    return window.requestContentDeletion('pendingImage', cb.value, image?.title || 'תמונה ממתינה');
-                }));
+                await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value)));
                 window.showNotification('בקשות המחיקה נשלחו למנהל־העל.');
             } catch (error) {
                 console.error('requestContentDeletion failed:', error);
@@ -750,7 +776,7 @@ function rejectSelectedPending() {
     }
     window.showConfirm('דחיית תמונות', 'להעביר את התמונות הממתינות לסל המחזור?', async () => {
         try {
-            await Promise.all(Array.from(checkboxes, cb => window.movePendingImageToTrash(cb.value)));
+            await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value)));
             window.showNotification('התמונות הועברו לסל המחזור.');
         } catch (error) {
             console.error('movePendingImageToTrash failed:', error);
@@ -758,6 +784,36 @@ function rejectSelectedPending() {
         }
     });
 }
+
+// "מצב מהיר": פריט אחד בכל פעם, עם החלקה ומקלדת. הוא משתמש באותן שתי
+// פונקציות שלמעלה, בלי נתיב חדש בשרת, ונטען עצלה רק כשמנהל פותח אותו.
+// הפונקציות זורקות בכישלון, כדי שהמצב המהיר יחזיר את הפריט לתור.
+window.approvePendingImage = async function(imageId, targetFolderId = 'auto') {
+    if (!window.checkAdminPermission()) throw new Error('אין הרשאה לאשר תוכן.');
+    const id = window.safeRecordId(imageId);
+    const img = (window.state.pendingImages || []).find(item => window.safeRecordId(item.id) === id);
+    if (!img) throw new Error('הפריט הממתין לא נמצא. ייתכן שכבר טופל.');
+    await approvePendingRecord(img, targetFolderId);
+    forgetApprovedPending(new Set([id]));
+    await window.logActivity('approved_images', 'image', id, img.title || 'תמונה');
+};
+
+window.rejectPendingImage = async function(imageId) {
+    if (!window.checkAdminPermission()) throw new Error('אין הרשאה לדחות תוכן.');
+    return rejectPendingRecord(imageId);
+};
+
+let pendingSwipeModulePromise = null;
+window.openPendingSwipe = function() {
+    if (!window.checkAdminPermission()) return;
+    (pendingSwipeModulePromise ||= import('./pending-swipe.js'))
+        .then(module => module.openPendingSwipe())
+        .catch(error => {
+            pendingSwipeModulePromise = null;
+            console.error('Pending swipe module failed to load:', error);
+            window.showNotification('לא ניתן לפתוח את המצב המהיר. רענן ונסה שוב.', false);
+        });
+};
 
 
 

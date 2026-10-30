@@ -825,6 +825,9 @@ html[data-api-environment="staging"] .env-ribbon::before {
     isolation: isolate;
     transition: transform .2s var(--ease-spring), background .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease), filter .2s var(--ease);
 }
+/* הסמל שבכפתור שומר על גודלו: כשהשורה צפופה (כותרת לוח בטלפון) הטקסט
+   הוא שמתכווץ, ולא הסמל — אחרת "מצב מהיר" נשאר עם סמל של שבריר פיקסל. */
+:is(.btn-primary-gold, .btn-secondary-dark, .btn-google-login, .btn-danger-soft, .btn-ghost) > :is(svg, i) { flex: none; }
 
 .btn-primary-gold {
     background: var(--gold-foil);
@@ -1442,15 +1445,19 @@ body textarea { resize: vertical; min-height: 84px; }
 
 /* ---- פסיפס התמונות בפוסטר ---- */
 
+/* קופסה בגודל קבוע: שלוש שורות קבועות, כך שגובה הפסיפס זהה כשהוא ריק
+   (המשטח הדקורטיבי) וכשהאריחים נכנסים אליו — בלי תלות במספר התמונות. בלי
+   זה הפסיפס גדל ב-42px בטלפון כשהגיעו התמונות, וכל מה שמתחתיו קפץ (CLS). */
 .hero-mosaic {
+    --mosaic-gap: 8px;
     grid-area: mosaic;
     position: relative;
     z-index: 1;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-rows: minmax(74px, 1fr);
-    gap: 8px;
-    min-height: 236px;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    gap: var(--mosaic-gap);
+    min-height: 238px;
     align-self: stretch;
 }
 .hero-mosaic > * {
@@ -1464,6 +1471,10 @@ body textarea { resize: vertical; min-height: 84px; }
     animation-delay: calc(var(--tile-index, 0) * 90ms);
 }
 .hero-mosaic > *:first-child { grid-column: span 2; grid-row: span 2; }
+/* פחות מארבעה אריחים (ארכיון חדש) אינם מגיעים לשורה השלישית: בלי זה היא
+   נשארת ריקה בתחתית הקופסה. הקופסה עצמה בגובה הקבוע שלה, ולכן גם כאן אין
+   קפיצה — רק שתי שורות במקום שלוש. */
+.hero-mosaic:not(:has(> :nth-child(4))) { grid-template-rows: repeat(2, minmax(0, 1fr)); }
 /* התמונה ממלאת את האריח במיקום מוחלט, כך שגובה הפסיפס אינו תלוי במידות
    התמונות: כשתמונה חדשה מגיעה והפסיפס נבנה מחדש, תמונותיו העצלות אינן
    מכווצות אותו עד שייטענו, ומה שמתחתיו — הרשת — אינו קופץ. */
@@ -1527,7 +1538,9 @@ body textarea { resize: vertical; min-height: 84px; }
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas: "top" "mosaic" "facts";
     }
-    .hero-mosaic { min-height: 180px; grid-auto-rows: minmax(60px, 1fr); }
+    /* בפריסה הצרה הפסיפס בשורה משלו ואינו נמתח לגובה הטקסט, ולכן גובהו
+       קבוע במפורש: שלוש שורות של 60px והרווחים ביניהן. */
+    .hero-mosaic { --mosaic-row: 60px; min-height: 0; height: calc(var(--mosaic-row) * 3 + var(--mosaic-gap) * 2); }
 }
 
 @media (max-width: 640px) {
@@ -1536,7 +1549,7 @@ body textarea { resize: vertical; min-height: 84px; }
     .entry-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
     .entry-facts > div { padding: 10px 10px; }
     .entry-facts dd { font-size: 19px; }
-    .hero-mosaic { gap: 6px; min-height: 150px; }
+    .hero-mosaic { --mosaic-gap: 6px; }
     .hero-mosaic > * { border-radius: 12px; }
 }
 
@@ -3334,7 +3347,10 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink);
 }
 .modal-head h3 > svg { color: var(--gold); }
-.modal-head .modal-close {
+/* כפתור הסגירה של חלון. גם כשאינו בכותרת (מעל תמונת השער של עמוד האירוע,
+   מעל הודעת הפופ-אפ) הוא מקבל את אותו גודל: בלי זה הוא היה רק האייקון, יעד
+   מגע של 20px בלי רקע, ובלי האייקון (סקריפט שלא נטען) — כפתור בגודל אפס. */
+.modal-close {
     width: 38px;
     height: 38px;
     flex: none;
@@ -3346,7 +3362,17 @@ body textarea { resize: vertical; min-height: 84px; }
     color: var(--ink-3);
     transition: transform .3s var(--ease-spring), color .2s var(--ease), background .2s var(--ease);
 }
-.modal-head .modal-close:hover { color: var(--ink); background: var(--panel-3); transform: rotate(90deg); }
+.modal-close:hover { color: var(--ink); background: var(--panel-3); transform: rotate(90deg); }
+/* מעל תמונה: רקע כהה שקוף ו-X לבן, כדי שייראה גם על שער בהיר ובשני המצבים. */
+#eventPageModal .modal-close,
+#popupAnnouncementModal .modal-close {
+    background: var(--media-scrim);
+    border-color: rgba(255, 255, 255, .22);
+    color: #fff;
+    backdrop-filter: blur(6px);
+}
+#eventPageModal .modal-close:hover,
+#popupAnnouncementModal .modal-close:hover { color: #fff; background: rgba(0, 0, 0, .72); }
 
 .modal-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 .modal-body p { color: var(--ink-3); font-size: 13px; line-height: 1.7; }
@@ -4555,11 +4581,14 @@ body textarea { resize: vertical; min-height: 84px; }
     box-shadow: var(--shadow-1);
     overflow: hidden;
 }
+/* הכותרת והכפתורים שלידה נשברים לשתי שורות כשאין מקום (טלפון), במקום
+   שהכותרת תידחס לשלוש שורות צרות והכפתורים יימחצו לצידה. */
 .admin-panel-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 10px 12px;
     padding: 14px 18px;
     border-bottom: 1px solid var(--line);
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
@@ -4816,6 +4845,34 @@ body textarea { resize: vertical; min-height: 84px; }
 .admin-filter-chip.is-active,
 .admin-filter-chip:has(input:checked) { background: var(--gold-tint); border-color: var(--gold-line); color: var(--gold); }
 
+/* ---- תצוגה מקדימה של סימן המים (download-privacy-admin.js) ----
+   ריבוע "תמונה" אפור ועליו הטקסט בפינה התחתונה השמאלית, באותו לבן שקוף ובאותו
+   צל שה-Canvas מצייר. הצבעים קבועים: הם מדמים תמונה, שאינה מתחלפת עם המצב. */
+.download-watermark-preview {
+    position: relative;
+    height: 96px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: linear-gradient(135deg, #5b6472, #2c323c);
+    overflow: hidden;
+}
+.download-watermark-preview span {
+    position: absolute;
+    inset-inline-end: 12px;
+    bottom: 10px;
+    max-width: calc(100% - 24px);
+    direction: rtl;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, .72);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.download-watermark-preview.is-off span { opacity: .3; }
+
 /* ---- תוצאות חיפוש בתפריט ---- */
 
 .admin-menu-results {
@@ -4888,6 +4945,266 @@ body textarea { resize: vertical; min-height: 84px; }
     .admin-identity-avatar { width: 34px; height: 34px; }
     .admin-logout { order: 10; padding: 9px; font-size: 11px; }
     .admin-main-head { position: sticky; top: calc(var(--header-h) + 4px); z-index: 20; }
+}
+
+/* ---- מצב מהיר לאישור העלאות (pending-swipe.js) ----
+   כרטיס אחד בכל פעם, כמעט בגובה המסך בטלפון. המיקום של הכרטיס בזמן גרירה
+   מגיע מ-JS כמשתנים (--swipe-x, --swipe-rotate, --swipe-progress), וכל
+   השאר — החותמות, הצבעים והחזרה למקום — מכאן. */
+
+html.pending-swipe-open { overflow: hidden; }
+
+.pending-swipe {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(0px, 2vw, 20px);
+    background: var(--overlay);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.pending-swipe.hidden { display: none; }
+
+.pending-swipe-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 600px;
+    height: 100%;
+    max-height: 920px;
+}
+.pending-swipe-shell .modal-head { padding: 12px 16px; }
+.pending-swipe-shell .modal-head h3 { flex: 1; min-width: 0; }
+.pending-swipe-shell .modal-head .admin-stat-icon { width: 34px; height: 34px; border-radius: 11px; }
+.pending-swipe-shell .admin-pane-count { font-size: 11px; white-space: nowrap; }
+
+.pending-swipe-help {
+    margin: 0;
+    padding: 8px 16px 0;
+    color: var(--ink-3);
+    font-size: 11.5px;
+    line-height: 1.6;
+}
+
+.pending-swipe-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    padding: 12px 16px;
+}
+.pending-swipe-stage > * { grid-area: 1 / 1; min-height: 0; }
+
+/* הכרטיס הבא מציץ מאחור, קטן ומעומעם מעט. */
+.pending-swipe-next {
+    border-radius: var(--r-xl);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    transform: translateY(10px) scale(.94);
+    opacity: .55;
+}
+.pending-swipe-next[hidden] { display: none; }
+.pending-swipe-next img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.7); }
+
+.pending-swipe-card {
+    --swipe-progress: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--r-xl);
+    background: var(--panel-2);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
+    /* גלילה אנכית שייכת לדפדפן; תנועה אופקית — להחלקה. */
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    transform: translateX(var(--swipe-x, 0)) rotate(var(--swipe-rotate, 0deg));
+    transform-origin: 50% 120%;
+    will-change: transform;
+}
+.pending-swipe-card[hidden] { display: none; }
+.pending-swipe-card:active { cursor: grabbing; }
+.pending-swipe-card:focus-visible { outline: none; box-shadow: var(--focus-ring), var(--shadow-3); }
+.pending-swipe-card.is-returning { transition: transform .22s var(--ease), opacity .22s var(--ease); }
+.pending-swipe-card[data-leaving] { opacity: 0; pointer-events: none; }
+.pending-swipe-card[data-hint="approve"] { border-color: color-mix(in srgb, var(--green) calc(var(--swipe-progress) * 100%), var(--line-strong)); }
+.pending-swipe-card[data-hint="reject"] { border-color: color-mix(in srgb, var(--danger) calc(var(--swipe-progress) * 100%), var(--line-strong)); }
+
+.pending-swipe-media {
+    position: relative;
+    flex: 1;
+    min-height: 180px;
+    display: grid;
+    place-items: center;
+    background: var(--cinema-bg-deep);
+}
+.pending-swipe-media img,
+.pending-swipe-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    -webkit-user-drag: none;
+}
+.pending-swipe-video { background: var(--cinema-bg-deep); }
+
+.pending-swipe-kind {
+    position: absolute;
+    top: 10px;
+    inset-inline-start: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: var(--r-full);
+    background: var(--media-glass-strong);
+    border: 1px solid var(--media-line);
+    color: var(--on-media);
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+}
+
+/* החותמת מתחזקת ככל שהגרירה מתקרבת לסף ההחלטה. */
+.pending-swipe-stamp {
+    position: absolute;
+    top: 18px;
+    padding: 6px 16px;
+    border-radius: var(--r-md);
+    border: 3px solid currentColor;
+    background: var(--media-glass);
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    opacity: 0;
+    pointer-events: none;
+}
+.pending-swipe-stamp[data-stamp="approve"] { inset-inline-end: 18px; color: var(--green); transform: rotate(-10deg); }
+.pending-swipe-stamp[data-stamp="reject"] { inset-inline-start: 18px; top: 52px; color: var(--danger); transform: rotate(10deg); }
+.pending-swipe-card[data-hint="approve"] .pending-swipe-stamp[data-stamp="approve"],
+.pending-swipe-card[data-hint="reject"] .pending-swipe-stamp[data-stamp="reject"] { opacity: var(--swipe-progress); }
+
+.pending-swipe-meta {
+    flex: none;
+    max-height: 40%;
+    overflow-y: auto;
+    padding: 12px 16px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+}
+.pending-swipe-meta h4 {
+    margin: 0 0 8px;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+}
+.pending-swipe-meta dl { margin: 0; display: grid; gap: 6px; }
+.pending-swipe-meta dl > div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.pending-swipe-meta dt { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-4); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.pending-swipe-meta dd { margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.pending-swipe-email { color: var(--ink-4); font-size: 11px; font-weight: 500; unicode-bidi: plaintext; }
+.pending-swipe-new {
+    display: inline-block;
+    margin-inline-start: 4px;
+    padding: 1px 7px;
+    border-radius: var(--r-full);
+    background: var(--gold-tint);
+    border: 1px solid var(--gold-line);
+    color: var(--gold);
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.pending-swipe-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    border-radius: var(--r-xl);
+    border: 1px dashed var(--line-strong);
+    color: var(--ink-3);
+    font-size: 13px;
+}
+.pending-swipe-empty.hidden { display: none; }
+.pending-swipe-empty .admin-stat-icon { background: var(--green-tint); border-color: var(--green-line); color: var(--green); }
+.pending-swipe-empty-title { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--ink); }
+
+/* "אשר" ראשון בשורה — מימין באתר העברי, בדיוק לאן שההחלקה מאשרת. */
+.pending-swipe-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 0 16px 14px;
+}
+.pending-swipe-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px;
+    font-size: 15px;
+    font-weight: 800;
+}
+.pending-swipe-actions button:focus-visible,
+.pending-swipe-undo button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.pending-swipe-undo {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 16px 14px;
+    padding: 9px 12px;
+    padding-bottom: 12px;
+    border-radius: var(--r-md);
+    background: var(--panel-3);
+    border: 1px solid var(--line-strong);
+    overflow: hidden;
+}
+.pending-swipe-undo[hidden] { display: none; }
+.pending-swipe-undo p { flex: 1; min-width: 0; margin: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-swipe-undo button { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 12px; }
+.pending-swipe-undo-bar {
+    position: absolute;
+    inset: auto 0 0;
+    height: 3px;
+    background: var(--gold);
+    transform-origin: 100% 50%;
+}
+[dir="ltr"] .pending-swipe-undo-bar { transform-origin: 0 50%; }
+.pending-swipe-undo[data-action="approve"] .pending-swipe-undo-bar { background: var(--green); }
+.pending-swipe-undo[data-action="reject"] .pending-swipe-undo-bar { background: var(--danger); }
+.pending-swipe-undo-bar.is-running { animation: bar-grow var(--undo-ms, 5s) linear reverse both; }
+
+/* בלי תנועה: הכרטיס מתחלף מיד ופס הזמן נשאר מלא (הביטול עדיין זמין). */
+@media (prefers-reduced-motion: reduce) {
+    .pending-swipe-card,
+    .pending-swipe-card.is-returning { transition: none; }
+    .pending-swipe-undo-bar.is-running { animation: none; }
+}
+
+/* טלפון: מסך מלא, בלי פינות, והכפתורים בהישג האגודל. */
+@media (max-width: 640px) {
+    .pending-swipe { padding: 0; }
+    .pending-swipe-shell { max-height: none; border-radius: 0; border: 0; }
+    .pending-swipe-help { font-size: 11px; }
+    .pending-swipe-stage { padding: 10px 12px; }
+    .pending-swipe-actions { padding: 0 12px 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+    .pending-swipe-undo { margin: 0 12px 10px; }
 }
 
 /* ==========================================================================
@@ -5330,6 +5647,132 @@ body.gallery-locked .gallery-layout { grid-template-columns: minmax(0, 1fr); gri
 .admin-errors-table .error-actions { white-space: nowrap; }
 .admin-errors-table .error-actions button { padding: 5px 11px; font-size: 10px; }
 .admin-errors-table .admin-empty { text-align: center; }
+
+/* "?" שבראש מסך: קישור לסעיף המתאים במדריך למנהלים. עיגול קטן ושקט, ומטרת
+   מגע של 36px כמו שאר כפתורי הכותרת. */
+.admin-help-link {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    transition: color .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease);
+}
+.admin-help-link:hover { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+
+/* מסך "מדריך למנהלים": תוכן העניינים דבוק בצד כשהתפריט של הלוח בצד, ומעל
+   הסעיפים כשהלוח בעמודה אחת (שם כותרת המסך היא שדבוקה, ראו למעלה). */
+.admin-guide { display: grid; gap: 14px; align-items: start; }
+@media (min-width: 1101px) {
+    .admin-guide { grid-template-columns: 230px minmax(0, 1fr); }
+    .admin-guide-toc { position: sticky; top: calc(var(--header-h) + 8px); }
+}
+.admin-guide-toc { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.admin-guide-toc ol { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.admin-guide-toc a {
+    display: block;
+    padding: 8px 11px;
+    border-radius: var(--r-sm);
+    color: var(--ink-3);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: color .2s var(--ease), background .2s var(--ease);
+}
+.admin-guide-toc a:hover { color: var(--ink); background: var(--panel-soft); }
+.admin-guide-toc a[aria-current] { color: var(--gold); background: var(--gold-tint); }
+/* בעמודה אחת תוכן העניינים הוא שורה שנגללת לרוחב בתוך עצמה, כמו תפריט הלוח. */
+@media (max-width: 1100px) {
+    .admin-guide-toc ol { flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+    .admin-guide-toc li { flex: none; }
+    .admin-guide-toc a {
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+        border-radius: var(--r-full);
+        padding: 6px 13px;
+        font-size: 11px;
+    }
+}
+.admin-guide-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.admin-guide-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-guide-toolbar .btn-secondary-dark { min-height: 40px; }
+.admin-guide-search {
+    flex: 1 1 240px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-radius: var(--r-md);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.admin-guide-search:focus-within { border-color: var(--gold-line); box-shadow: 0 0 0 4px var(--gold-tint); }
+.admin-guide-search svg { width: 16px; height: 16px; color: var(--ink-4); flex: none; }
+body .admin-guide-search input { flex: 1; min-width: 0; height: 42px; padding: 0; background: transparent; border: none; font-size: 13px; }
+.admin-guide-search input:focus { outline: none; box-shadow: none; background: transparent; }
+.admin-guide-sections { display: flex; flex-direction: column; gap: 10px; }
+.admin-guide-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+    border-radius: var(--r-lg);
+}
+.admin-guide-summary::-webkit-details-marker { display: none; }
+.admin-guide-summary::after {
+    content: "\25BE";
+    flex: none;
+    margin-inline-start: auto;
+    color: var(--ink-4);
+    transition: transform .2s var(--ease);
+}
+.admin-guide-section[open] > .admin-guide-summary::after { transform: rotate(180deg); }
+.admin-guide-section[open] > .admin-guide-summary { border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.admin-guide-summary:hover { background: var(--panel-soft); }
+.admin-guide-summary:focus-visible { box-shadow: inset 0 0 0 2px var(--gold); }
+.admin-guide-summary-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.admin-guide-summary-text strong { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink); }
+.admin-guide-summary-text small { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+.admin-guide-tag {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--violet-line);
+    background: var(--violet-tint);
+    color: var(--violet);
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.admin-guide-content { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 1.75; color: var(--ink-2); }
+.admin-guide-content strong { color: var(--ink); font-weight: 800; }
+.admin-guide-subtitle { margin-top: 4px; font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--gold); }
+.admin-guide-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding-inline-start: 20px; list-style: disc; }
+.admin-guide-list.is-steps { list-style: decimal; }
+.admin-guide-list li::marker { color: var(--gold); font-weight: 800; }
+.admin-guide-note {
+    padding: 10px 13px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    color: var(--ink);
+}
+.admin-guide-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.admin-guide-actions .btn-secondary-dark { min-height: 40px; }
 
 /* צינור ההודעות והתראות בתיבה האישית. */
 .profile-inbox-list .is-unread { border-color: var(--gold-line); }

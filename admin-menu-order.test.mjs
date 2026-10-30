@@ -27,11 +27,13 @@ function registeredViews() {
 
 const CANONICAL_VIEW_ORDER = [
   "dashboard",
+  "guide",
   "pending",
   "drive",
   "folders",
   "deletions",
   "trash",
+  "downloads",
   "users",
   "messages",
   "popup",
@@ -94,14 +96,14 @@ test("המסכים מקובצים לפי הקבוצות המוכרות, והקב
 
 test("מסכים של מנהל־על מסומנים ככאלה גם ברשימה וגם במרקאפ", () => {
   const block = viewRegistryBlock();
-  for (const id of ["deletions", "trash", "users", "messages", "popup", "activity", "analytics", "backup"]) {
+  for (const id of ["deletions", "trash", "downloads", "users", "messages", "popup", "activity", "analytics", "backup"]) {
     const entry = block.slice(block.indexOf(`id: '${id}'`), block.indexOf(`id: '${id}'`) + 700);
     assert.match(entry, /superAdminOnly: true/, `המסך ${id} חייב להיות מסומן כמסך מנהל־על`);
   }
 
   // והצד השני: המרקאפ עצמו חייב להיות מסומן, אחרת מנהל דרגה 3 היה רואה
   // את הכרטיס (ריק) עד שהקוד היה מסתיר אותו.
-  for (const id of ["deletions", "trash", "users", "messages", "popup", "activity", "analytics", "backup"]) {
+  for (const id of ["deletions", "trash", "downloads", "users", "messages", "popup", "activity", "analytics", "backup"]) {
     const start = html.indexOf(`id="view-${id}"`);
     const section = html.slice(start, html.indexOf("</section>", start));
     assert.match(section, /super-admin-only/, `המרקאפ של ${id} חייב לשאת super-admin-only`);

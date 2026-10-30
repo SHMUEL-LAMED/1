@@ -13,6 +13,7 @@ import './app.js';
 // שכבת ההתחברות, והמודול הזה מתחבר אליה דרך window.
 import './drive-sync.js';
 import './popup-admin.js';
+import './download-privacy-admin.js';
 import { initAdmin } from './admin.js';
 import './admin-ui.js';
 import './background-jobs-admin.js';

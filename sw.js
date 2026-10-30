@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v68";
+const CACHE_VERSION = "v69";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -8,7 +8,7 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // הניווט עצמו תמיד מנסה קודם את הרשת כדי שלא יישאר עותק ישן לנצח.
 // chat.js אינו כאן בכוונה: הוא נטען בייבוא דינמי רק למשתמש מחובר, ואין
 // טעם להוריד אותו מראש לאורח. הוא נכנס למטמון בשימוש הראשון בו.
-// chat-admin.js ו-popup-admin.js הם מודולי ניהול, ולכן גם הם נשארים בחוץ.
+// chat-admin.js, popup-admin.js ו-download-privacy-admin.js הם מודולי ניהול, ולכן גם הם נשארים בחוץ.
 // admin.html ומודולי הניהול אינם כאן בכוונה, מאותו טעם: הם שייכים למנהל
 // בלבד ונכנסים למטמון רק כשהוא פותח את לוח הניהול. גם face-index.js
 // ו-drive-sync.js הם כלי ניהול ולכן אינם נטענים מראש לאורח.
@@ -26,6 +26,7 @@ const APP_SHELL = [
   "./gallery-feed.js",
   "./gallery-layout.js",
   "./gallery-random.js",
+  "./first-load.js",
   "./search-history.js",
   "./search-history-ui.js",
   "./search-suggest.js",
@@ -35,6 +36,8 @@ const APP_SHELL = [
   "./gallery-timeline.js",
   "./gallery-timeline-ui.js",
   "./zip-writer.js",
+  "./download-privacy.js",
+  "./download-privacy-ui.js",
   "./print-album.js",
   "./print-album-ui.js",
   "./media-variants.js",
@@ -47,6 +50,7 @@ const APP_SHELL = [
   "./video-length.js",
   "./scene-tags.js",
   "./media-description.js",
+  "./media-alt.js",
   "./lightbox-math.js",
   "./lightbox-gestures.js",
   "./lightbox-slideshow.js",
