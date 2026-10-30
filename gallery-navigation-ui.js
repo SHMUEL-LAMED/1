@@ -56,6 +56,9 @@ function handleKeyDown(event) {
         openShortcutsHelp();
         return;
     }
+    // "מסך גדול" (big-screen.js) מסתיר את ההורדה והמועדף: המקלדת שליד המסך
+    // באולם אינה מורידה קבצים ואינה מסמנת מועדפים בחשבון של מי שהפעיל אותו.
+    if (document.getElementById('lightboxModal')?.classList.contains('is-big-screen')) return;
     const button = document.getElementById(action === 'download' ? 'lightboxDownload' : 'lightboxFavorite');
     if (!button || button.disabled) return;
     event.preventDefault();

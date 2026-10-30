@@ -2,7 +2,7 @@
 // מתקדם לבד, פריט שאושר בינתיים נכנס מיד אחרי השקופית הנוכחית עם תג "חדש",
 // הבדיקה פעם בדקה (עם ETag) נעצרת כשהלשונית מוסתרת, הפקדים והסמן נעלמים
 // בשקט, ה-Wake Lock נלקח ומשוחרר, ו-Escape יוצא מהכול בבת אחת.
-import { test, expect, seedSession, imageRecord } from './fixtures.mjs';
+import { test, expect, seedSession, imageRecord, DEFAULT_USER } from './fixtures.mjs';
 
 // הבקשות לעמוד הראשון של תיקייה — מה שהמסך הגדול טוען מחדש.
 const folderPageRequests = (worker, folderId) => worker.requestsTo('GET', '/data/images?')
@@ -159,6 +159,15 @@ test('מסרגל הגלריה בטלפון, עם הפחתת תנועה: בלי K
     )).toBe(0);
     // הסבב מתקדם גם עם הפחתת תנועה (עמעום בלבד).
     await expect(page.locator('#lightboxCounter')).toHaveText('2 מתוך 3', { timeout: 6000 });
+    // F ו-D אינם פועלים במסך גדול: המועדף וההורדה מוסתרים בו.
+    let downloads = 0;
+    page.on('download', () => { downloads += 1; });
+    await page.keyboard.press('f');
+    await page.keyboard.press('d');
+    await page.waitForTimeout(300);
+    await expect(page.locator('#lightboxFavorite')).toHaveAttribute('aria-pressed', 'false');
+    expect(worker.collection('userFavorites').get(DEFAULT_USER.uid)?.mediaIds ?? []).toEqual([]);
+    expect(downloads).toBe(0);
 
     // אחרי שלוש שניות בשקט הפקדים מוסתרים; תנועה מחזירה אותם ללחיצה.
     await page.mouse.move(100, 400);
