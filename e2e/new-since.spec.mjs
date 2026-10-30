@@ -3,7 +3,7 @@
 // והתגים נשארים אחרי רענון באמצע הביקור. ריחוף או מיקוד מהמקלדת על תיקייה
 // מציג את התמונות האחרונות שבה; רק תיקייה שריחפו עליה ושעוד לא נטענה מבקשת
 // את העמוד הראשון שלה, ובלי "ריחוף" (מכשיר מגע) אין דבר.
-import { test, expect, seedSession, imageRecord, variantEntries, variantUrl, DEFAULT_USER } from './fixtures.mjs';
+import { test, expect, seedSession, signInViaGoogle, imageRecord, variantEntries, variantUrl, DEFAULT_USER } from './fixtures.mjs';
 
 const VISIT_KEY = `simchas_gallery_last_visit_v1:${DEFAULT_USER.uid}`;
 const HOUR = 60 * 60 * 1000;
@@ -115,6 +115,95 @@ test('ארכיון קטן שכולו חדש: הבאנר מונה בדיוק, ב�
 
     await expect(page.locator('#photosGrid .gallery-new-badge')).toHaveCount(2);
     await expect(page.locator('#newUpdatesBannerText')).toHaveText('נוספו 2 פריטים מאז הביקור הקודם שלך.');
+});
+
+// הבאנר אישי: "נוספו N פריטים מאז הביקור הקודם שלך" מחושב מהביקור של המשתמש
+// המחובר, ו"סגור" נשמר לכל משתמש לעצמו. התנתקות או החלפת חשבון באותה לשונית
+// אינן משאירות את הבאנר (ואת הספירה שבו) למי שבא אחריו.
+const SECOND_USER = { uid: 'google-user-2', email: 'second@example.com', name: 'משתמש שני' };
+const SECOND_VISIT_KEY = `simchas_gallery_last_visit_v1:${SECOND_USER.uid}`;
+const UPDATES_SEEN_KEY = 'yeshiva_last_seen_update';
+const DEFAULT_BANNER_TEXT = 'נוספו תמונות חדשות בשבוע האחרון.';
+
+function personalBannerGallery(worker, now) {
+    worker.seedFolders().seedImages([
+        imageRecord(1, { createdAt: now - 5 * HOUR, folderId: '1' }),
+        imageRecord(2, { createdAt: now - 4 * HOUR, folderId: '1' }),
+        imageRecord(3, { createdAt: now - HOUR, folderId: '2' }),
+        imageRecord(4, { createdAt: now - 30 * 60_000, folderId: '3' })
+    ]);
+    worker.seedUser({ ...SECOND_USER, status: 'approved', role: 'viewer' });
+}
+
+async function signOut(page) {
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(page.locator('body')).toHaveClass(/gallery-locked/);
+}
+
+async function signInAs(page, user) {
+    await signInViaGoogle(page, user);
+    await expect(page.locator('#floatingUserPanelName')).toHaveText(user.name);
+    await expect(page.locator('body')).not.toHaveClass(/gallery-locked/);
+    await expect(page.locator('#photosGrid .gallery-card')).toHaveCount(4);
+}
+
+test('התנתקות מסתירה את הבאנר האישי, והמשתמש הבא באותה לשונית אינו רואה את הספירה של הקודם', async ({ page, worker }) => {
+    const now = Date.now();
+    personalBannerGallery(worker, now);
+    // למשתמש הראשון יש ביקור קודם; השני מבקר לראשונה.
+    await seedVisit(page, { [VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 2 * HOUR } });
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const banner = page.locator('#newUpdatesBanner');
+    const text = page.locator('#newUpdatesBannerText');
+    await expect(banner).toBeVisible();
+    await expect(text).toHaveText('נוספו 2 פריטים מאז הביקור הקודם שלך.');
+
+    await signOut(page);
+    await expect(banner).toBeHidden();
+    await expect(text).toHaveText(DEFAULT_BANNER_TEXT);
+
+    await signInAs(page, SECOND_USER);
+    // ביקור ראשון של המשתמש השני: "השבוע האחרון", בלי הספירה של הראשון.
+    await expect(banner).toBeVisible();
+    await expect(text).toHaveText(DEFAULT_BANNER_TEXT);
+    await expect(page.locator('#photosGrid .gallery-new-badge')).toHaveCount(0);
+    const visits = await page.evaluate(keys => keys.map(key => JSON.parse(localStorage.getItem(key) || 'null')), [VISIT_KEY, SECOND_VISIT_KEY]);
+    expect(visits[0].previousVisit).toBe(now - 2 * HOUR);
+    expect(visits[1].previousVisit).toBe(0);
+});
+
+test('"סגור" של משתמש אחד אינו מסתיר את הבאנר של משתמש אחר באותו דפדפן', async ({ page, worker }) => {
+    const now = Date.now();
+    personalBannerGallery(worker, now);
+    await seedVisit(page, {
+        [VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 2 * HOUR },
+        // אצל המשתמש השני רק התמונה האחרונה חדשה.
+        [SECOND_VISIT_KEY]: { previousVisit: now - 30 * HOUR, lastSeenAt: now - 45 * 60_000 }
+    });
+    await seedSession(page, { worker });
+    await page.goto('/');
+
+    const banner = page.locator('#newUpdatesBanner');
+    const text = page.locator('#newUpdatesBannerText');
+    await expect(text).toHaveText('נוספו 2 פריטים מאז הביקור הקודם שלך.');
+    await banner.getByRole('button', { name: 'סגור' }).click();
+    await expect(banner).toBeHidden();
+
+    await signOut(page);
+    await signInAs(page, SECOND_USER);
+    await expect(banner).toBeVisible();
+    await expect(text).toHaveText('נוסף פריט אחד מאז הביקור הקודם שלך.');
+
+    // והמשתמש הראשון שחוזר לאותה לשונית — הבאנר שסגר נשאר סגור.
+    await signOut(page);
+    await signInAs(page, DEFAULT_USER);
+    await expect(page.locator('#photosGrid .gallery-new-badge')).toHaveCount(2);
+    await expect(banner).toBeHidden();
+    // "סגור" נשמר במפתח של המשתמש, לא במפתח הגלובלי הישן.
+    const seenKeys = await page.evaluate(prefix => Object.keys(localStorage).filter(key => key.startsWith(prefix)).sort(), UPDATES_SEEN_KEY);
+    expect(seenKeys).toEqual([`${UPDATES_SEEN_KEY}:${DEFAULT_USER.uid}`]);
 });
 
 // 125 תמונות חדשות בתיקייה הראשונה ממלאות את העמוד הראשון של "כל הארכיון",

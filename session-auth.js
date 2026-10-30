@@ -428,10 +428,12 @@ async function initFirebase() {
 // (tempSearchResults והבאנר שמעליה). הם נמחקים בכל התנתקות, החלפת חשבון
 // ואובדן אישור — אחרת שם ופנים של אדם נשארים מול מבקר שאינו מחובר, ותוצאות
 // של משתמש אחד מוצגות למשתמש הבא. people.js מאפס גם את המצב שלו, רק אם נטען.
-// גם התצוגה המלאה נסגרת, עם הקישור הישיר לפריט שנפתח בה (gallery.js).
+// גם התצוגה המלאה נסגרת, עם הקישור הישיר לפריט שנפתח בה (gallery.js), וגם
+// באנר "נוספו N פריטים מאז הביקור הקודם שלך" — הספירה בו אישית (gallery.js).
 function clearPrivateGalleryViews() {
     window.resetPeopleState?.();
     window.resetMediaLinkState?.();
+    window.resetNewUpdatesState?.();
     window.state.tempSearchResults = null;
     const banner = document.getElementById('tempSearchBanner');
     if (banner) {

@@ -10,7 +10,10 @@ import { installVideoHoverPreview } from './video-hover-preview.js';
 // פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
 import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
 // "חדש מאז הביקור הקודם" (לכל משתמש), והתמונות האחרונות של תיקייה בריחוף.
-import { beginVisit, touchVisit, isNewSince, newSinceSummary, newSinceLabel, pickFolderPreviewFrames } from './new-since.js';
+import {
+    beginVisit, touchVisit, isNewSince, newSinceSummary, pickFolderPreviewFrames,
+    newUpdatesBannerState, readUpdatesSeen, markUpdatesSeen as storeUpdatesSeen, NEW_UPDATES_DEFAULT_TEXT
+} from './new-since.js';
 import { installFolderHoverPreview } from './folder-preview.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
@@ -44,8 +47,11 @@ let currentFilteredImages = [];
 // פעם אחת לכל משתמש בטעינת הדף ואינה זזה עד הטעינה הבאה, ולכן תגי "חדש" על
 // הכרטיסים ועל התיקיות אינם נעלמים באמצע הביקור. בביקור הראשון אין נקודה,
 // והבאנר חוזר להתנהגות הקודמת ("עדכונים מהשבוע האחרון").
+//
+// הבאנר אישי — הספירה בו היא של המשתמש המחובר, ו"סגור" נשמר לכל משתמש
+// לעצמו (readUpdatesSeen ב-new-since.js) — ולכן הוא מוסתר ומתאפס בכל
+// התנתקות, החלפת חשבון או אובדן אישור (resetNewUpdatesState).
 const visitBaselines = new Map();
-const LAST_SEEN_UPDATE_KEY = 'yeshiva_last_seen_update';
 
 function newSinceBaseline() {
     const uid = window.state.currentUser?.uid;
@@ -74,38 +80,45 @@ function galleryNewSinceSummary() {
     return newSinceSummary(since ? lists : [], since, { latest: window.state.latestImages, latestHasMore: window.state.latestImagesHasMore });
 }
 
-function readLastSeenUpdate() {
-    try {
-        return parseInt(localStorage.getItem(LAST_SEEN_UPDATE_KEY) || '0', 10) || 0;
-    } catch (error) {
-        return 0;
-    }
+// "סגור" ו"צפה עכשיו" נשמרים במפתח של המשתמש המחובר; בלי משתמש — במפתח
+// הגלובלי הישן.
+function markUpdatesSeen() {
+    storeUpdatesSeen({ userId: window.state.currentUser?.uid });
 }
 
-function markUpdatesSeen() {
-    try { localStorage.setItem(LAST_SEEN_UPDATE_KEY, Date.now().toString()); } catch (error) { /* מצב פרטי: אין שמירה */ }
+function setNewUpdatesBanner({ visible, text }) {
+    const banner = document.getElementById('newUpdatesBanner');
+    const label = document.getElementById('newUpdatesBannerText');
+    if (label) label.textContent = text;
+    if (banner) banner.classList.toggle('hidden', !visible);
 }
 
 window.checkNewUpdates = function() {
     const source = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
-    if (!source || source.length === 0) return;
-    const lastSeen = readLastSeenUpdate();
-    const banner = document.getElementById('newUpdatesBanner');
-    if (!banner) return;
-    if (newSinceBaseline()) {
-        const summary = galleryNewSinceSummary();
-        if (summary.count > 0 && summary.newest > lastSeen) {
-            const text = document.getElementById('newUpdatesBannerText');
-            if (text) text.textContent = newSinceLabel(summary);
-            banner.classList.remove('hidden');
-        }
+    if (!document.getElementById('newUpdatesBanner')) return;
+    // אין מה להציג (הגלריה ננעלה או עוד לא נטענה): הבאנר נסגר ולא נשאר מהקודם.
+    if (!source || source.length === 0) {
+        setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
         return;
     }
-    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
-    const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
-    if (newest > lastSeen && (Date.now() - newest < ONE_WEEK)) {
-        banner.classList.remove('hidden');
-    }
+    const since = newSinceBaseline();
+    setNewUpdatesBanner(newUpdatesBannerState({
+        since,
+        summary: since ? galleryNewSinceSummary() : null,
+        newest: source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0),
+        lastSeen: readUpdatesSeen({ userId: window.state.currentUser?.uid })
+    }));
+}
+
+// התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js):
+// הבאנר והספירה שבו שייכים למשתמש הקודם, ולכן נסגרים וחוזרים לטקסט ברירת
+// המחדל. גם נקודות הייחוס שבזיכרון נמחקות — אחרי שהביקור של כל משתמש נרשם
+// כנגמר עכשיו — כדי שהמשתמש הבא יתחיל מהרשומה שלו באחסון. מי שחוזר תוך
+// הביקור מקבל ממנה את אותה נקודה, כמו ברענון.
+function resetNewUpdatesState() {
+    for (const uid of visitBaselines.keys()) touchVisit({ userId: uid });
+    visitBaselines.clear();
+    setNewUpdatesBanner({ visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
 }
 
 // כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
@@ -3470,6 +3483,7 @@ window.setActiveFolder = setActiveFolder;
 window.handleSearch = handleSearch;
 window.showNewUpdates = showNewUpdates;
 window.dismissNewUpdates = dismissNewUpdates;
+window.resetNewUpdatesState = resetNewUpdatesState;
 window.clearTempSearchFilter = clearTempSearchFilter;
 window.submitUserUpload = submitUserUpload;
 window.handleCreateEmptyFolder = handleCreateEmptyFolder;

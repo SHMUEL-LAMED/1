@@ -3,6 +3,7 @@
 // תיקייה, ובחירת התמונות לתצוגה המקדימה של תיקייה.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   beginVisit,
   touchVisit,
@@ -12,6 +13,12 @@ import {
   pickFolderPreviewFrames,
   parseVisitRecord,
   lastVisitStorageKey,
+  updatesSeenStorageKey,
+  readUpdatesSeen,
+  markUpdatesSeen,
+  newUpdatesBannerState,
+  NEW_UPDATES_DEFAULT_TEXT,
+  UPDATES_SEEN_STORAGE_KEY,
   LAST_VISIT_STORAGE_PREFIX,
   VISIT_GAP_MS,
   FOLDER_PREVIEW_FRAMES
@@ -129,6 +136,54 @@ test("טקסט הבאנר: יחיד, רבים, וגבול תחתון כשהרש�
   assert.equal(newSinceLabel({ count: 1, complete: true }), "נוסף פריט אחד מאז הביקור הקודם שלך.");
   assert.equal(newSinceLabel({ count: 5, complete: true }), "נוספו 5 פריטים מאז הביקור הקודם שלך.");
   assert.equal(newSinceLabel({ count: 24, complete: false }), "נוספו 24 ויותר פריטים מאז הביקור הקודם שלך.");
+});
+
+test('"סגור" על הבאנר נשמר לכל משתמש לעצמו; המפתח הגלובלי הישן רק בלי משתמש', () => {
+  assert.equal(updatesSeenStorageKey("u1"), `${UPDATES_SEEN_STORAGE_KEY}:u1`);
+  assert.equal(updatesSeenStorageKey("a/b:c"), `${UPDATES_SEEN_STORAGE_KEY}:abc`);
+  assert.equal(updatesSeenStorageKey(""), UPDATES_SEEN_STORAGE_KEY);
+  assert.equal(updatesSeenStorageKey(null), UPDATES_SEEN_STORAGE_KEY);
+
+  // ערך ישן במפתח הגלובלי אינו חל על משתמש מחובר.
+  const storage = memoryStorage({ [UPDATES_SEEN_STORAGE_KEY]: String(T0) });
+  assert.equal(readUpdatesSeen({ storage, userId: "u1" }), 0);
+  assert.equal(readUpdatesSeen({ storage, userId: "" }), T0);
+
+  assert.equal(markUpdatesSeen({ storage, userId: "u1", now: T0 + HOUR }), true);
+  assert.equal(readUpdatesSeen({ storage, userId: "u1" }), T0 + HOUR);
+  // משתמש אחד שסגר אינו מסתיר את הבאנר של אחר.
+  assert.equal(readUpdatesSeen({ storage, userId: "u2" }), 0);
+  assert.equal(storage.map.get(UPDATES_SEEN_STORAGE_KEY), String(T0));
+
+  // אחסון חסום, חסר או פגום אינו זורק.
+  const throwing = { getItem() { throw new Error("SecurityError"); }, setItem() { throw new Error("QuotaExceededError"); } };
+  assert.equal(readUpdatesSeen({ storage: throwing, userId: "u1" }), 0);
+  assert.equal(markUpdatesSeen({ storage: throwing, userId: "u1", now: T0 }), false);
+  assert.equal(readUpdatesSeen({ storage: null, userId: "u1" }), 0);
+  assert.equal(markUpdatesSeen({ storage: null, userId: "u1", now: T0 }), false);
+  assert.equal(readUpdatesSeen({ storage: memoryStorage({ [`${UPDATES_SEEN_STORAGE_KEY}:u1`]: "garbage" }), userId: "u1" }), 0);
+});
+
+test("מצב הבאנר: תמיד עם טקסט, ומוסתר כשאף תנאי אינו מתקיים", () => {
+  const summary = { count: 2, newest: T0 - HOUR, complete: true };
+  // ביקור חוזר עם פריטים חדשים שלא נסגרו.
+  assert.deepEqual(newUpdatesBannerState({ since: T0 - 5 * HOUR, summary, lastSeen: 0, now: T0 }),
+    { visible: true, text: "נוספו 2 פריטים מאז הביקור הקודם שלך." });
+  // המשתמש כבר סגר אחרי החדש ביותר: מוסתר, והטקסט חוזר לברירת המחדל.
+  assert.deepEqual(newUpdatesBannerState({ since: T0 - 5 * HOUR, summary, lastSeen: T0, now: T0 }),
+    { visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
+  // ביקור חוזר בלי שום דבר חדש.
+  assert.deepEqual(newUpdatesBannerState({ since: T0 - 5 * HOUR, summary: { count: 0, newest: 0 }, now: T0 }),
+    { visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
+  // ביקור ראשון: "השבוע האחרון", תמיד עם טקסט ברירת המחדל.
+  assert.deepEqual(newUpdatesBannerState({ since: 0, newest: T0 - HOUR, lastSeen: 0, now: T0 }),
+    { visible: true, text: NEW_UPDATES_DEFAULT_TEXT });
+  assert.equal(newUpdatesBannerState({ since: 0, newest: T0 - 8 * 24 * HOUR, now: T0 }).visible, false);
+  assert.equal(newUpdatesBannerState({ since: 0, newest: T0 - HOUR, lastSeen: T0, now: T0 }).visible, false);
+  assert.deepEqual(newUpdatesBannerState(), { visible: false, text: NEW_UPDATES_DEFAULT_TEXT });
+  // טקסט ברירת המחדל הוא זה שבבאנר ב-index.html, שאליו האיפוס מחזיר.
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.ok(html.includes(`<p id="newUpdatesBannerText" class="text-[11px] leading-tight text-slate-400">${NEW_UPDATES_DEFAULT_TEXT}</p>`));
 });
 
 test("תצוגה מקדימה של תיקייה: האחרונות, בלי כפילויות, עם התצוגה הקטנה", () => {

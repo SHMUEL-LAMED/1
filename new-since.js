@@ -166,6 +166,63 @@ export function newSinceLabel({ count = 0, complete = true } = {}) {
     return `נוספו ${total}${complete ? '' : ' ויותר'} פריטים מאז הביקור הקודם שלך.`;
 }
 
+// --- באנר העדכונים: מה מוצג, ו"סגור" לכל משתמש ---
+
+// הטקסט שבבאנר ב-index.html: בלי ביקור קודם — "השבוע האחרון".
+export const NEW_UPDATES_DEFAULT_TEXT = 'נוספו תמונות חדשות בשבוע האחרון.';
+export const NEW_UPDATES_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+// המפתח הגלובלי הישן של "סגור"/"צפה עכשיו". הוא היה משותף לכל החשבונות
+// בדפדפן, ולכן משתמש אחד שסגר את הבאנר הסתיר אותו גם ממשתמש אחר. עכשיו לכל
+// משתמש מפתח משלו, והמפתח הישן נשאר רק כשאין משתמש מחובר.
+export const UPDATES_SEEN_STORAGE_KEY = 'yeshiva_last_seen_update';
+
+export function updatesSeenStorageKey(userId) {
+    const id = safeId(userId, 128);
+    return id ? `${UPDATES_SEEN_STORAGE_KEY}:${id}` : UPDATES_SEEN_STORAGE_KEY;
+}
+
+// מתי המשתמש סגר את הבאנר (או צפה בעדכונים) לאחרונה; 0 — מעולם לא, או
+// שהאחסון חסום.
+export function readUpdatesSeen({ storage, userId } = {}) {
+    const backend = storage === undefined ? defaultStorage() : storage;
+    if (!backend) return 0;
+    try {
+        return finiteTime(parseInt(backend.getItem(updatesSeenStorageKey(userId)) || '0', 10));
+    } catch {
+        return 0;
+    }
+}
+
+export function markUpdatesSeen({ storage, userId, now = Date.now() } = {}) {
+    const backend = storage === undefined ? defaultStorage() : storage;
+    if (!backend) return false;
+    try {
+        backend.setItem(updatesSeenStorageKey(userId), String(finiteTime(now)));
+        return true;
+    } catch {
+        return false; // מצב פרטי: אין שמירה
+    }
+}
+
+// מה הבאנר מציג. תמיד מחזיר טקסט — גם בלי ביקור קודם — כדי שטקסט שנכתב
+// למשתמש אחד ("נוספו 5 פריטים מאז הביקור הקודם שלך") לא יישאר על המסך
+// למשתמש הבא; וכשאף תנאי אינו מתקיים הבאנר מוסתר, לא רק "לא נפתח".
+//   since   — נקודת הייחוס של הביקור הקודם (0 בביקור הראשון)
+//   summary — newSinceSummary מול נקודת הייחוס
+//   newest  — הפריט החדש ביותר שנטען, לביקור הראשון
+//   lastSeen — readUpdatesSeen של המשתמש הנוכחי
+export function newUpdatesBannerState({ since = 0, summary = null, newest = 0, lastSeen = 0, now = Date.now() } = {}) {
+    const seen = finiteTime(lastSeen);
+    if (finiteTime(since)) {
+        const count = Math.max(0, Math.floor(Number(summary?.count) || 0));
+        const visible = count > 0 && finiteTime(summary?.newest) > seen;
+        return { visible, text: visible ? newSinceLabel(summary) : NEW_UPDATES_DEFAULT_TEXT };
+    }
+    const latest = finiteTime(newest);
+    const visible = latest > seen && finiteTime(now) - latest < NEW_UPDATES_RECENT_MS;
+    return { visible, text: NEW_UPDATES_DEFAULT_TEXT };
+}
+
 // --- התצוגה המקדימה של תיקייה ---
 
 // עד limit מהתמונות האחרונות של התיקייה ("all" — מכל הארכיון), מהחדשה לישנה,
