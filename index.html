@@ -267,6 +267,10 @@
                     <button type="button" onclick="startGallerySlideshow()" class="btn-secondary-dark px-3 py-2 text-xs" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
                         <i data-lucide="play" class="w-4 h-4"></i><span class="hidden sm:inline">הפעל מצגת</span>
                     </button>
+                    <!-- מצגת במסך מלא לאולם, שמוסיפה לבד פריטים חדשים (big-screen.js). -->
+                    <button type="button" onclick="startBigScreen()" class="btn-secondary-dark px-3 py-2 text-xs" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
+                        <i data-lucide="tv" class="w-4 h-4"></i><span class="hidden sm:inline">מסך גדול</span>
+                    </button>
                     <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="btn-secondary-dark px-3 py-2 text-xs" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
                         <i data-lucide="dices" class="w-4 h-4"></i><span class="hidden sm:inline">תמונה אקראית</span>
                     </button>
@@ -360,6 +364,7 @@
                     <button type="button" id="eventOpenGalleryBtn" class="btn-primary-gold w-full py-3 text-xs"><i data-lucide="images" class="w-4 h-4"></i> פתח את תמונות האירוע</button>
                     <button type="button" id="eventStartSlideshowBtn" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="play" class="w-4 h-4"></i> הפעל מצגת</button>
                     <button type="button" id="eventPrintAlbumBtn" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="book-image" class="w-4 h-4"></i> אלבום להדפסה</button>
+                    <button type="button" id="eventBigScreenBtn" class="btn-secondary-dark w-full py-3 text-xs" title="מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים"><i data-lucide="tv" class="w-4 h-4"></i> מסך גדול</button>
                     <button type="button" id="eventFollowButton" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="bell-plus" class="w-4 h-4"></i> עקוב אחר התיקייה</button>
                     <button type="button" id="eventEditToggleBtn" data-admin-profile-launcher onclick="toggleEventEdit(true)" class="hidden btn-secondary-dark w-full py-3 text-xs"><i data-lucide="pencil" class="w-4 h-4"></i> עריכת פרטי האירוע</button>
                 </aside>
@@ -552,6 +557,8 @@
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
             <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
+                <!-- מסך גדול: פריט שנוסף בזמן ההצגה, עד שהסבב עובר הלאה (big-screen.js). -->
+                <span id="bigScreenNewBadge" class="big-screen-new" hidden>חדש</span>
                 <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
@@ -594,6 +601,15 @@
             </button>
         </div>
         <div class="text-center text-sm py-2"><span id="lightboxCounter">1 מתוך 10</span></div>
+        <!-- מסך גדול: שם האירוע ושעון בפינה, ויציאה (big-screen.js). מוצג רק במצב הזה. -->
+        <div id="bigScreenInfo" class="big-screen-info" hidden>
+            <span id="bigScreenEvent" class="big-screen-event"></span>
+            <time id="bigScreenClock" class="big-screen-clock"></time>
+            <button type="button" id="bigScreenExit" class="slideshow-btn big-screen-exit" aria-label="יציאה ממסך גדול" aria-keyshortcuts="Escape" title="יציאה (Escape)">
+                <i data-lucide="minimize" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <p id="bigScreenStatus" class="sr-only" role="status" aria-live="polite"></p>
     </div>
 
     <!-- אישור פעולה -->

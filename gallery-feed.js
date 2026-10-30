@@ -18,6 +18,8 @@
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
 //   state.latestImagesHasMore   — האם יש בארכיון עוד מעבר להן
 //   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
+//   refreshActiveGalleryFolder() — העמוד הראשון של התיקייה הפעילה מחדש (ETag),
+//                                  למסך גדול שבודק פעם בדקה אם נוספו פריטים
 //   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
 //   loadAllFolderImages(id)     — תיקייה שלמה (עד תקרה), לאלבום להדפסה
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
@@ -409,6 +411,7 @@ window.loadAllImagesForSearch = loadAllImagesForSearch;
 window.startGalleryFeed = startGalleryFeed;
 window.resetGalleryFeed = resetGalleryFeed;
 window.refreshGalleryFeed = refreshGalleryFeed;
+window.refreshActiveGalleryFolder = () => (feedStopped ? Promise.resolve() : refreshActiveFolder());
 window.noteGalleryImageUpserted = noteImageUpserted;
 window.noteGalleryImageRemoved = noteImageRemoved;
 window.getLoadedFolderImages = getLoadedFolderImages;

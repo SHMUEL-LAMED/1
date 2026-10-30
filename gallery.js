@@ -25,6 +25,9 @@ import {
     initLightboxSlideshow, isSlideshowActive, startSlideshow, stopSlideshow,
     slideshowNoteNavigation, handleSlideshowKey
 } from './lightbox-slideshow.js';
+// "מסך גדול": המצגת הזו במסך מלא לאולם, עם פריטים חדשים שנכנסים לסבב.
+import { initBigScreen, startBigScreen, noteBigScreenSlide } from './big-screen.js';
+import { insertAfterIndex } from './big-screen-model.js';
 // כיתובים ותגיות סצנה: חיפוש, שבבי סינון, תיאור בתצוגה המלאה ועריכה למנהל.
 import { descriptionSearchText, recordHasSceneTag, isSceneTagId, sceneTagLabel, normalizeCaption } from './scene-tags.js';
 import {
@@ -535,15 +538,22 @@ window.openEventPage = function(event, folderId) {
         window.closeModal('eventPageModal');
         document.getElementById('photosGrid')?.scrollIntoView({ behavior: 'auto', block: 'start' });
     };
-    const slideshowButton = document.getElementById('eventStartSlideshowBtn');
-    if (slideshowButton) slideshowButton.onclick = () => {
-        setActiveFolder(id);
+    // תיקייה שטרם נטענה מתחילה ריקה (loadFolderImages), ואז המצגת הייתה
+    // נכשלת ב"אין פריטים": ממתינים לעמוד הראשון. מסך מלא אחרי ההמתנה עלול
+    // להיחסם בדפדפן, והתצוגה המלאה מכסה את החלון בכל מקרה.
+    const showFolderThen = start => async () => {
+        const loading = setActiveFolder(id);
         window.closeModal('eventPageModal');
-        window.startGallerySlideshow();
+        if (window.state.imagesLoading) await loading;
+        if (window.safeRecordId(window.state.activeFolderId) === id) start();
     };
     // אלבום להדפסה של התיקייה כולה (print-album-ui.js); עמוד האירוע נשאר פתוח מתחתיו.
     const printButton = document.getElementById('eventPrintAlbumBtn');
     if (printButton) printButton.onclick = () => window.openFolderPrintAlbum(id);
+    const slideshowButton = document.getElementById('eventStartSlideshowBtn');
+    if (slideshowButton) slideshowButton.onclick = showFolderThen(() => window.startGallerySlideshow());
+    const bigScreenButton = document.getElementById('eventBigScreenBtn');
+    if (bigScreenButton) bigScreenButton.onclick = showFolderThen(() => window.startBigScreen());
     const followButton = document.getElementById('eventFollowButton');
     if (followButton) {
         const isFollowing = window.state.followedFolders.has(id);
@@ -3004,6 +3014,42 @@ window.startGallerySlideshow = function() {
     if (!isSlideshowActive()) startSlideshow();
 };
 
+// פריטים חדשים (מסך גדול) נכנסים מיד אחרי הפריט המוצג: הם השקופיות הבאות
+// במצגת, והסבב ממשיך אחריהם מאיפה שהיה. מחזיר כמה נוספו.
+function insertLightboxItemsNext(items) {
+    const known = new Set(currentFilteredImages.map(item => window.safeRecordId(item.id)));
+    const fresh = (items || []).filter(item => !known.has(window.safeRecordId(item?.id)));
+    if (!fresh.length) return 0;
+    currentFilteredImages = insertAfterIndex(currentFilteredImages, window.state.currentLightboxIndex, fresh);
+    const lbCounter = document.getElementById('lightboxCounter');
+    if (lbCounter) lbCounter.innerText = `${window.state.currentLightboxIndex + 1} מתוך ${currentFilteredImages.length}`;
+    preloadLightboxNeighbours();
+    return fresh.length;
+}
+
+// "מסך גדול" בסרגל הגלריה ובדף האירוע: מצגת של התצוגה הנוכחית לאולם
+// (big-screen.js). שם האירוע הוא שם התיקייה הפעילה.
+window.startBigScreen = function() {
+    initBigScreen({
+        getViewItems: () => getFilteredSortedImages(),
+        getItems: () => currentFilteredImages,
+        open: items => openLightbox(items[0]?.id, items),
+        insertNext: items => insertLightboxItemsNext(items),
+        refreshView: () => (typeof window.refreshActiveGalleryFolder === 'function' ? window.refreshActiveGalleryFolder() : Promise.resolve()),
+        getEventName: () => {
+            const id = window.safeRecordId(window.state.activeFolderId) || 'all';
+            const folder = window.state.folders.find(item => window.safeRecordId(item.id) === id);
+            if (folder?.name) return folder.name;
+            return id === 'favorites' ? 'המועדפים' : 'גלריית שמחת התורה';
+        },
+        isOpen: () => isLightboxOpen(),
+        close: () => window.closeLightbox(),
+        notify: (text, ok) => window.showNotification(text, ok),
+        idOf: item => window.safeRecordId(item?.id)
+    });
+    startBigScreen();
+};
+
 // --- טעינה מוקדמת ופענוח בתצוגה המלאה ---
 // לכל היותר ארבע טעינות מוקדמות נשמרות בו־זמנית; הישנה שבהן נזנחת, ואם
 // טרם הסתיימה — ההורדה שלה מבוטלת.
@@ -3243,6 +3289,7 @@ function updateLightbox(immediate = false) {
     // הכתובת עוקבת אחרי הפריט המוצג: בפתיחה, בדפדוף ובמצגת.
     syncLightboxHash(img);
     preloadLightboxNeighbours();
+    noteBigScreenSlide(img);
 }
 
 // כפתור המועדף שבסרגל התצוגה המלאה (גם F במקלדת, gallery-navigation-ui.js):

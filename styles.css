@@ -3133,6 +3133,108 @@ body textarea { resize: vertical; min-height: 84px; }
 .scene-caption-count { text-align: end; font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
+   13ב. מסך גדול (big-screen.js) — המצגת על מסך באולם
+   ========================================================================== */
+
+/* קריא מקצה האולם: הכותרת והכיתוב גדלים עם רוחב המסך. */
+#lightboxModal.is-big-screen h4 { font-size: clamp(20px, 2.4vw, 40px); line-height: 1.3; }
+#lightboxModal.is-big-screen .lightbox-sub { font-size: clamp(13px, 1.2vw, 20px); }
+/* במצגת רגילה התיאור מוסתר; במסך גדול הכיתוב נשאר, גדול. תגיות ועריכה הן
+   פעולות של מי שעומד ליד המסך, לא של הקהל, ולכן אינן מוצגות. */
+#lightboxModal.is-big-screen .lightbox-description:not([hidden]):has(.lightbox-caption:not([hidden])) {
+    display: flex;
+    width: min(1100px, 100%);
+    padding: 14px 22px;
+}
+#lightboxModal.is-big-screen .lightbox-caption { font-size: clamp(18px, 2.2vw, 36px); line-height: 1.45; font-weight: 600; text-align: center; }
+#lightboxModal.is-big-screen .lightbox-tags,
+#lightboxModal.is-big-screen .lightbox-edit,
+#lightboxModal.is-big-screen .lightbox-caption-empty,
+#lightboxModal.is-big-screen #lightboxShare,
+#lightboxModal.is-big-screen #lightboxFavorite,
+#lightboxModal.is-big-screen #lightboxDownload { display: none; }
+
+/* אחרי כמה שניות בלי עכבר או מקלדת (.is-idle) הפקדים והסמן נעלמים, והתמונה,
+   הכיתוב, שם האירוע והשעון נשארים לבד. opacity ולא hidden: פקד שבמיקוד נשאר
+   במקומו, והמקש הבא מחזיר את כולם. */
+#lightboxModal.is-big-screen .lightbox-actions,
+#lightboxModal.is-big-screen .lightbox-nav,
+#lightboxModal.is-big-screen .slideshow-controls,
+#lightboxModal.is-big-screen #lightboxCounter,
+#lightboxModal.is-big-screen .big-screen-exit { transition: opacity .45s var(--ease); }
+#lightboxModal.is-big-screen.is-idle .lightbox-actions,
+#lightboxModal.is-big-screen.is-idle .lightbox-nav,
+#lightboxModal.is-big-screen.is-idle .slideshow-controls,
+#lightboxModal.is-big-screen.is-idle #lightboxCounter,
+#lightboxModal.is-big-screen.is-idle .big-screen-exit { opacity: 0; pointer-events: none; }
+#lightboxModal.is-big-screen.is-idle,
+#lightboxModal.is-big-screen.is-idle * { cursor: none !important; }
+
+/* שם האירוע והשעון: בטלפון בסוף הטור, ובמסך רחב צפים בפינה. */
+.big-screen-info {
+    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 100%;
+    margin-top: 8px;
+    padding-block: 6px;
+    padding-inline: 18px 8px;
+    border-radius: var(--r-full);
+    background: var(--cinema-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--cinema-line);
+    box-shadow: var(--cinema-shadow);
+    color: var(--cinema-ink);
+}
+.big-screen-info[hidden] { display: none; }
+/* במסך רחב הפינה התחתונה שמורה לה: התוכן מסתיים מעליה, כך שכיתוב ארוך אינו
+   נכנס מתחתיה. */
+@media (min-width: 900px) {
+    #lightboxModal.is-big-screen { padding-bottom: 84px; }
+    .big-screen-info { position: absolute; bottom: 20px; inset-inline-end: 20px; margin: 0; max-width: 45vw; z-index: 5; }
+}
+.big-screen-event {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(15px, 1.5vw, 24px);
+    color: var(--cinema-accent);
+}
+/* הספרות של השעה תמיד משמאל לימין, ברוחב קבוע כדי שלא "ירקדו". */
+.big-screen-clock {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: clamp(16px, 1.6vw, 26px);
+    color: var(--cinema-ink);
+}
+.big-screen-exit { min-width: 40px; }
+
+/* תג "חדש" על פריט שנוסף בזמן ההצגה; נעלם כשהסבב עובר לפריט הבא. */
+.big-screen-new {
+    position: absolute;
+    top: 16px;
+    inset-inline-start: 16px;
+    z-index: 3;
+    padding: 6px 16px;
+    border-radius: var(--r-full);
+    background: var(--gold-foil);
+    box-shadow: var(--shadow-gold);
+    color: var(--ink-on-accent);
+    font-size: clamp(14px, 1.4vw, 22px);
+    font-weight: 800;
+    pointer-events: none;
+    animation: fade-in .6s var(--ease) both;
+}
+.big-screen-new[hidden] { display: none; }
+
+/* ==========================================================================
    14. חלונות (modal) — מעטפת אחידה לכל החלונות באתר
    ========================================================================== */
 
