@@ -188,6 +188,37 @@ export function jpegWithMpfSecondary() {
     return { bytes: new Uint8Array(Buffer.concat([Buffer.from(primary), Buffer.from(secondary)])), primaryLength: primary.length, secondaryLength: secondary.length };
 }
 
+// Motion Photo: JPEG ואחריו סרטון MP4 קצר, ובו המיקום בתיבת ©xyz שב-moov/udta
+// (כמו ש-MediaMuxer של Android כותב אותו), ואחרי הסרטון נתוני יצרן (Samsung).
+export const FAKE_VIDEO_LOCATION = '+31.7754+035.2209/';
+
+function box(type, ...children) {
+    const payload = Buffer.concat(children.map(child => Buffer.from(child)));
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(payload.length + 8, 0);
+    head.write(type, 4, 'latin1');
+    return Buffer.concat([head, payload]);
+}
+
+export function jpegWithMotionVideo() {
+    const location = Buffer.alloc(4 + FAKE_VIDEO_LOCATION.length);
+    location.writeUInt16BE(FAKE_VIDEO_LOCATION.length, 0);
+    location.writeUInt16BE(0x15C7, 2);
+    location.write(FAKE_VIDEO_LOCATION, 4, 'latin1');
+    const video = Buffer.concat([
+        box('ftyp', Buffer.from('mp42\0\0\0\0isommp42', 'latin1')),
+        box('moov', box('mvhd', Buffer.alloc(100)), box('trak', box('tkhd', Buffer.alloc(84))), box('udta', box('©xyz', location))),
+        box('mdat', Buffer.alloc(64, 0x5A))
+    ]);
+    const trailer = Buffer.from('SEFHmotion-photo-trailer', 'latin1');
+    const primary = jpegWithGps({ xmp: false });
+    return {
+        bytes: new Uint8Array(Buffer.concat([Buffer.from(primary), video, trailer])),
+        primaryLength: primary.length,
+        videoLength: video.length
+    };
+}
+
 // חיפוש רצף בתים (לבדיקה שהקואורדינטות באמת נמחקו, ולא רק המצביע אליהן).
 export function containsBytes(haystack, needle) {
     return Buffer.from(haystack).indexOf(Buffer.from(needle)) !== -1;

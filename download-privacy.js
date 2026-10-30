@@ -13,7 +13,8 @@
 //   ב-XMP (כמו exif:GPSLatitude) מוחלפים ברווחים, וה-XML נשאר תקין. כיוון
 //   שהאורך אינו משתנה, גם היסטים שנמדדים מסוף הקובץ (Motion Photo) או
 //   מכותרת MPF (תמונה משנית, למשל מפת עומק) נשארים נכונים; תמונה משנית
-//   שהיא JPEG עוברת את אותו ניקוי.
+//   שהיא JPEG עוברת את אותו ניקוי, ובסרטון של Motion Photo תיבת המיקום
+//   (©xyz) הופכת לתיבת free ריקה.
 // * מצב 'all' בונה מחדש את הכותרות: נשארים רק JFIF (APP0), פרופיל הצבע
 //   (ICC ב-APP2) ו-Adobe (APP14), שבלעדיהם הצבעים משתנים; כל השאר — EXIF,
 //   XMP, IPTC, הערות ו-MPF — יוצא, וה-EXIF מוחלף ב-EXIF זעיר שבו רק הכיוון,
@@ -264,13 +265,75 @@ function mpfSecondaryRanges(bytes, segment) {
     return ranges;
 }
 
+// --- וידאו מוטמע (Motion Photo) ---
+
+// Motion Photo (Samsung, Google) מצרף אחרי סוף ה-JPEG סרטון MP4 קצר, וטלפון
+// ששומר מיקום כותב אותו גם בסרטון, בתיבת ©xyz שב-moov/udta. התיבה מקבלת את
+// הסוג 'free' והתוכן שלה מתאפס: האורך אינו משתנה, וכל נגן מדלג על free. רק
+// מבנה תיבות שנקרא עד הסוף נוגע — רצף בתים מקרי בנתונים הדחוסים אינו נערך.
+const MP4_CONTAINERS = new Set(['moov', 'trak', 'udta']);
+const MP4_LOCATION = '©xyz';
+const MP4_FREE = [0x66, 0x72, 0x65, 0x65]; // "free"
+
+const boxType = (bytes, at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+const u32be = (bytes, at) => ((bytes[at] << 24) >>> 0) + ((bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]);
+
+// תיבות המיקום שבטווח (לעומק). ברמה העליונה הסריקה נעצרת בתיבה הראשונה שאינה
+// תקינה — אחרי הסרטון יכולים לבוא נתונים אחרים של היצרן (Samsung); בתוך
+// תיבה מכילה, מבנה שבור הוא null ושום דבר בו אינו נערך.
+function mp4LocationBoxes(bytes, start, end, depth = 0) {
+    const found = [];
+    let pos = start;
+    while (pos + 8 <= end) {
+        let size = u32be(bytes, pos);
+        let header = 8;
+        if (size === 1) {
+            // גודל של 64 ביט; סרטון מעל 4GB ממילא אינו בתוך JPEG.
+            size = pos + 16 <= end && u32be(bytes, pos + 8) === 0 ? u32be(bytes, pos + 12) : 0;
+            header = 16;
+        } else if (size === 0 && depth === 0) {
+            size = end - pos; // התיבה האחרונה נמשכת עד סוף הקובץ
+        }
+        const inner = size >= header && pos + size <= end;
+        const type = inner ? boxType(bytes, pos + 4) : '';
+        const children = MP4_CONTAINERS.has(type) && depth < 4
+            ? mp4LocationBoxes(bytes, pos + header, pos + size, depth + 1)
+            : [];
+        if (!inner || !children) {
+            if (depth > 0) return null;
+            break;
+        }
+        if (type === MP4_LOCATION) found.push({ at: pos, end: pos + size, header });
+        found.push(...children);
+        pos += size;
+    }
+    return depth > 0 || pos > start ? found : null;
+}
+
+const FTYP = [0x66, 0x74, 0x79, 0x70]; // "ftyp"
+
+// הסרטון הראשון שאחרי סוף התמונה (מתחיל בתיבת ftyp). מחזיר כמה תיבות מיקום נוקו.
+function removeTrailerVideoLocation(bytes, imageEnd) {
+    for (let at = bytes.indexOf(FTYP[0], imageEnd + 4); at !== -1 && at + 4 <= bytes.length; at = bytes.indexOf(FTYP[0], at + 1)) {
+        if (bytes[at + 1] !== FTYP[1] || bytes[at + 2] !== FTYP[2] || bytes[at + 3] !== FTYP[3]) continue;
+        const boxes = mp4LocationBoxes(bytes, at - 4, bytes.length);
+        if (!boxes) continue;
+        for (const box of boxes) {
+            bytes.set(MP4_FREE, box.at + 4);
+            bytes.fill(0, box.at + box.header, box.end);
+        }
+        return boxes.length;
+    }
+    return 0;
+}
+
 // --- הניקוי ---
 
 // ניקוי המיקום במקום, על המערך שהתקבל. depth מגביל את הירידה לתמונות משניות.
 function stripLocationInPlace(bytes, depth = 0) {
     const parsed = readJpegSegments(bytes);
-    if (!parsed) return { ok: false, exifGps: false, xmpGps: false, secondary: 0 };
-    const result = { ok: true, exifGps: false, xmpGps: false, secondary: 0 };
+    if (!parsed) return { ok: false, exifGps: false, xmpGps: false, secondary: 0, video: 0 };
+    const result = { ok: true, exifGps: false, xmpGps: false, secondary: 0, video: 0 };
     for (const segment of parsed.segments) {
         const kind = segmentKind(bytes, segment);
         if (kind === 'exif' && removeExifGps(bytes, segment)) result.exifGps = true;
@@ -281,6 +344,10 @@ function stripLocationInPlace(bytes, depth = 0) {
                 if (inner.exifGps || inner.xmpGps) result.secondary += 1;
             }
         }
+    }
+    if (depth === 0) {
+        const imageEnd = findJpegEnd(bytes, parsed.scanStart);
+        if (imageEnd > 0 && imageEnd < bytes.length) result.video = removeTrailerVideoLocation(bytes, imageEnd);
     }
     return result;
 }
@@ -364,7 +431,7 @@ function stripAllMetadata(bytes) {
 export function stripJpegMetadata(input, options = {}) {
     const mode = options.mode === 'all' ? 'all' : 'gps';
     const bytes = toBytes(input);
-    const unchanged = reason => ({ bytes, changed: false, mode, reason, removed: { exifGps: false, xmpGps: false, secondary: 0 } });
+    const unchanged = reason => ({ bytes, changed: false, mode, reason, removed: { exifGps: false, xmpGps: false, secondary: 0, video: 0 } });
     if (!isJpegBytes(bytes)) return unchanged('not_jpeg');
     try {
         if (mode === 'all') {
@@ -376,14 +443,14 @@ export function stripJpegMetadata(input, options = {}) {
                 bytes: out,
                 changed: out.length !== bytes.length || out.some((value, index) => value !== bytes[index]),
                 mode,
-                removed: { exifGps: before.hasGpsIfd, xmpGps: before.hasXmpGps, secondary: 0 }
+                removed: { exifGps: before.hasGpsIfd, xmpGps: before.hasXmpGps, secondary: 0, video: 0 }
             };
         }
         const copy = bytes.slice();
         const result = stripLocationInPlace(copy);
         if (!result.ok) return unchanged('malformed');
-        const removed = { exifGps: result.exifGps, xmpGps: result.xmpGps, secondary: result.secondary };
-        const changed = removed.exifGps || removed.xmpGps || removed.secondary > 0;
+        const removed = { exifGps: result.exifGps, xmpGps: result.xmpGps, secondary: result.secondary, video: result.video };
+        const changed = removed.exifGps || removed.xmpGps || removed.secondary > 0 || removed.video > 0;
         return changed ? { bytes: copy, changed, mode, removed } : unchanged('no_location');
     } catch {
         return unchanged('error');

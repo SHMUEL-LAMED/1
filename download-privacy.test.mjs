@@ -11,7 +11,7 @@ import {
 } from "./download-privacy.js";
 import {
     baseJpeg, jpegWithGps, jpegWithSegments, exifSegment, xmpSegment, iccSegment, commentSegment,
-    segment, jpegWithMpfSecondary, containsBytes, gpsRationalBytes, scanData
+    segment, jpegWithMpfSecondary, jpegWithMotionVideo, FAKE_VIDEO_LOCATION, containsBytes, gpsRationalBytes, scanData
 } from "./e2e/jpeg-fixtures.mjs";
 
 const sameBytes = (a, b) => assert.ok(Buffer.from(a).equals(Buffer.from(b)), "הבתים שונים");
@@ -24,7 +24,7 @@ test("JPEG עם GPS ב-EXIF (big-endian ו-little-endian): המיקום יוצא
 
         const result = stripJpegMetadata(source);
         assert.equal(result.changed, true);
-        assert.deepEqual(result.removed, { exifGps: true, xmpGps: false, secondary: 0 });
+        assert.deepEqual(result.removed, { exifGps: true, xmpGps: false, secondary: 0, video: 0 });
         const after = inspectJpegMetadata(result.bytes);
         assert.equal(after.isJpeg, true);
         assert.equal(after.hasGpsIfd, false);
@@ -47,7 +47,7 @@ test("GPS ב-XMP (מאפיין ואלמנט מקונן) מוחלף ברווחי�
     const source = jpegWithGps();
     assert.equal(inspectJpegMetadata(source).hasXmpGps, true);
     const result = stripJpegMetadata(source);
-    assert.deepEqual(result.removed, { exifGps: true, xmpGps: true, secondary: 0 });
+    assert.deepEqual(result.removed, { exifGps: true, xmpGps: true, secondary: 0, video: 0 });
     const after = inspectJpegMetadata(result.bytes);
     assert.equal(after.hasXmp, true);
     assert.equal(after.hasXmpGps, false);
@@ -71,11 +71,31 @@ test("תמונה משנית ב-MPF (מפת עומק) מנוקה גם היא, ו�
     const { bytes, primaryLength } = jpegWithMpfSecondary();
     assert.equal(inspectJpegMetadata(bytes.subarray(primaryLength)).hasGpsIfd, true);
     const result = stripJpegMetadata(bytes);
-    assert.deepEqual(result.removed, { exifGps: true, xmpGps: false, secondary: 1 });
+    assert.deepEqual(result.removed, { exifGps: true, xmpGps: false, secondary: 1, video: 0 });
     assert.equal(result.bytes.length, bytes.length);
     const secondary = result.bytes.subarray(primaryLength);
     assert.equal(isJpegBytes(secondary), true, "התמונה המשנית עדיין במקומה");
     assert.equal(inspectJpegMetadata(secondary).hasGpsIfd, false);
+});
+
+test("Motion Photo: המיקום שבסרטון המצורף (©xyz) יוצא, והסרטון נשאר במקומו ובאורכו", () => {
+    const { bytes, primaryLength, videoLength } = jpegWithMotionVideo();
+    assert.ok(containsBytes(bytes, Buffer.from(FAKE_VIDEO_LOCATION, "latin1")));
+    const result = stripJpegMetadata(bytes);
+    assert.deepEqual(result.removed, { exifGps: true, xmpGps: false, secondary: 0, video: 1 });
+    assert.equal(result.bytes.length, bytes.length);
+    assert.ok(!containsBytes(result.bytes, Buffer.from(FAKE_VIDEO_LOCATION, "latin1")));
+    assert.ok(!containsBytes(result.bytes, Buffer.from("©xyz", "latin1")));
+    // הסרטון מתחיל באותו מקום, התיבות שלו באותם גדלים, ונתוני היצרן שאחריו לא נגעו.
+    const video = Buffer.from(result.bytes.subarray(primaryLength, primaryLength + videoLength));
+    assert.equal(video.toString("latin1", 4, 8), "ftyp");
+    assert.ok(video.includes(Buffer.from("free", "latin1")));
+    sameBytes(result.bytes.subarray(primaryLength + videoLength), bytes.subarray(primaryLength + videoLength));
+    // סרטון בלי מיקום, או נתונים שרק נראים כמו ftyp — לא נוגעים בהם.
+    const plain = jpegWithSegments([], new Uint8Array([...baseJpeg(), 0, 0, 0, 3, 0x66, 0x74, 0x79, 0x70, 1, 2]));
+    assert.equal(stripJpegMetadata(plain).reason, "no_location");
+    // מצב 'all' חותך את הסרטון כולו.
+    assert.ok(!containsBytes(stripJpegMetadata(bytes, { mode: "all" }).bytes, Buffer.from("ftyp", "latin1")));
 });
 
 test("קבצים פגומים, חתוכים או שאינם JPEG — לעולם לא נזרק, והקובץ חוזר כמות שהוא", () => {
