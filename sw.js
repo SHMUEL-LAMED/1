@@ -33,6 +33,8 @@ const APP_SHELL = [
   "./zip-writer.js",
   "./media-variants.js",
   "./video-hover-preview.js",
+  "./new-since.js",
+  "./folder-preview.js",
   "./capture-date.js",
   "./hebrew-date.js",
   "./scene-tags.js",

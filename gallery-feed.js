@@ -17,6 +17,7 @@
 //   state.folderCounts / state.imagesTotal — מוני התיקיות מהשרת
 //   state.latestImages          — התמונות החדשות ביותר בכל הארכיון
 //   fetchGalleryImageById(id)   — פריט אחד לפי מזהה, לקישור ישיר לפריט
+//   getAllLoadedImages()        — כל מה שנטען בביקור, מכל התיקיות
 import { collection, query, where, orderBy, limit, getDocsPage, getDocsByIds, getCounts } from './cloudflare-client.js';
 import { onSnapshot, reportFirestoreError } from './session-auth.js';
 
@@ -330,6 +331,11 @@ function getLoadedFolderImages(folderId) {
     return (window.state?.images || []).filter(item => itemBelongsToFolder(item, id));
 }
 
+// כל מה שנטען בביקור מכל התיקיות, בלי לפנות לרשת — לתגי "חדש" על התיקיות.
+function getAllLoadedImages() {
+    return [...feedCache.values()].flatMap(entry => entry.items);
+}
+
 function isFolderFullyLoaded(folderId) {
     const entry = feedCache.get(safeId(folderId));
     return Boolean(entry && !entry.hasMore);
@@ -371,6 +377,7 @@ window.refreshGalleryFeed = refreshGalleryFeed;
 window.noteGalleryImageUpserted = noteImageUpserted;
 window.noteGalleryImageRemoved = noteImageRemoved;
 window.getLoadedFolderImages = getLoadedFolderImages;
+window.getAllLoadedImages = getAllLoadedImages;
 window.isFolderFullyLoaded = isFolderFullyLoaded;
 window.prefetchFolderImages = prefetchFolderImages;
 window.fetchGalleryImageById = fetchImageById;

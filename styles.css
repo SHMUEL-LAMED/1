@@ -1678,6 +1678,47 @@ body textarea { resize: vertical; min-height: 84px; }
 .collection-card.is-active .collection-card-icon { color: var(--ink-on-accent); border-color: transparent; background: var(--gold-foil); box-shadow: var(--shadow-gold); }
 
 .collection-card-content { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+/* תג "חדש" — נוסף פריט מאז הביקור הקודם (new-since.js). יושב על השפה
+   העליונה של הכרטיס מעל ריבוע הסמל, כמו תווית "נבחר" בצד השני, כדי שלא
+   יקצר את שם התיקייה ברשימה הצרה. הוא בתוך הכפתור, ולכן נקרא עם שמו. */
+.new-since-badge {
+    position: absolute;
+    top: -8px;
+    inset-inline-start: 10px;
+    z-index: 1;
+    padding: 0 7px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--gold-line);
+    background: var(--panel);
+    color: var(--gold);
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1.6;
+    pointer-events: none;
+}
+
+/* התצוגה המקדימה של תיקייה (folder-preview.js): התמונות האחרונות שבה
+   מתחלפות בעמעום בתוך ריבוע הסמל. מי שביקש פחות תנועה רואה אחת קבועה. */
+.collection-card-icon { position: relative; }
+.folder-preview {
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    overflow: hidden;
+    background: var(--panel-3);
+}
+.folder-preview img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity .45s var(--ease);
+}
+.folder-preview img.is-current { opacity: 1; }
+.collection-card.is-previewing .collection-card-icon { transform: none; box-shadow: var(--shadow-1); }
 .collection-card-title {
     font-size: 13px;
     font-weight: 700;
@@ -2113,6 +2154,22 @@ body textarea { resize: vertical; min-height: 84px; }
 }
 .gallery-card:hover .gallery-view,
 .gallery-media:focus-visible .gallery-view { opacity: 1; transform: none; }
+
+/* תג "חדש" על תמונת הכרטיס, באותה פינה כמו תג הסרטון — ומתחתיו כשיש כזה. */
+.gallery-new-badge {
+    position: absolute;
+    top: 12px;
+    inset-inline-start: 12px;
+    z-index: 2;
+    padding: 3px 10px;
+    border-radius: var(--r-full);
+    background: var(--gold-foil);
+    box-shadow: var(--shadow-gold);
+    color: var(--ink-on-accent);
+    font-size: 10px;
+    font-weight: 800;
+}
+.gallery-badge ~ .gallery-new-badge { top: 44px; }
 
 /* תג "סרטון" וכפתור ההפעלה שעל תמונת הכרטיס. */
 .gallery-badge {

@@ -9,6 +9,9 @@ import { createStableShuffle, pickRandomItem } from './gallery-random.js';
 import { installVideoHoverPreview } from './video-hover-preview.js';
 // פריסת "פסיפס": היחס של כל כרטיס, מהרשומה או מהתמונה שנטענה.
 import { mediaAspectRatio, aspectRatioFrom, ratioNeedsUpdate } from './gallery-layout.js';
+// "חדש מאז הביקור הקודם" (לכל משתמש), והתמונות האחרונות של תיקייה בריחוף.
+import { beginVisit, touchVisit, isNewSince, newSinceSummary, newSinceLabel, pickFolderPreviewFrames } from './new-since.js';
+import { installFolderHoverPreview } from './folder-preview.js';
 // תאריך הצילום (takenAt) והתאריך העברי שלו: מיון, תצוגה וסינון.
 import { compareCaptureDesc, compareCaptureAsc, captureDateKey, hasCaptureDate } from './capture-date.js';
 import { formatHebrewDate, formatHebrewMonthYear, formatHebrewYear, hebrewDateFromDateKey, hebrewMonthName, HEBREW_MONTH_ORDER } from './hebrew-date.js';
@@ -36,14 +39,71 @@ let currentFilteredImages = [];
 // "חדש מאז הביקור הקודם" נבדק מול העמוד החדש ביותר של הארכיון
 // (state.latestImages, שאילתת limit קטנה), לא מול הרשימה כולה — היא אינה
 // נטענת עוד בדף הגלריה.
+//
+// נקודת הייחוס היא הביקור הקודם של המשתמש המחובר (new-since.js): היא נקבעת
+// פעם אחת לכל משתמש בטעינת הדף ואינה זזה עד הטעינה הבאה, ולכן תגי "חדש" על
+// הכרטיסים ועל התיקיות אינם נעלמים באמצע הביקור. בביקור הראשון אין נקודה,
+// והבאנר חוזר להתנהגות הקודמת ("עדכונים מהשבוע האחרון").
+const visitBaselines = new Map();
+const LAST_SEEN_UPDATE_KEY = 'yeshiva_last_seen_update';
+
+function newSinceBaseline() {
+    const uid = window.state.currentUser?.uid;
+    if (!uid) return 0;
+    if (!visitBaselines.has(uid)) visitBaselines.set(uid, beginVisit({ userId: uid }));
+    return visitBaselines.get(uid);
+}
+
+// הדף נסתר או נסגר: הביקור הבא יימדד מהרגע הזה ולא מתחילת הביקור.
+function noteVisitSeen() {
+    const uid = window.state.currentUser?.uid;
+    if (uid && visitBaselines.has(uid)) touchVisit({ userId: uid });
+}
+
+// כל מה שכבר נטען בביקור, בלי לפנות לרשת: החדשות ביותר בארכיון, התיקייה
+// הפעילה וכל תיקייה שנטענה (gallery-feed.js).
+function loadedGalleryLists() {
+    return [window.state.latestImages || [], window.state.images || [], window.getAllLoadedImages?.() || []];
+}
+
+// לפני שנטען דבר (משתמש שעוד לא אושר, או הגלריה עוד בטעינה) הביקור אינו
+// מתחיל, כדי שנקודת הייחוס תיקבע רק כשיש באמת מה לראות.
+function galleryNewSinceSummary() {
+    const lists = loadedGalleryLists();
+    const since = lists.some(list => list.length) ? newSinceBaseline() : 0;
+    return newSinceSummary(since ? lists : [], since, { latest: window.state.latestImages });
+}
+
+function readLastSeenUpdate() {
+    try {
+        return parseInt(localStorage.getItem(LAST_SEEN_UPDATE_KEY) || '0', 10) || 0;
+    } catch (error) {
+        return 0;
+    }
+}
+
+function markUpdatesSeen() {
+    try { localStorage.setItem(LAST_SEEN_UPDATE_KEY, Date.now().toString()); } catch (error) { /* מצב פרטי: אין שמירה */ }
+}
+
 window.checkNewUpdates = function() {
     const source = window.state.latestImages?.length ? window.state.latestImages : window.state.images;
     if (!source || source.length === 0) return;
-    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
-    const lastSeen = parseInt(localStorage.getItem('yeshiva_last_seen_update') || '0');
-    const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
+    const lastSeen = readLastSeenUpdate();
     const banner = document.getElementById('newUpdatesBanner');
-    if (banner && newest > lastSeen && (Date.now() - newest < ONE_WEEK)) {
+    if (!banner) return;
+    if (newSinceBaseline()) {
+        const summary = galleryNewSinceSummary();
+        if (summary.count > 0 && summary.newest > lastSeen) {
+            const text = document.getElementById('newUpdatesBannerText');
+            if (text) text.textContent = newSinceLabel(summary);
+            banner.classList.remove('hidden');
+        }
+        return;
+    }
+    const newest = source.reduce((max, img) => Math.max(max, img.createdAt || 0), 0);
+    const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
+    if (newest > lastSeen && (Date.now() - newest < ONE_WEEK)) {
         banner.classList.remove('hidden');
     }
 }
@@ -51,9 +111,11 @@ window.checkNewUpdates = function() {
 // כמה מהתמונות החדשות ביותר נמשכות ל"עדכונים אחרונים".
 const RECENT_UPDATES_LIMIT = 200;
 async function showNewUpdates() {
-    localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
+    markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
+    // עם ביקור קודם — מה שנוסף מאז; אחרת — השבוע האחרון.
+    const since = newSinceBaseline();
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     // התמונות מהשבוע האחרון מגיעות משאילתה ממוינת מהחדש לישן עם limit,
     // ולא מהרשימה המלאה. אם השאילתה נכשלת נשארים עם מה שכבר בזיכרון.
@@ -70,7 +132,9 @@ async function showNewUpdates() {
     } catch (error) {
         console.warn('Recent updates query failed:', error);
     }
-    window.state.tempSearchResults = recent.filter(img => (img.createdAt || 0) >= weekAgo);
+    window.state.tempSearchResults = since
+        ? recent.filter(img => isNewSince(img, since))
+        : recent.filter(img => (img.createdAt || 0) >= weekAgo);
 
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) {
@@ -87,7 +151,7 @@ async function showNewUpdates() {
         title.textContent = "עדכונים אחרונים";
         const desc = document.createElement('p');
         desc.className = "text-xs text-amber-400";
-        desc.textContent = "תמונות מהשבוע האחרון";
+        desc.textContent = since ? "מה שנוסף מאז הביקור הקודם שלך" : "תמונות מהשבוע האחרון";
         textDiv.appendChild(title);
         textDiv.appendChild(desc);
         leftDiv.appendChild(textDiv);
@@ -107,7 +171,7 @@ async function showNewUpdates() {
 }
 
 function dismissNewUpdates() {
-    localStorage.setItem('yeshiva_last_seen_update', Date.now().toString());
+    markUpdatesSeen();
     const banner = document.getElementById('newUpdatesBanner');
     if(banner) banner.classList.add('hidden');
 }
@@ -1038,6 +1102,33 @@ function folderEventDateLabel(folder) {
     return hebrew || key;
 }
 
+// --- התצוגה המקדימה של תיקייה (folder-preview.js) ---
+// התמונות מגיעות קודם ממה שכבר נטען בביקור. רק לתיקייה שעוד לא נטען ממנה
+// דבר מתבקש העמוד הראשון שלה — אותו עמוד שלחיצה עליה הייתה מביאה, והוא
+// נשמר במטמון של gallery-feed.js, כך שהלחיצה אחר כך אינה פונה שוב לרשת.
+const folderPreviewLoads = new Map();
+
+function folderPreviewFrames(folderId) {
+    const lists = [window.state.latestImages || [], window.getLoadedFolderImages?.(folderId) || []];
+    return pickFolderPreviewFrames(lists, folderId, { sanitize: window.safeImageUrl });
+}
+
+function loadFolderPreviewFrames(folderId) {
+    const id = window.safeRecordId(folderId);
+    // "כל הארכיון" והתיקייה הפעילה כבר בזיכרון; תיקייה ריקה — אין מה לבקש.
+    if (!id || id === 'all' || id === window.safeRecordId(window.state.activeFolderId)) return [];
+    const counts = window.state.folderCounts;
+    if (counts && !(Number(counts[id]) > 0)) return [];
+    if (typeof window.prefetchFolderImages !== 'function') return [];
+    if (!folderPreviewLoads.has(id)) {
+        const request = Promise.resolve(window.prefetchFolderImages(id))
+            .then(items => pickFolderPreviewFrames([items], id, { sanitize: window.safeImageUrl }))
+            .finally(() => folderPreviewLoads.delete(id));
+        folderPreviewLoads.set(id, request);
+    }
+    return folderPreviewLoads.get(id);
+}
+
 window._doRenderFolders = function() {
     if (typeof window.updateAdminOverview === 'function') window.updateAdminOverview();
     const folderList = document.getElementById('folderList'); if (!folderList) return;
@@ -1069,6 +1160,7 @@ window._doRenderFolders = function() {
     if (folderMediaCount) folderMediaCount.textContent = String(mediaCount);
     renderArchiveEntryFacts(eventCount, mediaCount);
     renderHeroMosaic();
+    const newSince = galleryNewSinceSummary();
 
     folders.forEach(folder => {
         const folderId = window.safeRecordId(folder.id);
@@ -1091,8 +1183,11 @@ window._doRenderFolders = function() {
             ? 'כל התמונות והסרטונים במקום אחד'
             : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folderEventDateLabel(folder)) : 'אוסף מהגלריה'));
         const folderIcon = folderId === 'all' ? 'layout-grid' : window.safeIconName(folder.icon);
+        // "חדש": בתיקייה יש פריט שנוסף מאז הביקור הקודם; "כל הארכיון" — בכל תיקייה שהיא.
+        const isNewFolder = folderId === 'all' ? newSince.count > 0 : newSince.folderIds.has(folderId);
+        const newBadge = isNewFolder ? '<span class="new-since-badge" title="נוספו פריטים מאז הביקור הקודם שלך">חדש</span>' : '';
         folderParts.push(`
-            <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}">
+            <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}" data-folder-id="${folderId}">
                 <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
                     <span class="collection-card-icon" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i></span>
                     <span class="collection-card-content">
@@ -1100,6 +1195,7 @@ window._doRenderFolders = function() {
                         <span class="collection-card-meta">${folderMeta}</span>
                     </span>
                     <span class="folder-count collection-card-count"><strong>${count}</strong><small>פריטים</small></span>
+                    ${newBadge}
                 </button>
                 <div class="collection-card-actions">${eventBtn}${delBtn}</div>
                 <span class="collection-card-active-label" aria-hidden="true"><i data-lucide="check" class="w-3 h-3"></i> נבחר</span>
@@ -1107,6 +1203,8 @@ window._doRenderFolders = function() {
     });
     folderList.innerHTML = folderParts.join('');
     window.scheduleIconRefresh(folderList);
+    // התצוגה המקדימה של התיקייה שתחת העכבר עוברת לכרטיס החדש שלה.
+    folderList.__folderHoverPreview?.refresh();
 }
 
 // הגלריה מרונדרת במנות. המנה הראשונה נבנית מיד, וכל מנה נוספת מצטרפת רק
@@ -1364,6 +1462,9 @@ function buildGalleryCard(img, isEditBlocked) {
     const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
     const cardSource = pickCardSource(img, window.safeImageUrl);
     const durationLabel = formatMediaDuration(img.duration);
+    // נוסף מאז הביקור הקודם. נקודת הייחוס קבועה לאורך הביקור, ולכן התג חלק
+    // מהמרקאפ שמושווה בלי לגרום לבנייה מחדש של כרטיסים.
+    const isNew = isNewSince(img, newSinceBaseline());
     const mediaHtml = isVideo
         ? `<video src="${window.escapeHtml(imageUrl)}" ${videoPoster ? `poster="${window.escapeHtml(videoPoster)}"` : ''} muted playsinline preload="none" class="w-full h-full object-cover gallery-card-img bg-black"></video>
            <span class="gallery-play"><span><i data-lucide="play" class="w-6 h-6 fill-current"></i></span></span>
@@ -1374,8 +1475,9 @@ function buildGalleryCard(img, isEditBlocked) {
     const mediaRatio = mediaAspectRatio(img);
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}" onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${title}${isNew ? ' (חדש)' : ''}">
                 ${mediaHtml}
+                ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
@@ -3396,6 +3498,12 @@ export function initGallery() {
     window.renderImages?.();
     const grid = document.getElementById('photosGrid');
     if (grid) installVideoHoverPreview(grid);
+    // תיקייה בריחוף או במיקוד מהמקלדת מציגה את התמונות האחרונות שבה.
+    const folderList = document.getElementById('folderList');
+    if (folderList) installFolderHoverPreview(folderList, { framesFor: folderPreviewFrames, loadFrames: loadFolderPreviewFrames });
+    // סוף הביקור נרשם כשהדף נסתר או נסגר; רענון מיד אחריו הוא המשך של אותו ביקור.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') noteVisitSeen(); });
+    window.addEventListener('pagehide', noteVisitSeen);
     // שבבי סוג הרגע, תגיות התצוגה המלאה וכפתור העריכה — מאזין אחד לכל אחד.
     installSceneFilterChips(document.getElementById('gallerySceneFilter'), tagId => window.setGallerySceneTag(tagId));
     installLightboxDescription({ onTagSelect: filterBySceneTagFromLightbox, onEdit: editCurrentLightboxDescription });
