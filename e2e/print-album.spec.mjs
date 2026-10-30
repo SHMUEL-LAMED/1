@@ -132,6 +132,30 @@ test('אלבום של תיקייה גדולה כולל גם פריטים שמע�
     await expect(page.locator('#printAlbum .print-album-item-title').last()).toHaveText('תמונה 130');
 });
 
+test('אלבום של התיקייה הפעילה בגלריה נטען דרך loadMoreImages, והגלריה מקבלת את התיקייה כולה בלי כפילויות', async ({ page, worker }) => {
+    const records = Array.from({ length: 130 }, (_, index) => imageRecord(index + 1, { folderId: '2' }));
+    worker.seedFolders(EVENT_FOLDERS).seedImages(records);
+    await seedSession(page, { worker });
+    await stubPrint(page);
+    await page.goto('/');
+    await page.locator('#folderList .collection-card-main', { hasText: 'טיולים וסיורים' }).click();
+    await expect(page.locator('#photosGrid .gallery-card').first()).toBeVisible();
+    expect(await page.evaluate(() => window.state.imagesHasMore)).toBe(true);
+
+    await openEventPage(page, 'טיולים וסיורים');
+    await page.locator('#eventPageModal').getByRole('button', { name: 'אלבום להדפסה' }).click();
+    await page.getByRole('dialog', { name: 'אלבום להדפסה' }).getByRole('button', { name: 'הכן והדפס' }).click();
+
+    await expect.poll(async () => (await printCalls(page)).length, { timeout: 20_000 }).toBe(1);
+    await expect(page.locator('#printAlbum .print-album-count')).toHaveText('130 תמונות');
+    // התיקייה נטענה כולה אל הגלריה עצמה, בלי כפילויות.
+    expect(await page.evaluate(() => ({
+        total: window.state.images.length,
+        unique: new Set(window.state.images.map(item => item.id)).size,
+        hasMore: window.state.imagesHasMore
+    }))).toEqual({ total: 130, unique: 130, hasMore: false });
+});
+
 test('אלבום PDF מהבחירה המרובה: תמונה בעמוד, ותמונה שלא נטענה יוצאת מהאלבום', async ({ page, worker }) => {
     worker.seedFolders().seedImages([imageRecord(1), imageRecord(2), imageRecord(3), imageRecord(4, { folderId: '3' })]);
     worker.missingMedia.add(`approved/${DEFAULT_USER.uid}/img_e2e_2.jpg`);

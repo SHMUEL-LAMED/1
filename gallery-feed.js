@@ -381,7 +381,9 @@ async function loadAllFolderImages(folderId, { limit: maxItems = Infinity, shoul
             entry.nextCursor = page.nextCursor;
             entry.hasMore = page.hasMore;
         }
-        entry = feedCache.get(id);
+        // פריט חדש בתיקייה לא פעילה מוחק אותה מהמטמון (refreshLatestImages)
+        // באמצע הטעינה; האלבום ממשיך עם מה שכבר נמשך, ולא חוזר ריק.
+        entry = feedCache.get(id) || entry;
     }
     return { items: entry ? [...entry.items] : [], hasMore: Boolean(entry?.hasMore) };
 }
