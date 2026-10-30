@@ -363,7 +363,10 @@
             <!-- ============ מסך: הורדות ופרטיות ============ -->
             <section id="view-downloads" class="admin-view" data-view="downloads" aria-label="הורדות ופרטיות">
                 <div class="admin-panel hidden super-admin-only">
-                    <div class="admin-panel-head"><h3><i data-lucide="shield-check"></i> הורדות ופרטיות</h3></div>
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="shield-check"></i> הורדות ופרטיות</h3>
+                        <button type="button" class="admin-help-link" onclick="openAdminGuide('downloads')" data-guide-target="downloads" aria-label="הסבר במדריך למנהלים: הורדות ופרטיות" title="הסבר במדריך למנהלים"><span aria-hidden="true">?</span></button>
+                    </div>
                     <form id="downloadPrivacyForm" class="admin-panel-body" onsubmit="event.preventDefault(); window.saveDownloadPrivacySettings()">
                         <p>בכל הורדה מהגלריה — קובץ בודד או ZIP — המיקום (GPS) יוצא מתמונות JPEG בדפדפן של הצופה, בלי לקודד את התמונה מחדש. PNG, WebP, HEIC וסרטונים יורדים כפי שהם.</p>
 

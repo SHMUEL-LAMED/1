@@ -1,8 +1,10 @@
 // מסך "מדריך למנהלים" בלוח הניהול: פתיחה מהתפריט ומהחיפוש בתפריט, מעבר
 // בתוכן העניינים, קישור "?" ממסך אחר שפותח את הסעיף שלו, כתובת ישירה
-// #guide/<סעיף>, חיפוש בתוך המדריך, והפניות למסכים לפי הדרגה.
+// #guide/<סעיף>, חיפוש בתוך המדריך, והפניות למסכים לפי הדרגה — וה-"?"
+// שליד "מצב מהיר" ובמסך "הורדות ופרטיות", שמובילים לסעיפים שמסבירים אותם.
 import { test, expect, seedSession } from './fixtures.mjs';
 import { GUIDE_SECTIONS } from '../admin-guide.js';
+import { SWIPE_UNDO_MS } from '../pending-swipe-model.js';
 
 const section = (page, id) => page.locator(`#guide-section-${id}`);
 const tocLink = (page, id) => page.locator(`[data-guide-link="${id}"]`);
@@ -97,11 +99,19 @@ test('חיפוש בתוך המדריך מסנן סעיפים ומכריז על �
     const search = page.locator('#adminGuideSearch');
     await expect(search).toBeVisible();
 
+    // ZIP מוסבר בשני מקומות: ההורדה עצמה ב"החדש בגלריה", ומה שקורה לקובץ
+    // בדרך ב"הורדות ופרטיות".
     await search.fill('ZIP');
-    await expect(page.locator('#adminGuideStatus')).toHaveText('נמצא סעיף אחד.');
-    await expect(page.locator('.admin-guide-section:visible')).toHaveCount(1);
+    await expect(page.locator('#adminGuideStatus')).toHaveText('נמצאו 2 סעיפים.');
+    await expect(page.locator('.admin-guide-section:visible')).toHaveCount(2);
     await expect(section(page, 'features')).toHaveAttribute('open', '');
     await expect(section(page, 'features')).toContainText('קובץ ZIP אחד');
+    await expect(section(page, 'downloads')).toBeVisible();
+    await expect(page.locator('[data-guide-toc-item]:visible')).toHaveCount(2);
+
+    await search.fill('אלבום PDF');
+    await expect(page.locator('#adminGuideStatus')).toHaveText('נמצא סעיף אחד.');
+    await expect(page.locator('.admin-guide-section:visible')).toHaveCount(1);
     await expect(page.locator('[data-guide-toc-item]:visible')).toHaveCount(1);
 
     await search.fill('מילה שאין בשום סעיף');
@@ -118,6 +128,66 @@ test('חיפוש בתוך המדריך מסנן סעיפים ומכריז על �
     await expect(page.locator('.admin-guide-section[open]')).toHaveCount(GUIDE_SECTIONS.length);
     await page.getByRole('button', { name: 'סגירת כל הסעיפים' }).click();
     await expect(page.locator('.admin-guide-section[open]')).toHaveCount(0);
+});
+
+// שני מלבנים חופפים כשהם נחתכים ברוחב ובגובה.
+function overlaps(a, b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+test('ה-"?" שליד "מצב מהיר" פותח סעיף שמסביר את המצב המהיר', async ({ page, worker }) => {
+    await openAdmin(page, worker);
+    await page.locator('#adminNav [data-view-target="pending"]').click();
+    await expect(page.locator('#view-pending')).toBeVisible();
+
+    const fast = page.locator('#pendingSwipeOpenBtn');
+    const help = page.locator('#view-pending [data-guide-target="uploads"]');
+    await expect(fast).toBeVisible();
+    await expect(help).toBeVisible();
+    // שניהם באותה שורת כותרת, וה-"?" אינו מכסה את הכפתור.
+    const [fastBox, helpBox] = [await fast.boundingBox(), await help.boundingBox()];
+    expect(overlaps(fastBox, helpBox)).toBe(false);
+    expect(Math.abs((fastBox.y + fastBox.height / 2) - (helpBox.y + helpBox.height / 2))).toBeLessThan(fastBox.height);
+
+    await help.click();
+    const uploads = section(page, 'uploads');
+    await expect(uploads).toHaveAttribute('open', '');
+    await expect(uploads).toBeInViewport();
+    await expect(page).toHaveURL(/#guide\/uploads$/);
+    const content = uploads.locator('.admin-guide-content');
+    await expect(content.locator('h4.admin-guide-subtitle', { hasText: 'מצב מהיר' })).toBeVisible();
+    await expect(content).toContainText('החלקה ימינה');
+    await expect(content).toContainText('→ / A / Enter');
+    await expect(content).toContainText('Z או Ctrl+Z');
+    await expect(content).toContainText(`${SWIPE_UNDO_MS / 1000} שניות`);
+    await expect(content).toContainText('לסל המחזור');
+});
+
+test('"הורדות ופרטיות": ה-"?" של מנהל־העל פותח את הסעיף, ומשם חוזרים למסך', async ({ page, worker }) => {
+    await openAdmin(page, worker, { role: 'super_admin' });
+    await page.locator('#adminNav [data-view-target="downloads"]').click();
+    await expect(page.locator('#view-downloads')).toBeVisible();
+
+    const help = page.locator('#view-downloads [data-guide-target="downloads"]');
+    await expect(help).toBeVisible();
+    await expect(help).toHaveAttribute('aria-label', 'הסבר במדריך למנהלים: הורדות ופרטיות');
+    // ה-"?" בשורת הכותרת, ליד הכותרת ולא עליה.
+    const title = page.locator('#view-downloads .admin-panel-head h3');
+    expect(overlaps(await title.boundingBox(), await help.boundingBox())).toBe(false);
+
+    await help.click();
+    const downloads = section(page, 'downloads');
+    await expect(page.locator('#view-guide')).toBeVisible();
+    await expect(downloads).toHaveAttribute('open', '');
+    await expect(downloads).toBeInViewport();
+    await expect(page).toHaveURL(/#guide\/downloads$/);
+    await expect(downloads.locator('.admin-guide-tag')).toHaveText('מנהל־על');
+    await expect(downloads).toContainText('המיקום (GPS) יוצא מתמונות JPEG תמיד');
+    await expect(downloads).toContainText('מנהלים מורידים בלי סימן מים');
+
+    await downloads.locator('[data-guide-open-view="downloads"]').click();
+    await expect(page.locator('#view-downloads')).toBeVisible();
+    await expect(page).toHaveURL(/#downloads$/);
 });
 
 test('החיפוש בתפריט הלוח מוצא את המדריך', async ({ page, worker }) => {
