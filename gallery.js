@@ -2383,10 +2383,14 @@ function openLightbox(imageId, items = null) {
     if (window.state.currentLightboxIndex === -1) return false;
     ensureLightboxInteractions();
     // ה-hash שלפני הפתיחה (#person/<id> של אלבום, למשל) חוזר בסגירה.
-    if (!isLightboxOpen()) hashBeforeLightbox = hashToRestore(window.location?.hash);
+    const wasOpen = isLightboxOpen();
+    if (!wasOpen) hashBeforeLightbox = hashToRestore(window.location?.hash);
     window.recordMediaView(imageId);
     // בפתיחה אין תמונה קודמת שכדאי להשאיר על המסך: הפריט מוצג מיד.
-    updateLightbox(true); window.openModal('lightboxModal');
+    updateLightbox(true);
+    // קישור לפריט אחר כשהתצוגה כבר פתוחה: openModal שוב היה שומר כ"מוקד
+    // הקודם" כפתור שבתוך התצוגה, והסגירה הייתה מחזירה את המוקד לחלון מוסתר.
+    if (!wasOpen) window.openModal('lightboxModal');
     return true;
 }
 
@@ -2566,9 +2570,12 @@ async function openMediaFromLink(hash = window.location.hash) {
 // התנתקות, החלפת חשבון או אובדן אישור (clearPrivateGalleryViews ב-session-auth.js):
 // פריט פרטי אינו נשאר על המסך, וקישור שכבר נפתח אינו נפתח מחדש למשתמש הבא
 // (הסגירה מנקה את ה-hash). קישור שמבקר הגיע איתו ועוד לא נפתח נשאר בכתובת,
-// כדי שייפתח אחרי הכניסה.
+// כדי שייפתח אחרי הכניסה. גם ה-hash שלפני הפתיחה אינו חוזר: #person/<id> של
+// אלבום שהמשתמש פתח היה נפתח מחדש למשתמש הבא (resetPeopleState ב-people.js
+// אינו רואה אותו, כי בזמן הזה הכתובת היא עוד #media/<id>).
 function resetMediaLinkState() {
     mediaLinkGeneration += 1;
+    hashBeforeLightbox = '';
     if (isLightboxOpen()) window.closeLightbox();
 }
 
@@ -2583,6 +2590,8 @@ async function copyTextToClipboard(text) {
     } catch (error) {
         // ננסה את הדרך הישנה.
     }
+    // הסימון בשדה הזמני לוקח את המוקד; אחרי ההעתקה הוא חוזר לכפתור "שתף".
+    const focused = document.activeElement;
     const field = document.createElement('textarea');
     field.value = text;
     field.setAttribute('readonly', '');
@@ -2598,6 +2607,7 @@ async function copyTextToClipboard(text) {
         copied = false;
     }
     field.remove();
+    focused?.focus?.({ preventScroll: true });
     return copied;
 }
 

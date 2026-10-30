@@ -128,6 +128,50 @@ test('קישור שהודבק בלשונית פתוחה נפתח, ו"חזור" �
     expect(await hashOf(page)).toBe('');
 });
 
+test('קישור לפריט אחר כשהתצוגה פתוחה מחליף את הפריט, והסגירה מחזירה את המוקד לכרטיס', async ({ page, worker }) => {
+    worker.seedGallery({ images: 3 });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    const opener = page.locator('#photosGrid .gallery-card').first().locator('.gallery-media');
+    await opener.click();
+    await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 3');
+
+    await page.evaluate(() => { window.location.hash = '#media/img_e2e_1'; });
+    await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 1');
+    await expect(page.locator('#lightboxCounter')).toHaveText('3 מתוך 3');
+
+    await page.keyboard.press('Escape');
+    await expect(lightbox(page)).toBeHidden();
+    await expect(opener).toBeFocused();
+});
+
+test('בלי Clipboard API הקישור מועתק משדה זמני, והמוקד חוזר לכפתור "שתף"', async ({ page, worker }) => {
+    worker.seedGallery({ images: 2 });
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText: async () => { throw new DOMException('denied', 'NotAllowedError'); } }
+        });
+    });
+    // אם גם ההעתקה הישנה נכשלת, הקישור מוצג בחלון לסימון ידני.
+    const prompts = [];
+    page.on('dialog', dialog => { prompts.push(dialog.defaultValue()); dialog.dismiss(); });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await page.locator('#photosGrid .gallery-card').first().locator('.gallery-media').click();
+    await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 2');
+
+    const share = page.locator('#lightboxShare');
+    await share.click();
+    const origin = new URL(page.url()).origin;
+    await expect.poll(async () => prompts.length > 0
+        || (await page.locator('#customAlertMessage').textContent())?.includes('הקישור הועתק')).toBe(true);
+    if (prompts.length) expect(prompts).toEqual([`${origin}/#media/img_e2e_2`]);
+    await expect(share).toBeFocused();
+    await expect(page.locator('textarea[aria-hidden="true"]')).toHaveCount(0);
+});
+
 test('קישור לפני הכניסה: שער הגישה מוצג, והפריט נפתח מיד אחרי ההתחברות', async ({ page, worker }) => {
     worker.seedGallery({ images: 3 });
     worker.seedUser();
@@ -174,6 +218,33 @@ test('התנתקות סוגרת פריט שנפתח מקישור ומנקה את
     await page.goto('/#media/img_e2e_1');
     await expect(page.locator('#lightboxTitle')).toHaveText('תמונה 1');
 
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(lightbox(page)).toBeHidden();
+    await expect(page.locator('#galleryAccessGate')).toBeVisible();
+    expect(await hashOf(page)).toBe('');
+});
+
+test('תצוגה מלאה מתוך אלבום של אדם: הסגירה מחזירה את #person, והתנתקות אינה משאירה אותו בכתובת', async ({ page, worker }) => {
+    worker.seedFolders();
+    worker.seedImages([1, 2, 3].map(index => imageRecord(index)));
+    worker.seedPerson({ personId: 'fp_yossi', name: 'יוסי כהן', status: 'approved', faces: [{ imageId: 'img_e2e_1' }, { imageId: 'img_e2e_3' }] });
+    await seedSession(page, { worker });
+    await page.goto('/#person/fp_yossi');
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+    const cards = page.locator('#photosGrid .gallery-card');
+    await expect(cards).toHaveCount(2);
+
+    await cards.first().locator('.gallery-media').click();
+    await expect.poll(() => hashOf(page)).toBe('#media/img_e2e_3');
+    await page.keyboard.press('Escape');
+    await expect(lightbox(page)).toBeHidden();
+    expect(await hashOf(page)).toBe('#person/fp_yossi');
+    await expect(page.locator('#peopleAlbumTitle')).toHaveText('התמונות של יוסי כהן');
+
+    // אלבום שהמשתמש עצמו פתח אינו חוזר לכתובת אחרי ההתנתקות, כדי שלא ייפתח
+    // למשתמש הבא באותה לשונית (כמו resetPeopleState ב-people.js).
+    await cards.first().locator('.gallery-media').click();
+    await expect.poll(() => hashOf(page)).toBe('#media/img_e2e_3');
     await page.evaluate(() => window.signOutGoogleAccount(true));
     await expect(lightbox(page)).toBeHidden();
     await expect(page.locator('#galleryAccessGate')).toBeVisible();
