@@ -290,9 +290,19 @@ export async function runBackgroundJobs({ apiOrigin = process.env.GALLERY_API_OR
             }
             await post('/media/taken-at', { updates: [{ imageId: record.id, ...captureFields(capture) }] });
         });
-        // POST /ai-title נותן שם, כיתוב ותגיות בקריאה אחת; נשלחת כל תמונה שחסר לה
-        // שם AI או כיתוב מהגרסה הנוכחית (כיתוב שנערך ידנית לעולם אינו נשלח שוב).
-        await runJob('titles', images.filter(record => stored(record) && needsAiDescription(record)), record => post('/ai-title', { imageId: record.id }));
+        // The existing titles job owns the persistent semantic index as well.
+        // Existing captions are reused: completed photos never go to vision again.
+        const pendingSearch = new Set();
+        if (config.enabled.titles) {
+            for (let offset = 0; offset < images.length; offset += 80) {
+                const result = await post('/ai-search/index/pending', { imageIds: images.slice(offset, offset + 80).map(record => record.id) });
+                for (const id of result.pending || []) pendingSearch.add(id);
+            }
+        }
+        await runJob('titles', images.filter(record => stored(record) && (needsAiDescription(record) || pendingSearch.has(record.id))), async record => {
+            if (needsAiDescription(record)) await post('/ai-title', { imageId: record.id });
+            await post('/ai-search/index', { imageId: record.id });
+        });
         const faceImages = images.filter(record => stored(record) && record.mediaType !== 'video');
         const pendingFaces = new Set();
         for (let offset = 0; offset < faceImages.length; offset += 200) {

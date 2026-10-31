@@ -38,6 +38,7 @@ let running = false;
 let stopped = false;
 let candidates = [];
 let aiEnabled = true;
+let searchIndexEnabled = false;
 const element = id => document.getElementById(id);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -63,11 +64,22 @@ async function refresh() {
     const records = [];
     snapshot.forEach(item => records.push({ ...item.data(), id: item.id }));
     const images = records.filter(isAiDescribable);
-    candidates = images.filter(needsAiDescription);
+    const pendingIndex = new Set();
+    if (searchIndexEnabled) {
+        for (let offset = 0; offset < images.length; offset += 80) {
+            const result = await window.r2Request('/ai-search/index/pending', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageIds: images.slice(offset, offset + 80).map(record => record.id) })
+            });
+            for (const id of result.pending || []) pendingIndex.add(id);
+        }
+    }
+    candidates = images.filter(record => needsAiDescription(record) || pendingIndex.has(record.id));
     const titled = images.filter(record => record.aiTitleVersion === 1).length;
     const described = images.filter(hasDescription).length;
     element('aiTitlesSummary').textContent =
-        `${titled} תמונות עם שם AI · ${described} עם כיתוב או תגיות · ${candidates.length} תמונות ממתינות`;
+        `${titled} תמונות עם שם AI · ${described} עם כיתוב או תגיות · ${candidates.length} תמונות ממתינות`
+        + (searchIndexEnabled ? ` · ${images.length - pendingIndex.size} מוכנות לחיפוש AI, ${pendingIndex.size} ממתינות לאינדוקס` : '');
 }
 
 // /health אומר אם מוגדר מפתח AI בשרת. Worker ישן שאינו מדווח — מניחים שכן,
@@ -75,6 +87,7 @@ async function refresh() {
 async function readAiAvailability() {
     try {
         const health = await window.r2Request('/health', { timeoutMs: 15000 });
+        searchIndexEnabled = health?.features?.includes('indexed-ai-search') === true;
         return health?.aiDescriptionsEnabled !== false;
     } catch {
         return true;
@@ -101,10 +114,15 @@ function applyResultLocally(record, result) {
 async function describeWithRetry(record) {
     for (let attempt = 0; ; attempt += 1) {
         try {
-            return await window.r2Request('/ai-title', {
+            const result = await window.r2Request('/ai-title', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ imageId: record.id })
             });
+            if (searchIndexEnabled) await window.r2Request('/ai-search/index', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageId: record.id })
+            });
+            return result;
         } catch (error) {
             const delay = classifyDescribeError(error) === 'retry' ? retryDelayMs(attempt) : null;
             if (delay === null || stopped) throw error;
@@ -179,7 +197,8 @@ export async function openAiTitles() {
     };
     if (running) return;
     try {
-        const [enabled] = await Promise.all([readAiAvailability(), refresh()]);
+        const enabled = await readAiAvailability();
+        await refresh();
         aiEnabled = enabled;
         // מצב העיבוד בענן (background-jobs-admin.js) מתעדכן כל כמה שניות; הסימון
         // הזה משאיר את הכפתור כבוי ואת ההסבר במקומם כשאין מפתח AI.

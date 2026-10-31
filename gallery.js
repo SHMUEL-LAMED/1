@@ -3841,43 +3841,6 @@ function showAiSearchResultBanner(count, query) {
     window.scheduleIconRefresh();
 }
 
-// חיפוש ה־AI מעבד קבוצה אחת בכל פעם. OpenAI מגביל את קצב הבקשות, ולכן יש
-// השהיה קצרה בין קבוצות וניסיון חוזר עם השהיה מכפילה כשמתקבל 429.
-const AI_SEARCH_BATCH_SIZE = 8;
-const AI_SEARCH_BATCH_DELAY_MS = 1200;
-// חמישה ניסיונות פורשים 2+4+8+16+32 שניות, כלומר יותר מדקה. מגבלת הקצב של
-// OpenAI מתאפסת בחלון של דקה, ולכן ארבעה ניסיונות (30 שניות) עלולים להסתיים
-// כולם בתוך אותו חלון חסום.
-const AI_SEARCH_MAX_RETRIES = 5;
-const AI_SEARCH_RETRY_BASE_MS = 2000;
-
-function aiSearchDelay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// מחזיר את תשובת ה־Worker לקבוצה אחת, עם ניסיונות חוזרים על עומס זמני בלבד.
-async function requestAiSearchBatch(query, batch, onRetryWait) {
-    let lastError;
-    for (let attempt = 0; attempt <= AI_SEARCH_MAX_RETRIES; attempt++) {
-        try {
-            return await window.r2Request('/ai-search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, images: batch })
-            });
-        } catch (error) {
-            lastError = error;
-            // מגבלת הקצב של האתר עצמו נמשכת כמה דקות, ולכן ניסיון חוזר קצר לא יועיל.
-            const retryable = error?.status === 429 && error?.code !== 'ai_rate_limit_exceeded';
-            if (!retryable || attempt === AI_SEARCH_MAX_RETRIES) break;
-            const wait = Math.round(AI_SEARCH_RETRY_BASE_MS * Math.pow(2, attempt) * (1 + Math.random() * 0.25));
-            if (typeof onRetryWait === 'function') onRetryWait(attempt + 1, wait);
-            await aiSearchDelay(wait);
-        }
-    }
-    throw lastError;
-}
-
 window.executeAiImageSearch = async function() {
     const queryInput = document.getElementById('aiImageSearchQuery');
     const status = document.getElementById('aiImageSearchStatus');
@@ -3888,106 +3851,36 @@ window.executeAiImageSearch = async function() {
         queryInput?.focus();
         return;
     }
-
     if (button?.disabled) return;
-    if (button) button.disabled = true;
-    try {
-        const folderId = window.state.activeFolderId;
-        if (status) {
-            status.classList.remove('hidden');
-            status.textContent = 'טוען את התמונות לסריקה…';
-        }
-        while (window.state.imagesHasMore && typeof window.loadMoreImages === 'function') {
-            const page = await window.loadMoreImages();
-            if (page?.error) throw page.error;
-            if (window.state.activeFolderId !== folderId) throw new Error('התיקייה השתנתה. הפעל את החיפוש שוב.');
-            if (page?.done) break;
-            if (!page?.added) throw new Error('טעינת התמונות לא הושלמה. נסה שוב.');
-        }
-
-    const candidates = (window.state.images || [])
-        .filter(image => !window.isVideoRecord(image))
-        .map(image => {
-            const id = window.safeRecordId(image.id);
-            const url = window.safeImageUrl(image.url);
-            const folder = window.state.folders.find(item => item.id === image.folderId);
-            return id && url ? {
-                id,
-                url,
-                title: String(image.title || 'תמונה').slice(0, 120),
-                folder: String(folder?.name || 'כללי').slice(0, 80),
-                date: String(image.date || '').slice(0, 20)
-            } : null;
-        })
-        .filter(Boolean);
-
-    if (!candidates.length) {
-        window.showNotification('לא נמצאו תמונות זמינות לסריקה.', false);
-        return;
-    }
-
+    const uid = window.state.currentUser?.uid;
+    const folderId = window.state.activeFolderId;
     if (button) button.disabled = true;
     if (status) {
         status.classList.remove('hidden');
-        status.textContent = `מתחיל לסרוק ${candidates.length} תמונות…`;
+        status.textContent = 'מחפש באינדקס השמור…';
     }
-
-        const matchedIds = new Set();
-        // שומרים תאימות ל־Worker החי, שמקבל כרגע עד שמונה תמונות בבקשה.
-        // לאחר פריסת גרסת ה־Worker החדשה אפשר להעלות את הקבוצה ל־20.
-        const batchSize = AI_SEARCH_BATCH_SIZE;
-        const totalBatches = Math.ceil(candidates.length / batchSize);
-        let succeededBatches = 0;
-        let failedBatches = 0;
-        let lastBatchError = null;
-
-        for (let offset = 0; offset < candidates.length; offset += batchSize) {
-            const batch = candidates.slice(offset, offset + batchSize);
-            const batchNumber = Math.floor(offset / batchSize) + 1;
-            if (status) status.textContent = `ה־AI סורק קבוצה ${batchNumber} מתוך ${totalBatches}…`;
-
-            try {
-                const result = await requestAiSearchBatch(query, batch, (retryNumber, wait) => {
-                    if (status) {
-                        status.textContent = `מנוע ה־AI עמוס. ניסיון ${retryNumber} מתוך ${AI_SEARCH_MAX_RETRIES} לקבוצה ${batchNumber} בעוד ${Math.round(wait / 1000)} שניות…`;
-                    }
-                });
-                (result?.matches || []).forEach(id => matchedIds.add(window.safeRecordId(id)));
-                succeededBatches++;
-            } catch (error) {
-                // כישלון בקבוצה אחת אינו מבטל את התוצאות שכבר נאספו מקבוצות קודמות.
-                failedBatches++;
-                lastBatchError = error;
-                console.warn(`AI image search batch ${batchNumber} of ${totalBatches} failed:`, error?.code || error?.message || error);
-                if ([401, 403, 503].includes(error?.status) || error?.code === 'ai_rate_limit_exceeded') throw error;
-            }
-
-            if (offset + batchSize < candidates.length) await aiSearchDelay(AI_SEARCH_BATCH_DELAY_MS);
+    try {
+        const result = await window.r2Request('/ai-search', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, ...(!['all', 'favorites', undefined, null, ''].includes(folderId) ? { folderId } : {}) })
+        });
+        if (window.state.currentUser?.uid !== uid || window.state.activeFolderId !== folderId) return;
+        // New clients must never fall back to the old per-image scan.
+        if (result?.mode !== 'indexed') throw new Error('שרת החיפוש עדיין לא עודכן. נסה שוב לאחר הפריסה.');
+        if (!result.indexed && result.pending) {
+            if (status) status.textContent = `${result.pending} תמונות ממתינות להכנת החיפוש בענן. אפשר לסגור את החלון ולנסות שוב לאחר ההשלמה.`;
+            return;
         }
-
-        // רק אם כל הקבוצות נכשלו מוצגת שגיאה במקום תוצאות חלקיות.
-        if (!succeededBatches) throw lastBatchError || new Error('חיפוש ה־AI נכשל.');
-
-        const matches = window.state.images.filter(image => matchedIds.has(window.safeRecordId(image.id)));
+        const matches = (result.documents || []).map(item => ({ ...item.data, id: window.safeRecordId(item.id) }));
         window.state.tempSearchResults = matches;
         window.state.searchQuery = '';
         const regularSearch = document.getElementById('searchInput');
         if (regularSearch) regularSearch.value = '';
         window.renderImages();
-        // תקלה בעיטור התצוגה לא תהפוך חיפוש שהצליח לכישלון ולא תסתיר תוצאות.
-        try {
-            showAiSearchResultBanner(matches.length, query);
-        } catch (bannerError) {
-            console.warn('AI search banner failed to render:', bannerError);
-        }
+        try { showAiSearchResultBanner(matches.length, query); } catch (error) { console.warn('AI search banner:', error); }
         window.closeModal('aiImageSearchModal');
-        const partialNote = failedBatches ? ` (${failedBatches} מתוך ${totalBatches} קבוצות לא נסרקו)` : '';
-        window.showNotification(
-            matches.length
-                ? `נמצאו ${matches.length} תמונות מתאימות${partialNote}.`
-                : `לא נמצאו תמונות שמתאימות לתיאור${partialNote}.`,
-            matches.length > 0
-        );
+        const note = result.pending ? `; ${result.pending} תמונות נוספות ממתינות לאינדוקס` : '';
+        window.showNotification(`נמצאו ${matches.length} תמונות מתוך ${result.indexed} תמונות מוכנות לחיפוש${note}.`, matches.length > 0);
     } catch (error) {
         console.error('AI image search failed:', error);
         window.reportClientError?.(error, 'ai-search');
