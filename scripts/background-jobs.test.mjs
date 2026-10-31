@@ -15,6 +15,8 @@ test('background title job persists work without opening a browser; paused jobs 
         if (path === '/background/status' && !options.method) return Response.json({ state: {} });
         if (path === '/data/images') return Response.json({ documents: Array.from({length:5},(_,i)=>({id:'photo'+i,data:{...image,id:'photo'+i}})) });
         if (path === '/data/pendingImages') return Response.json({ documents: [] });
+        if (path === '/ai-search/index/pending') return Response.json({ pending: [] });
+        if (path === '/ai-search/index') return Response.json({ success: true });
         if (path === '/face/index/pending') return Response.json({ pending: [] });
         if (path === '/ai-title') { image.aiTitleVersion=1; return Response.json({title:'תמונה בעברית'}); }
         if (path === '/background/status') { posts.push(JSON.parse(options.body)); return Response.json({success:true}); }
@@ -44,6 +46,8 @@ test('background title job also sends titled images that still lack a caption, b
         if (path === '/background/status' && !options.method) return Response.json({ state: {} });
         if (path === '/data/images') return Response.json({ documents: images.map(data => ({ id: data.id, data })) });
         if (path === '/data/pendingImages') return Response.json({ documents: [] });
+        if (path === '/ai-search/index/pending') return Response.json({ pending: [] });
+        if (path === '/ai-search/index') return Response.json({ success: true });
         if (path === '/face/index/pending') return Response.json({ pending: [] });
         if (path === '/ai-title') { described.push(JSON.parse(options.body).imageId); return Response.json({ title: 'תמונה בעברית' }); }
         if (path === '/background/status') return Response.json({ success: true });
@@ -83,9 +87,33 @@ test('Drive restores a missing original even when modifiedTime did not change, p
         if(path===`/media/probe/${id}`)return Response.json({code:'media_not_found'},{status:404});
         if(path==='/upload'){uploaded=true;return Response.json({url:API+'/media/approved/restored.jpg',key:'approved/restored.jpg'});}
         if(path===`/data/images/${id}`){saved=JSON.parse(options.body).data;return Response.json({success:true});}
+        if(path==='/ai-search/index/pending')return Response.json({pending:[]});
+        if(path==='/ai-search/index')return Response.json({success:true});
         if(path==='/face/index/pending')return Response.json({pending:[]});
         throw new Error('Unexpected endpoint '+path);
     };
     await runBackgroundJobs({apiOrigin:API,authenticate:async()=> 'scoped-test-token',report:()=>{}});
     assert.equal(uploaded,true);assert.equal(saved.r2Key,'approved/restored.jpg');assert.equal(saved.title,'שם שערך המנהל');
+});
+
+test('background indexes existing descriptions once and resumes without another vision call', async () => {
+    const enabled = {titles:true,faces:false,variants:false,dates:false,drive:false};
+    const image = { id:'indexed1', url:API+'/media/approved/indexed1.jpg', r2Key:'approved/indexed1.jpg', mediaType:'image', aiTitleVersion:1, aiCaptionVersion:1, caption:'לימוד בחברותא' };
+    let indexed = false, indexCalls = 0, visionCalls = 0;
+    globalThis.fetch = async (url, options) => {
+        const path = new URL(url).pathname;
+        if (path === '/background/config') return Response.json({config:{enabled,driveFolders:[]}});
+        if (path === '/background/status' && !options.method) return Response.json({state:{}});
+        if (path === '/background/status') return Response.json({success:true});
+        if (path === '/data/images') return Response.json({documents:[{id:image.id,data:image}]});
+        if (path === '/data/pendingImages') return Response.json({documents:[]});
+        if (path === '/ai-search/index/pending') return Response.json({pending:indexed?[]:[image.id]});
+        if (path === '/ai-search/index') {indexCalls++; indexed=true; return Response.json({success:true});}
+        if (path === '/ai-title') {visionCalls++; throw new Error('Must reuse the saved caption');}
+        if (path === '/face/index/pending') return Response.json({pending:[]});
+        throw new Error('Unexpected endpoint '+path);
+    };
+    for (let n=0;n<2;n++) await runBackgroundJobs({apiOrigin:API,authenticate:async()=> 'scoped-test-token',launchBrowser:()=>{throw new Error('No browser required');},report:()=>{}});
+    assert.equal(indexCalls,1);
+    assert.equal(visionCalls,0);
 });

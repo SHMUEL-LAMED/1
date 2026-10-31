@@ -125,6 +125,9 @@ let aiStatus = 200;
 let aiErrorCode = "";
 let onAiCall = null;
 let lastAiBody = null;
+let embeddingCalls = [];
+let embeddingOutput = Array.from({ length: 256 }, (_, i) => i === 0 ? 1 : 0);
+let embeddingStatus = 200;
 
 const ACCOUNTS = {
   "viewer-token": { sub: "google-viewer", email: "viewer@example.com", name: "Viewer" },
@@ -149,6 +152,10 @@ test.before(async () => {
         aud: "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com"
       });
     }
+    if (href === "https://api.openai.com/v1/embeddings") {
+      embeddingCalls.push(JSON.parse(init.body));
+      return embeddingStatus === 200 ? Response.json({ data: [{ embedding: embeddingOutput }] }) : Response.json({ error: { code: "insufficient_quota" } }, { status: embeddingStatus });
+    }
     if (href === "https://api.openai.com/v1/responses") {
       aiCalls += 1;
       lastAiBody = JSON.parse(init.body || "{}");
@@ -170,6 +177,7 @@ test.after(() => { globalThis.fetch = originalFetch; });
 
 test.beforeEach(() => {
   aiCalls = 0; aiResponse = DEFAULT_AI_OUTPUT; aiStatus = 200; aiErrorCode = ""; onAiCall = null; lastAiBody = null;
+  embeddingCalls = []; embeddingOutput = Array.from({ length: 256 }, (_, i) => i === 0 ? 1 : 0); embeddingStatus = 200;
   bucket.objects.clear();
   for (const table of ["gallery_documents", "request_rate_limits", "user_email_index", "face_people", "image_face_descriptors", "image_face_index_state", "media_variant_files"]) {
     database.database.exec(`DELETE FROM ${table}`);
@@ -525,4 +533,114 @@ test("AI failure exposes only provider status and code for maintenance diagnosis
   assert.equal(body.providerCode,"model_not_found");
   assert.equal(body.providerStatus,404);
   assert.equal(JSON.stringify(body).includes("private provider details"),false);
+});
+
+async function searchCall(body = {}, token = "viewer-token") {
+  return worker.fetch(jsonRequest("/ai-search", "POST", { query: "ריקודים באולם", ...body }, token), environment);
+}
+async function indexCall(id = "photo1", token = "admin-token") {
+  return worker.fetch(jsonRequest("/ai-search/index", "POST", { imageId: id }, token), environment);
+}
+async function describedImage(id = "photo1", extra = {}) {
+  await seedImage(id);
+  putDocument("images", id, { ...readDocument("images", id), caption: "ריקוד באולם", aiCaptionVersion: 1, aiTitleVersion: 1, ...extra });
+}
+
+test("semantic index is persisted once, reuses captions, and needs no image bytes", async () => {
+  await describedImage();
+  bucket.objects.clear(); // Existing descriptions require no further image reads.
+  assert.equal((await indexCall()).status, 200);
+  assert.equal((await (await indexCall()).json()).skipped, true);
+  assert.equal(embeddingCalls.length, 1);
+  assert.equal(aiCalls, 0);
+  assert.equal(readDocument("aiSearchIndex", "photo1").vector.length, 256);
+  assert.equal(embeddingCalls[0].model, "text-embedding-3-small");
+  assert.equal(embeddingCalls[0].dimensions, 256);
+});
+
+test("repeated searches send only the query, never rescan or re-embed images", async () => {
+  await describedImage();
+  await indexCall();
+  for (let i = 0; i < 2; i++) {
+    const result = await searchCall();
+    assert.equal(result.status, 200);
+    const data = await result.json();
+    assert.equal(data.mode, "indexed");
+    assert.deepEqual(data.matches, ["photo1"]);
+    assert.equal(data.documents[0].data.caption, "ריקוד באולם");
+    assert.equal(data.indexed, 1);
+    assert.equal(data.pending, 0);
+    assert.equal(JSON.stringify(data).includes('vector'), false);
+  }
+  assert.equal(aiCalls, 0);
+  assert.equal(embeddingCalls.length, 3);
+  assert.deepEqual(embeddingCalls.slice(1).map(x => x.input), ["ריקודים באולם", "ריקודים באולם"]);
+});
+
+test("stale descriptions are excluded and queued; reindex does not rerun vision", async () => {
+  await describedImage(); await indexCall();
+  putDocument("images", "photo1", { ...readDocument("images", "photo1"), caption: "לימוד בחברותא" });
+  const pending = await worker.fetch(jsonRequest("/ai-search/index/pending", "POST", { imageIds: ["photo1"] }), environment);
+  assert.deepEqual((await pending.json()).pending, ["photo1"]);
+  const data = await (await searchCall()).json();
+  assert.equal(data.pending, 1); assert.deepEqual(data.matches, []);
+  assert.equal(embeddingCalls.length, 1, "No query embedding when no index is ready");
+  await indexCall();
+  assert.equal(embeddingCalls.length, 2); assert.equal(aiCalls, 0);
+});
+
+test("deleted images and other folders are excluded from indexed search", async () => {
+  await describedImage("photo1", { folderId: "folderA" }); await indexCall();
+  await describedImage("photo2", { folderId: "folderB" }); await indexCall("photo2");
+  assert.deepEqual((await (await searchCall({ folderId: "folderA" })).json()).matches, ["photo1"]);
+  database.database.prepare("DELETE FROM gallery_documents WHERE collection_name = 'images' AND document_id = ?").run("photo1");
+  assert.deepEqual((await (await searchCall()).json()).matches, ["photo2"]);
+});
+
+test("empty index reports preparation instead of scanning the gallery", async () => {
+  await seedImage();
+  const data = await (await searchCall()).json();
+  assert.equal(data.pending, 1); assert.equal(data.indexed, 0);
+  assert.equal(aiCalls, 0); assert.equal(embeddingCalls.length, 0);
+});
+
+test("index writes require admin, and private vectors cannot be read through data API", async () => {
+  await describedImage();
+  assert.equal((await indexCall("photo1", "viewer-token")).status, 403);
+  assert.equal((await indexCall()).status, 200);
+  const response = await worker.fetch(jsonRequest("/data/aiSearchIndex", "GET", undefined, "viewer-token"), environment);
+  assert.equal(response.status, 404);
+  assert.equal((await searchCall({}, "")).status, 401);
+});
+
+test("invalid vectors and provider quota failures are not persisted", async () => {
+  await describedImage(); embeddingOutput = [1, 2];
+  assert.equal((await indexCall()).status, 502);
+  assert.equal(readDocument("aiSearchIndex", "photo1"), null);
+  embeddingStatus = 429;
+  const result = await indexCall();
+  assert.equal(result.status, 503); assert.equal((await result.json()).code, "openai_quota_exhausted");
+});
+
+test('indexed search reads beyond 200 rows and makes only one query embedding', async () => {
+  for (let n = 0; n < 205; n++) {
+    const id = `page${String(n).padStart(3, '0')}`;
+    await describedImage(id);
+    await indexCall(id);
+  }
+  const before = embeddingCalls.length;
+  const data = await (await searchCall()).json();
+  assert.equal(data.indexed, 205);
+  assert.equal(data.matches.length, 100);
+  assert.equal(embeddingCalls.length, before + 1);
+  assert.equal(aiCalls, 0);
+});
+
+test('damaged saved vector is queued again and repaired instead of skipped forever', async () => {
+  await describedImage(); await indexCall();
+  putDocument('aiSearchIndex', 'photo1', { ...readDocument('aiSearchIndex', 'photo1'), vector: [1,2] });
+  const result = await worker.fetch(jsonRequest('/ai-search/index/pending', 'POST', {imageIds:['photo1']}), environment);
+  assert.deepEqual((await result.json()).pending, ['photo1']);
+  assert.equal((await (await indexCall()).json()).skipped, false);
+  assert.equal(readDocument('aiSearchIndex', 'photo1').vector.length, 256);
 });

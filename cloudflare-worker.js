@@ -4242,119 +4242,131 @@ async function aiImageTitle(request, env) {
   return json(request, { success: true, ...await generateImageDescription(request, env, imageId) });
 }
 
-async function aiImageSearch(request, env) {
-  const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
-  if (!env.OPENAI_API_KEY) {
-    throw apiError("חיפוש ה־AI עדיין לא הוגדר בשרת.", 503, "openai_key_missing");
-  }
+const AI_SEARCH_INDEX_COLLECTION = 'aiSearchIndex'; // Private: absent from DATA_COLLECTIONS.
+const AI_SEARCH_INDEX_VERSION = 1;
+const AI_SEARCH_VECTOR_SIZE = 256;
+const AI_SEARCH_EMBEDDING_MODEL = 'text-embedding-3-small';
 
+function aiSearchSource(record) {
+  return JSON.stringify({
+    version: AI_SEARCH_INDEX_VERSION, model: AI_SEARCH_EMBEDDING_MODEL,
+    url: String(record.url || ''), modified: String(record.driveModifiedTime || ''),
+    title: String(record.title || '').slice(0, 120), caption: String(record.caption || '').slice(0, 140),
+    tags: normalizeSceneTags(record.sceneTags)
+  });
+}
+
+function normalizedSearchVector(value) {
+  if (!Array.isArray(value) || value.length !== AI_SEARCH_VECTOR_SIZE || value.some(n => typeof n !== 'number' || !Number.isFinite(n))) {
+    throw apiError('מנוע החיפוש החזיר אינדקס לא תקין.', 502, 'invalid_search_embedding');
+  }
+  const norm = Math.sqrt(value.reduce((sum, n) => sum + n * n, 0));
+  if (!Number.isFinite(norm) || norm < 1e-10) throw apiError('מנוע החיפוש החזיר אינדקס ריק.', 502, 'invalid_search_embedding');
+  return value.map(n => n / norm);
+}
+
+async function searchEmbedding(env, text) {
+  if (!env.OPENAI_API_KEY) throw apiError('חיפוש ה־AI עדיין לא הוגדר בשרת.', 503, 'openai_key_missing');
+  const response = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(25000),
+    body: JSON.stringify({ model: AI_SEARCH_EMBEDDING_MODEL, input: text, dimensions: AI_SEARCH_VECTOR_SIZE, encoding_format: 'float' })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw aiDescriptionFailure(response.status, payload);
+  return normalizedSearchVector(payload?.data?.[0]?.embedding);
+}
+
+function hasSearchDescription(record) {
+  return record.mediaType !== 'video' && Boolean(record.caption || normalizeSceneTags(record.sceneTags).length || record.aiTitleVersion === 1);
+}
+
+async function indexAiSearchImage(request, env) {
+  await requireUser(request, env, ['admin', 'super_admin']);
   const payload = await request.json().catch(() => ({}));
-  const query = String(payload.query || "").trim().slice(0, 240);
-  if (query.length < 3) {
-    throw apiError("יש לכתוב תיאור באורך של שלוש אותיות לפחות.", 400, "query_too_short");
+  const imageId = safeImageId(payload.imageId);
+  const row = await readGalleryDocumentRow(env, 'images', imageId);
+  if (!row) throw apiError('התמונה אינה קיימת בגלריה.', 404, 'not_found');
+  const record = parseDocumentData(row);
+  if (!hasSearchDescription(record)) throw apiError('התמונה ממתינה לכיתוב לפני הכנת החיפוש.', 409, 'search_description_pending');
+  const source = aiSearchSource(record);
+  const existing = parseDocumentData(await readGalleryDocumentRow(env, AI_SEARCH_INDEX_COLLECTION, imageId));
+  if (existing.source === source && existing.version === AI_SEARCH_INDEX_VERSION) {
+    try { normalizedSearchVector(existing.vector); return json(request, { success: true, skipped: true }); } catch {}
   }
-  if (!Array.isArray(payload.images) || payload.images.length === 0 || payload.images.length > 20) {
-    throw apiError("ניתן לסרוק בין תמונה אחת לעשרים תמונות בכל קבוצה.", 400, "invalid_image_batch");
-  }
+  await consumeRateLimit(env, 'ai-search-index:global', 600, 3600000);
+  const labels = normalizeSceneTags(record.sceneTags).map(id => SCENE_TAGS.find(tag => tag.id === id)?.label || id);
+  const vector = await searchEmbedding(env, [record.title, record.caption, ...labels].filter(Boolean).join('. ').slice(0, 1000));
+  // Recheck after the provider call: never publish an index for a changed or deleted image.
+  const current = await readGalleryDocumentRow(env, 'images', imageId);
+  if (!current || aiSearchSource(parseDocumentData(current)) !== source) throw apiError('התמונה השתנתה בזמן הכנת החיפוש.', 409, 'document_write_conflict');
+  const now = Date.now();
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(collection_name, document_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`
+  ).bind(AI_SEARCH_INDEX_COLLECTION, imageId, JSON.stringify({ version: AI_SEARCH_INDEX_VERSION, source, vector }), 'server', now, now).run();
+  return json(request, { success: true, skipped: false });
+}
 
-  const images = payload.images.map(image => safeAiSearchImage(image, request, env));
+async function pendingAiSearchIndex(request, env) {
+  await requireUser(request, env, ['admin', 'super_admin']);
+  const payload = await request.json().catch(() => ({}));
+  if (!Array.isArray(payload.imageIds) || payload.imageIds.length > 80) throw apiError('יש לשלוח עד 80 מזהים.', 400, 'invalid_image_batch');
+  const ids = [...new Set(payload.imageIds.map(safeImageId))];
+  if (!ids.length) return json(request, { success: true, pending: [] });
+  const result = await env.GALLERY_DB.prepare(
+    `SELECT i.document_id, i.data_json, x.data_json AS index_json FROM gallery_documents i
+     LEFT JOIN gallery_documents x ON x.collection_name = ? AND x.document_id = i.document_id
+     WHERE i.collection_name = 'images' AND i.document_id IN (${ids.map(() => '?').join(',')})`
+  ).bind(AI_SEARCH_INDEX_COLLECTION, ...ids).all();
+  const pending = (result.results || []).filter(row => {
+    const record = parseDocumentData(row);
+    const index = parseDocumentData({ data_json: row.index_json });
+    let valid = false;
+    try { normalizedSearchVector(index.vector); valid = true; } catch {}
+    return record.mediaType !== 'video' && (!valid || index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record));
+  }).map(row => row.document_id);
+  return json(request, { success: true, pending });
+}
+
+async function aiImageSearch(request, env) {
+  const user = await requireUser(request, env, ['viewer', 'uploader', 'admin', 'super_admin']);
+  const payload = await request.json().catch(() => ({}));
+  const query = String(payload.query || '').trim().slice(0, 240);
+  if (query.length < 3) throw apiError('יש לכתוב תיאור באורך שלוש אותיות לפחות.', 400, 'query_too_short');
   await consumeRateLimit(env, `ai-search:${user.uid}`, AI_SEARCH_RATE_LIMIT, AI_SEARCH_RATE_WINDOW_MS);
-  await Promise.all(images.map(async image => {
-    const object = await env.GALLERY_BUCKET.head(image.key);
-    if (
-      !object ||
-      (object.customMetadata?.state && object.customMetadata.state !== "approved") ||
-      ((object.customMetadata?.mediaType || object.customMetadata?.mediatype) && (object.customMetadata.mediaType || object.customMetadata.mediatype) !== "image")
-    ) {
-      throw apiError("אחת התמונות אינה קיימת בגלריה המאושרת.", 400, "unapproved_image");
+  const folderId = payload.folderId ? safeImageId(payload.folderId) : '';
+  let after = '', indexed = 0, pending = 0, queryVector = null;
+  let best = [];
+  do {
+    const result = await env.GALLERY_DB.prepare(
+      `SELECT i.document_id, i.data_json, x.data_json AS index_json FROM gallery_documents i
+       LEFT JOIN gallery_documents x ON x.collection_name = ? AND x.document_id = i.document_id
+       WHERE i.collection_name = 'images' AND i.document_id > ?
+       ${folderId ? "AND json_extract(i.data_json, '$.folderId') = ?" : ''}
+       ORDER BY i.document_id LIMIT 200`
+    ).bind(AI_SEARCH_INDEX_COLLECTION, after, ...(folderId ? [folderId] : [])).all();
+    const rows = result.results || [];
+    for (const row of rows) {
+      const record = parseDocumentData(row);
+      if (record.mediaType === 'video') continue;
+      const index = parseDocumentData({ data_json: row.index_json });
+      if (index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record)) { pending++; continue; }
+      let vector;
+      try { vector = normalizedSearchVector(index.vector); } catch { pending++; continue; }
+      indexed++;
+      if (!queryVector) queryVector = await searchEmbedding(env, query); // Exactly one text-only AI call per search.
+      const score = vector.reduce((sum, n, i) => sum + n * queryVector[i], 0);
+      if (score >= 0.3) best.push({ id: row.document_id, score, data: record });
     }
-  }));
-  const knownIds = new Set(images.map(image => image.id));
-  const content = [{
-    type: "input_text",
-    text: `מצא אילו תמונות מתאימות לבקשת החיפוש הבאה בעברית: "${query}". החזר רק מזהים של תמונות שיש להן התאמה חזותית ברורה או סבירה. אל תחזיר תמונה רק בגלל שם הקובץ.`
-  }];
-
-  images.forEach(image => {
-    content.push({
-      type: "input_text",
-      text: `IMAGE_ID=${image.id}; כותרת=${image.title}; תיקייה=${image.folder}; תאריך=${image.date || "לא ידוע"}`
-    });
-    content.push({
-      type: "input_image",
-      image_url: image.url,
-      detail: "low"
-    });
+    best.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    best = best.slice(0, 100);
+    after = rows.length === 200 ? rows.at(-1).document_id : '';
+  } while (after);
+  return json(request, {
+    success: true, mode: 'indexed', indexed, pending,
+    matches: best.map(item => item.id), documents: best.map(item => ({ id: item.id, data: item.data }))
   });
-
-  const openAIResponse = await fetch(OPENAI_RESPONSES_URL, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: OPENAI_VISION_MODEL,
-      store: false,
-      input: [{ role: "user", content }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "gallery_image_search",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              matches: {
-                type: "array",
-                items: { type: "string" }
-              }
-            },
-            required: ["matches"]
-          }
-        }
-      }
-    })
-  });
-
-  const openAIPayload = await openAIResponse.json().catch(() => ({}));
-  if (!openAIResponse.ok) {
-    const upstreamCode = String(openAIPayload?.error?.code || "unknown");
-    console.error("OpenAI search request failed", openAIResponse.status, upstreamCode);
-
-    if (openAIResponse.status === 401) {
-      throw apiError("מפתח OpenAI אינו תקין או בוטל. יש להחליף אותו ב־Cloudflare.", 503, "openai_invalid_key");
-    }
-    if (openAIResponse.status === 429 && upstreamCode === "insufficient_quota") {
-      throw apiError("לחשבון OpenAI API אין כרגע יתרה זמינה. יש לבדוק חיוב ומכסה בחשבון OpenAI.", 503, "openai_quota_exhausted");
-    }
-    if (openAIResponse.status === 429) {
-      throw apiError("חיפוש ה־AI עמוס כרגע. המתן מעט ונסה שוב.", 429, "openai_rate_limited");
-    }
-    if (openAIResponse.status === 403) {
-      throw apiError("למפתח OpenAI אין הרשאה להשתמש במודל החיפוש.", 503, "openai_model_forbidden");
-    }
-    if (openAIResponse.status === 404 || upstreamCode === "model_not_found") {
-      throw apiError("מודל חיפוש ה־AI אינו זמין לפרויקט הזה.", 503, "openai_model_unavailable");
-    }
-    if (openAIResponse.status === 400) {
-      throw apiError("הגדרת בקשת חיפוש ה־AI אינה נתמכת כרגע.", 502, "openai_invalid_request");
-    }
-    throw apiError("מנוע חיפוש ה־AI אינו זמין כרגע.", 502, "openai_request_failed");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(extractOpenAIOutputText(openAIPayload));
-  } catch {
-    throw apiError("מנוע ה־AI החזיר תשובה לא תקינה.", 502, "invalid_openai_response");
-  }
-  const matches = Array.isArray(parsed?.matches)
-    ? [...new Set(parsed.matches.map(safeImageId).filter(id => knownIds.has(id)))]
-    : [];
-
-  return json(request, { success: true, matches });
 }
 
 // --- אינדוקס וחיפוש של טביעות פנים ---
@@ -4428,6 +4440,7 @@ function faceImageIdFromObjectKey(key) {
 async function deleteFaceIndexForImage(env, imageId) {
   const safeId = String(imageId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120);
   if (!safeId) return;
+  await env.GALLERY_DB.prepare("DELETE FROM gallery_documents WHERE collection_name = ? AND document_id = ?").bind(AI_SEARCH_INDEX_COLLECTION, safeId).run();
   // האנשים שהופיעו בתמונה מתעדכנים (מונה, מרכז ותמונה ראשית) אחרי המחיקה.
   const affected = await env.GALLERY_DB.prepare(
     "SELECT DISTINCT person_id FROM face_people WHERE image_id = ?"
@@ -6596,7 +6609,7 @@ function backgroundAllowedPath(method, path) {
   if (method === "GET") return /^\/data\/(images|pendingImages|folders)(\/[^/]+)?$/.test(path) ||
     ["/background/config", "/background/status", "/face/index/summary", "/media/variants/stats"].includes(path) || path.startsWith("/face-assets/") ||
     /^\/media\/(probe\/[^/]+|(approved|pending|variants)\/)/.test(path);
-  if (method === "POST") return ["/ai-title", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/background/ai-check", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort",
+  if (method === "POST") return ["/ai-title", "/ai-search/index", "/ai-search/index/pending", "/face/index", "/face/index/pending", "/face/clusters/run", "/face/boxes", "/media/variants", "/media/taken-at", "/background/status", "/background/drive-token", "/background/ai-check", "/upload", "/upload/multipart/create", "/upload/multipart/complete", "/upload/multipart/abort",
     "/maintenance/backup", "/maintenance/trash-purge", "/maintenance/alert-check", "/maintenance/broken-links", "/maintenance/storage-scan"].includes(path);
   if (method === "PUT") return path === "/upload/multipart/part" || /^\/data\/(images\/driveimage|folders\/drivefolder)_[A-Za-z0-9_-]+$/.test(path);
   return false;
@@ -8722,7 +8735,7 @@ export default {
           version: "2026-10-08-data-layer-cursors-etag-cache",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles", "cloud-background-jobs",
+            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles", "cloud-background-jobs", "indexed-ai-search",
             "ai-image-captions", "scene-tags",
             "data-filters", "cursor-pagination", "etag-304", "edge-cache",
             "resumable-uploads", "face-people", "face-find-me",
@@ -8791,6 +8804,8 @@ export default {
       if (request.method === "POST" && url.pathname === "/ai-title") {
         return await aiImageTitle(request, env);
       }
+      if (request.method === "POST" && url.pathname === "/ai-search/index/pending") return await pendingAiSearchIndex(request, env);
+      if (request.method === "POST" && url.pathname === "/ai-search/index") return await indexAiSearchImage(request, env);
       if (request.method === "POST" && url.pathname === "/ai-search") {
         return await aiImageSearch(request, env);
       }

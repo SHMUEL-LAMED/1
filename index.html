@@ -839,8 +839,8 @@
                 <button type="button" onclick="closeModal('aiImageSearchModal')" class="modal-close" aria-label="סגירת חלון חיפוש AI"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
-                <p>כתוב במילים חופשיות איזו תמונה אתה מחפש. ה־AI יבדוק את תוכן התמונות, לא רק את שם הקובץ.</p>
-                <p class="field-hint">לצורך החיפוש בלבד, התמונות שנבדקות נשלחות לשירות OpenAI. הבקשה מוגדרת ללא שמירת התוצאות בצד ה־AI.</p>
+                <p>כתוב במילים חופשיות איזו תמונה אתה מחפש. החיפוש מתאים את התיאור לאינדקס שנשמר מראש, בלי לסרוק שוב את התמונות.</p>
+                <p class="field-hint">התמונות מתוארות פעם אחת בעת ההכנה בענן. בזמן החיפוש נשלח ל־OpenAI רק טקסט החיפוש; התמונות אינן נשלחות שוב.</p>
                 <label class="block"><span class="field-label">מה לחפש?</span>
                     <textarea id="aiImageSearchQuery" maxlength="240" rows="3" placeholder="לדוגמה: תמונה קבוצתית בטיול בחוץ"></textarea>
                 </label>
