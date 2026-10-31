@@ -913,6 +913,23 @@
                     </div>
                     <div class="admin-panel-body">
                         <p>כל תמונה מקבלת, בקריאה אחת ל־AI, שם קצר, כיתוב של משפט או שניים ותגיות של סוג הרגע (ריקוד, הקפות, שיעור או דרשה, סעודה…). כך החיפוש בגלריה מוצא תמונות לפי מה שקורה בהן, מיד ובלי AI בזמן החיפוש. תמונות חדשות מקבלות את כל אלה אוטומטית ברקע; כאן משלימים לתמונות הקיימות. את הכיתוב והתגיות אפשר לערוך מהתצוגה המלאה בגלריה, ועריכה ידנית לא תוחלף. העיבוד משתמש במפתח ה־AI שכבר מוגדר בשרת, בקריאה אחת לכל תמונה.</p>
+                        <form id="aiProviderForm" class="hidden rounded-xl border border-cyan-400/25 p-4 space-y-3" autocomplete="off">
+                            <h4 class="font-bold">ספק ומפתח AI</h4>
+                            <p class="field-hint">הבחירה משמשת לתיאור התמונות ולחיפוש באינדקס. המפתח נשמר מוצפן בשרת בלבד. בהחלפת ספק האינדקס יוכן מחדש ברקע; התמונות שכבר תוארו לא ייסרקו שוב.</p>
+                            <label class="block"><span class="field-label">ספק AI</span>
+                                <select id="aiProviderSelect"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option></select>
+                            </label>
+                            <label class="block"><span class="field-label">מפתח API של הספק שנבחר</span>
+                                <input id="aiProviderKey" type="password" dir="ltr" autocomplete="new-password" spellcheck="false" maxlength="512" placeholder="הדבק מפתח חדש, או השאר ריק לשימוש במפתח השמור">
+                            </label>
+                            <p id="aiProviderKeyState" class="field-hint"></p>
+                            <div class="flex gap-2 flex-wrap">
+                                <button id="aiProviderSave" type="submit" class="btn-primary-gold">שמור הגדרות AI</button>
+                                <button id="aiProviderTest" type="button" class="btn-secondary-dark">בדוק חיבור</button>
+                                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="btn-secondary-dark">יצירת מפתח Gemini</a>
+                            </div>
+                            <p id="aiProviderStatus" role="status" aria-live="polite" class="field-hint"></p>
+                        </form>
                         <p id="aiTitlesSummary" class="field-hint"></p>
                         <div id="aiTitlesProgress" class="progress-track" role="progressbar" aria-label="התקדמות ההשלמה" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="aiTitlesProgressBar" class="progress-bar"></div></div>
                         <p id="aiTitlesStatus" role="status" aria-live="polite">טוען…</p>

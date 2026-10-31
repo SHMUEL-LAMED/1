@@ -20,7 +20,7 @@ export const AI_DESCRIBE_RETRY_DELAYS_MS = [5000, 15000, 30000];
 export function classifyDescribeError(error) {
     const status = Number(error?.status) || 0;
     const code = String(error?.code || '');
-    if (code === 'openai_rate_limited') return 'retry';
+    if (code === 'openai_rate_limited' || code === 'gemini_rate_limited') return 'retry';
     // תשובה לא תקינה של המודל לתמונה מסוימת אינה סיבה לעצור את כל הגלריה.
     if (code === 'invalid_ai_title' || code === 'invalid_ai_response') return 'skip';
     // בלי סטטוס — אין חיבור לשרת; כל תמונה נוספת הייתה נכשלת באותו אופן.
@@ -187,6 +187,70 @@ async function start() {
     }
 }
 
+let providerSummary = null;
+function updateProviderKeyState() {
+    const provider = element('aiProviderSelect')?.value;
+    const hasKey = provider === 'gemini' ? providerSummary?.hasGeminiKey : providerSummary?.hasOpenaiKey;
+    if (element('aiProviderKeyState')) element('aiProviderKeyState').textContent = hasKey ? 'קיים מפתח שמור לספק הזה. להשארתו השאר את השדה ריק.' : 'עדיין לא הוגדר מפתח לספק הזה.';
+}
+
+async function submitProviderSettings(testOnly = false) {
+    const status = element('aiProviderStatus');
+    const field = element('aiProviderKey');
+    const provider = element('aiProviderSelect').value;
+    element('aiProviderSave').disabled = true;
+    element('aiProviderTest').disabled = true;
+    status.textContent = testOnly ? 'בודק חיבור למודל התמונות ולמודל החיפוש…' : 'שומר את ההגדרות בשרת…';
+    try {
+        const result = await window.r2Request(testOnly ? '/admin/ai-settings/test' : '/admin/ai-settings', {
+            method: testOnly ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, apiKey: field.value.trim() })
+        });
+        if (testOnly) {
+            status.textContent = 'החיבור לתיאור תמונות ולחיפוש תקין. אם החלפת מפתח או ספק, לחץ גם על שמירה.';
+        } else {
+            field.value = '';
+            providerSummary = result;
+            updateProviderKeyState();
+            status.textContent = 'ההגדרות נשמרו. להכנת התמונות והאינדקס לחץ על התחל או המשך / הפעל בענן.';
+            aiEnabled = await readAiAvailability();
+            window.aiDescriptionsUnavailable = !aiEnabled;
+            element('aiTitlesStart').disabled = !aiEnabled;
+            await refresh();
+            if (window.CLOUD_BACKGROUND_JOBS) await window.refreshCloudBackgroundJobs();
+        }
+    } catch (error) {
+        status.textContent = error.message || 'לא ניתן לשמור או לבדוק את ההגדרות.';
+    } finally {
+        element('aiProviderSave').disabled = false;
+        element('aiProviderTest').disabled = false;
+    }
+}
+
+async function openProviderSettings() {
+    const form = element('aiProviderForm');
+    if (!form) return;
+    form.classList.add('hidden');
+    element('aiProviderKey').value = '';
+    if (!window.state?.isSuperAdmin) return;
+    try {
+        providerSummary = await window.r2Request('/admin/ai-settings');
+        element('aiProviderSelect').value = providerSummary.provider || 'gemini';
+        element('aiProviderSelect').onchange = () => {
+            element('aiProviderKey').value = '';
+            updateProviderKeyState();
+        };
+        updateProviderKeyState();
+        form.onsubmit = event => { event.preventDefault(); void submitProviderSettings(false); };
+        element('aiProviderTest').onclick = () => submitProviderSettings(true);
+        element('aiProviderStatus').textContent = '';
+        form.classList.remove('hidden');
+    } catch (error) {
+        // Old Workers do not offer provider configuration yet.
+        if (error.status !== 404) window.showNotification?.(error.message || 'לא ניתן לקרוא הגדרות AI.', false);
+    }
+}
+
 export async function openAiTitles() {
     element('aiTitlesStart').onclick = start;
     element('aiTitlesStop').onclick = () => {
@@ -196,6 +260,7 @@ export async function openAiTitles() {
         element('aiTitlesStatus').textContent = 'מסיים את התמונה הנוכחית ועוצר…';
     };
     if (running) return;
+    await openProviderSettings();
     try {
         const enabled = await readAiAvailability();
         await refresh();
