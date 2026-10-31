@@ -1,0 +1,130 @@
+name: Visual regression
+
+# צילומי מסך של המסכים העיקריים (playwright.visual.config.mjs, e2e/visual/).
+# workflow נפרד מ-checks.yml: הוא אינו חוסם את בדיקות המאגר, ועד שיש בסיס
+# (baselines) במאגר הוא רק מייצר אותו ומצרף אותו כ-artifact.
+#
+# - אין e2e/visual/__screenshots__ במאגר, או הפעלה ידנית עם update=true:
+#   ריצה עם --update-snapshots, ה-PNG-ים מועלים כ-artifact בשם visual-baselines,
+#   וב-Summary מופיעות הוראות לשמירתם במאגר. הריצה אינה נכשלת.
+# - אחרת: השוואה לבסיס (maxDiffPixelRatio 0.01). בהבדל — התמונות (expected /
+#   actual / diff) מועלות כ-artifact בשם visual-diffs, והריצה נכשלת.
+#
+# הבסיס נוצר רק כאן, על ubuntu-latest ובאותו Chromium ש-checks.yml מתקין, כי
+# צילום ממכונה אחרת (גרסת דפדפן או גופנים שונים) לעולם לא יתאים בדיוק.
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update:
+        description: 'ליצור בסיס חדש לצילומים (--update-snapshots) ולהעלות אותו כ-artifact'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Decide between creating and comparing baselines
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          UPDATE_INPUT: ${{ inputs.update }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$UPDATE_INPUT" = "true" ]; then
+            echo "mode=update" >> "$GITHUB_OUTPUT"
+            echo "reason=הפעלה ידנית עם update=true" >> "$GITHUB_OUTPUT"
+          elif [ ! -d e2e/visual/__screenshots__ ] || [ -z "$(find e2e/visual/__screenshots__ -name '*.png' -print -quit)" ]; then
+            echo "mode=update" >> "$GITHUB_OUTPUT"
+            echo "reason=אין עדיין בסיס במאגר (e2e/visual/__screenshots__)" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=compare" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- יצירת בסיס ---
+      - name: Create baselines
+        if: steps.mode.outputs.mode == 'update'
+        run: npm run test:visual:update
+      - name: Upload baselines
+        if: steps.mode.outputs.mode == 'update'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: e2e/visual/__screenshots__/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Explain how to commit the baselines
+        if: steps.mode.outputs.mode == 'update'
+        env:
+          REASON: ${{ steps.mode.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## בסיס חדש לצילומי המסך"
+            echo
+            echo "סיבה: ${REASON}. הצילומים נוצרו ולא הושוו לדבר — הריצה אינה נכשלת."
+            echo
+            echo "כדי לשמור אותם במאגר:"
+            echo
+            echo "1. הורידו את ה-artifact \`visual-baselines\` מעמוד הריצה: ${RUN_URL}"
+            echo "2. בענף שלכם:"
+            echo
+            echo '```bash'
+            echo 'rm -rf e2e/visual/__screenshots__'
+            echo 'mkdir -p e2e/visual/__screenshots__'
+            echo 'unzip visual-baselines.zip -d e2e/visual/__screenshots__'
+            echo 'git add e2e/visual/__screenshots__'
+            echo 'git commit -m "בדיקות חזותיות: בסיס חדש לצילומי המסך"'
+            echo '```'
+            echo
+            echo "3. עברו על התמונות לפני השמירה — מה שנשמר הוא מה שייחשב \"נכון\" מעכשיו."
+            echo
+            echo "מהדחיפה הבאה הריצה משווה לבסיס ונכשלת בכל הבדל."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --- השוואה לבסיס ---
+      - name: Compare with baselines
+        if: steps.mode.outputs.mode == 'compare'
+        run: npm run test:visual
+      - name: Upload diff images
+        if: failure() && steps.mode.outputs.mode == 'compare'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: |
+            test-results/visual/
+            playwright-report/visual/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Explain a failed comparison
+        if: failure() && steps.mode.outputs.mode == 'compare'
+        run: |
+          {
+            echo "## צילומי המסך שונים מהבסיס"
+            echo
+            echo "ב-artifact \`visual-diffs\` יש לכל צילום שנכשל את התמונה הצפויה, את מה שהתקבל ואת ההבדל (\`*-diff.png\`)."
+            echo
+            echo "אם השינוי מכוון: הפעילו את ה-workflow הזה ידנית (Actions → Visual regression → Run workflow)"
+            echo "על הענף, עם update=true, ושמרו את ה-artifact \`visual-baselines\` לפי ההוראות שבסיכום של אותה ריצה."
+          } >> "$GITHUB_STEP_SUMMARY"
