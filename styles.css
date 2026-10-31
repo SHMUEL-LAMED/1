@@ -6629,3 +6629,451 @@ body .people-admin-select select { min-height: 40px; padding-block: 8px; font-si
 .user-notes-list { max-height: 45vh; overflow-y: auto; margin-bottom: 12px; }
 .user-note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; color: var(--ink); }
 .user-note-delete { align-self: flex-start; }
+
+/* ==========================================================================
+   משתמשים ואנשים: "ההעלאות שלי", כפילויות בתור ההעלאה, תיוג ידני והזמנות
+   ========================================================================== */
+
+/* תג "תיוג ידני" על כרטיס באלבום של אדם וב"התמונות שלי". */
+.gallery-manual-badge {
+    position: absolute;
+    bottom: 12px;
+    inset-inline-start: 12px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--cyan-line);
+    background: var(--panel);
+    color: var(--cyan);
+    font-size: 10px;
+    font-weight: 800;
+}
+
+/* תור ההעלאה: קובץ שכבר קיים, והבחירה לדלג או להעלות בכל זאת. */
+[data-upload-state="duplicate"] .upload-queue-progress { --upload-tone: var(--gold); }
+.upload-queue-duplicate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; }
+.upload-queue-duplicate a { color: var(--cyan); font-weight: 700; text-decoration: underline; }
+.upload-queue-duplicate-toggle {
+    min-height: 32px;
+    padding: 4px 12px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-2);
+    font-size: 11px;
+    font-weight: 800;
+}
+.upload-queue-duplicate-toggle[aria-pressed="true"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+.upload-duplicate-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-2);
+}
+.upload-duplicate-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.upload-duplicate-actions button { min-height: 40px; padding: 8px 16px; font-size: 12px; }
+
+/* חלון "ההעלאות שלי". */
+.my-uploads-summary { font-weight: 800; color: var(--ink-2); }
+.my-uploads-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.my-uploads-filters button {
+    min-height: 36px;
+    padding: 6px 12px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-3);
+    font-size: 12px;
+    font-weight: 800;
+}
+.my-uploads-filters button[aria-pressed="true"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+.my-uploads-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.my-upload-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+}
+.my-upload-thumb {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    overflow: hidden;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    color: var(--ink-3);
+}
+.my-upload-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.my-upload-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.my-upload-title { font-size: 13px; font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
+.my-upload-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-3); }
+.my-upload-chip {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    font-size: 10px;
+    font-weight: 800;
+}
+.my-upload-chip[data-status="pending"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+.my-upload-chip[data-status="approved"] { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
+.my-upload-chip[data-status="rejected"] { color: var(--danger); border-color: var(--danger-line); background: var(--danger-tint); }
+.my-upload-detail { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.my-upload-detail a { color: var(--cyan); font-weight: 800; text-decoration: underline; }
+
+/* חלון התיוג הידני: התמונה עם המלבן שנגרר, ורשימת האנשים. המלבן נמדד
+   משמאל לתמונה, ולכן הבמה בכיוון LTR גם בדף בעברית. */
+.manual-tag-stage-wrap { display: flex; justify-content: center; }
+.manual-tag-stage { position: relative; display: inline-block; max-width: 100%; direction: ltr; touch-action: none; user-select: none; }
+.manual-tag-stage img { display: block; max-width: 100%; max-height: 42vh; border-radius: var(--r-sm); cursor: crosshair; }
+.manual-tag-box {
+    position: absolute;
+    border: 2px solid var(--gold);
+    border-radius: 4px;
+    box-shadow: 0 0 0 9999px rgb(0 0 0 / .35);
+    pointer-events: none;
+}
+.manual-tag-box[hidden], .manual-tag-clear[hidden], .manual-tag-heading[hidden] { display: none; }
+.manual-tag-clear { align-self: flex-start; min-height: 36px; padding: 6px 14px; font-size: 12px; }
+.manual-tag-people,
+.manual-tag-existing-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.manual-tag-person {
+    min-height: 40px;
+    padding: 6px 14px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 800;
+}
+.manual-tag-person[aria-pressed="true"] { color: var(--gold); border-color: var(--gold-line); background: var(--gold-tint); }
+.manual-tag-heading { font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.manual-tag-existing { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.manual-tag-existing button { min-height: 36px; padding: 4px 12px; font-size: 11px; }
+
+/* לוח הניהול: הזמנות לאירוע, וסיבת הדחייה של העלאה. */
+.invite-created {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--green-line);
+    background: var(--green-tint);
+}
+.invite-created[hidden] { display: none; }
+.invite-created input { direction: ltr; text-align: left; font-family: ui-monospace, monospace; font-size: 12px; }
+.invite-flag { display: inline-flex; margin-top: 4px; }
+.pending-swipe-reason { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 12px; font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.pending-swipe-reason input { min-height: 40px; font-size: 13px; }
+@media (max-width: 640px) { .pending-swipe-reason { padding: 0 12px 10px; } }
+.invite-auto-row { display: flex; align-items: flex-start; gap: 10px; min-height: 40px; padding: 8px 4px; font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+.invite-auto-row[hidden] { display: none; }
+.invite-auto-row input[type="checkbox"] { width: 20px; height: 20px; margin-top: 1px; flex: none; }
+
+/* ==========================================================================
+   תיקיות מקוננות, תמונת שער, סדר ידני ועריכת תמונה
+   (gallery-folders.js, manual-order-ui.js, media-edit-ui.js)
+   ========================================================================== */
+
+/* תמונת השער בריבוע הסמל של כרטיס התיקייה. הסמל נשאר מתחתיה, כך שתמונה
+   שלא נטענה (onerror מסיר אותה) משאירה את מה שהיה שם היום. */
+.collection-card-icon.has-cover { overflow: hidden; }
+.collection-card-cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+    border-radius: inherit;
+}
+
+/* תת־התיקיות של תיקייה עליונה: שורה של שבבים מתחת לכרטיס. */
+.collection-card:has(.collection-card-children) { flex-wrap: wrap; }
+.collection-card-children {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0 13px 10px;
+    list-style: none;
+}
+.collection-card-child {
+    max-width: 100%;
+    min-height: 32px;
+    padding: 4px 11px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--line);
+    background: var(--panel-softer);
+    color: var(--ink-2);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: border-color .16s var(--ease), color .16s var(--ease), background .16s var(--ease);
+}
+.collection-card-child:hover { border-color: var(--gold-line); color: var(--ink); background: var(--gold-tint); }
+.collection-card-child:focus-visible { box-shadow: var(--focus-ring); }
+.collection-card-child.is-more { color: var(--ink-4); }
+
+/* מעל הרשת: פירורי הלחם ותת־התיקיות של התיקייה הפתוחה. */
+.folder-context { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; min-width: 0; }
+.folder-context[hidden] { display: none; }
+.folder-breadcrumb ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+}
+.folder-breadcrumb li { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.folder-breadcrumb li + li::before { content: "›"; color: var(--ink-4); padding-inline: 2px; }
+.folder-breadcrumb-link {
+    min-height: 32px;
+    padding: 2px 6px;
+    border-radius: var(--r-sm);
+    color: var(--ink-3);
+    font-weight: 700;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.folder-breadcrumb-link:hover { color: var(--gold); }
+.folder-breadcrumb-link:focus-visible { box-shadow: var(--focus-ring); }
+.folder-breadcrumb-current { color: var(--ink); font-weight: 800; overflow-wrap: anywhere; }
+
+.subfolder-strip-title { margin: 0 0 8px; font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.subfolder-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.subfolder-card {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    align-items: center;
+    padding: 9px 11px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    text-align: start;
+    transition: border-color .2s var(--ease), background .2s var(--ease);
+}
+.subfolder-card:hover { border-color: var(--gold-line); background: var(--panel-3); }
+.subfolder-card:focus-visible { box-shadow: var(--focus-ring); }
+.subfolder-card-media {
+    grid-row: 1 / span 2;
+    position: relative;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--line-soft);
+    background: var(--panel-2);
+    color: var(--ink-3);
+}
+.subfolder-card-name { min-width: 0; font-size: 13px; font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subfolder-card-count { font-size: 11px; color: var(--ink-4); }
+
+/* מצב "סדר ידני" של המנהל. */
+.arrange-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--gold-line);
+    background: var(--gold-tint);
+    color: var(--ink-2);
+    font-size: 13px;
+}
+.arrange-bar-text { margin: 0; flex: 1 1 260px; }
+.arrange-bar-default { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.arrange-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.arrange-controls { display: flex; gap: 6px; margin-bottom: 8px; }
+.arrange-move {
+    flex: 1;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 700;
+}
+.arrange-move:hover { border-color: var(--gold-line); }
+.arrange-move:focus-visible { box-shadow: var(--focus-ring); }
+.gallery-card.is-arranging { cursor: grab; }
+.gallery-card.is-dragging { opacity: .45; }
+.gallery-card.is-drop-target { box-shadow: 0 0 0 2px var(--gold); }
+
+/* כלי המנהל ו"מקור" בסרגל התצוגה המלאה: אייקון בלבד עד מסך רחב, והסרגל
+   נשבר לשורה נוספת בטלפון כשצריך. */
+#lightboxModal .lightbox-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    padding-inline: 12px;
+    font-size: 13px;
+    font-weight: 700;
+}
+#lightboxModal .lightbox-tool[hidden],
+#lightboxModal.is-big-screen .lightbox-tool { display: none; }
+#lightboxModal .lightbox-tool:focus-visible { border-radius: var(--r-full); }
+#lightboxModal #lightboxSetCover[aria-pressed="true"] { border-color: var(--gold-line); color: var(--gold); }
+.lightbox-tool-text { display: none; }
+@media (min-width: 1100px) {
+    .lightbox-tool-text { display: inline; }
+}
+@media (max-width: 639px) {
+    #lightboxModal .lightbox-actions { flex-wrap: wrap; row-gap: 6px; }
+}
+
+/* עורך הסיבוב והחיתוך: מעל התצוגה המלאה. */
+.media-edit-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    background: var(--overlay);
+}
+.media-edit-modal:not(.hidden) { display: flex; }
+.media-edit-panel {
+    width: min(100%, 980px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--ink);
+}
+.media-edit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.media-edit-head h3 { margin: 0; font-size: 16px; font-weight: 800; }
+.media-edit-note { margin: 0; font-size: 12px; color: var(--ink-3); }
+.media-edit-stage { display: grid; place-items: center; min-height: 160px; }
+/* רוחב המסגרת נגזר מהיחס של התמונה (--edit-ratio, media-edit-ui.js), כך
+   שהקנבס נכנס לגובה המסך בלי שוליים פנימיים, והמלבן שמעליו מיושר אליו. */
+.media-edit-frame {
+    position: relative;
+    width: min(100%, 960px, calc(max(220px, 100dvh - 400px) * var(--edit-ratio, 1.5)));
+    touch-action: none;
+    user-select: none;
+}
+.media-edit-frame[hidden] { display: none; }
+.media-edit-frame canvas { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
+.media-edit-crop {
+    position: absolute;
+    border: 2px solid var(--gold);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55);
+    cursor: move;
+}
+.media-edit-crop:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+.media-edit-handle {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+    background: var(--gold);
+}
+.media-edit-handle[data-handle="nw"] { top: -11px; left: -11px; cursor: nwse-resize; }
+.media-edit-handle[data-handle="ne"] { top: -11px; right: -11px; cursor: nesw-resize; }
+.media-edit-handle[data-handle="sw"] { bottom: -11px; left: -11px; cursor: nesw-resize; }
+.media-edit-handle[data-handle="se"] { bottom: -11px; right: -11px; cursor: nwse-resize; }
+.media-edit-loading { margin: 0; color: var(--ink-3); font-size: 13px; }
+.media-edit-loading[hidden] { display: none; }
+.media-edit-tools { display: flex; flex-direction: column; gap: 10px; }
+.media-edit-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 0; padding: 0; border: 0; }
+.media-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-3); }
+.media-edit-field input { width: 84px; }
+.media-edit-status { margin: 0; min-height: 1.4em; font-size: 12px; color: var(--ink-2); }
+.media-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.media-edit-actions [hidden] { display: none; }
+
+/* בחירת תמונת השער בטופס עמוד האירוע. */
+.event-cover-picker { margin: 0; padding: 0; border: 0; min-width: 0; }
+.event-cover-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.event-cover-choice { position: relative; display: block; width: 64px; height: 64px; cursor: pointer; }
+.event-cover-choice input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.event-cover-choice img,
+.event-cover-auto {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+    border: 2px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink-3);
+}
+.event-cover-choice input:checked + img,
+.event-cover-choice input:checked + .event-cover-auto { border-color: var(--gold); box-shadow: var(--shadow-gold); }
+.event-cover-choice input:focus-visible + img,
+.event-cover-choice input:focus-visible + .event-cover-auto { box-shadow: var(--focus-ring); }
+
+/* עץ התיקיות בלוח הניהול (admin-ui.js, renderAdminFolders). */
+.admin-folder-row { flex-wrap: wrap; }
+.admin-folder-row[data-depth="2"] { margin-inline-start: 22px; }
+.admin-folder-row[data-depth="3"] { margin-inline-start: 44px; }
+.admin-folder-row.is-drop-target { box-shadow: 0 0 0 2px var(--gold); }
+.admin-folder-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.admin-folder-controls select { width: auto; max-width: 180px; padding-block: 6px; font-size: 11px; }
+.admin-folder-icon-button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--panel-soft);
+    color: var(--ink-2);
+}
+.admin-folder-icon-button:disabled { opacity: .35; cursor: not-allowed; }
+.admin-folder-icon-button:focus-visible { box-shadow: var(--focus-ring); }
+.admin-folder-manual { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-3); }

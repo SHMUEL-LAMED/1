@@ -52,6 +52,17 @@ import {
 } from './media-link.js';
 // הטעינה הראשונה: אילו תמונות יורדות מיד ובעדיפות גבוהה (first-load.js).
 import { aboveFoldCardCount, heroTileLoading, MAX_EAGER_CARDS } from './first-load.js';
+// זיהוי הכפילויות לפני העלאה (ראו resolveDuplicateMedia).
+import { duplicateLookupHashes, markDuplicates, duplicateLabel } from './users-model.js';
+// תיקיות מקוננות ותמונת שער: העץ, הכרטיסים, פירורי הלחם ותת־התיקיות (gallery-folders.js).
+import {
+    currentFolderTree, folderBadgeCount, folderHasNew, folderCoverHtml, folderCoverRecord, coverSource,
+    requestMissingCovers, noteCoverRecord, subfolderChipsHtml, renderFolderContext, folderOptionsHtml
+} from './gallery-folders.js';
+// "סדר ידני": מדורגים קודם, ואחריהם לפי תאריך הצילום (manual-order.js).
+import { sortByManualRank } from './manual-order.js';
+// סיבוב וחיתוך לא הורסים: מה מציגים לתמונה ערוכה (media-edit.js).
+import { editDisplay, recordEdit, shouldDownloadEdited } from './media-edit.js';
 
 let currentFilteredImages = [];
 
@@ -434,14 +445,30 @@ async function prepareGalleryDownload(blob, item) {
     return prepareDownloadBlob(blob, item);
 }
 
-async function downloadGalleryMedia(item, fallbackName = 'תמונה') {
-    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
+// תמונה שסובבה או נחתכה יורדת ערוכה כברירת מחדל (JPEG מקודד מחדש באיכות גבוהה,
+// media-edit-canvas.js); "הורדת המקור" שבתצוגה המלאה מורידה את הקובץ כפי שהועלה.
+// בשני המקרים הקובץ עובר אחר כך את הסרת המיקום וסימן המים (prepareGalleryDownload).
+// עריכה שלא הצליחה להיווצר (תמונה ענקית מדי ל-Canvas בטלפון) נופלת למקור.
+async function editedDownloadBlob(blob, item, { original = false } = {}) {
+    if (!shouldDownloadEdited(item, blob?.type || item?.mimeType, { original })) return blob;
+    try {
+        const { renderEditedBlob } = await loadMediaEditCanvas();
+        return await renderEditedBlob(blob, item.edit, { type: 'image/jpeg', quality: 0.95, maxSide: 8192 });
+    } catch (error) {
+        console.warn('Edited download failed, using the original:', error);
+        window.showNotification?.('לא ניתן היה להכין את הגרסה הערוכה; יורד הקובץ המקורי.', false);
+        return blob;
+    }
+}
+
+async function downloadGalleryMedia(item, fallbackName = 'תמונה', options = {}) {
+    const blob = await prepareGalleryDownload(await editedDownloadBlob(await fetchGalleryMediaBlob(item), item, options), item);
     saveBlobAs(blob, galleryDownloadName(item, blob, fallbackName));
 }
 
-window.downloadGalleryMedia = async function(item) {
+window.downloadGalleryMedia = async function(item, options = {}) {
     try {
-        await downloadGalleryMedia(item);
+        await downloadGalleryMedia(item, 'תמונה', options);
         window.countUsage?.('downloads');
         window.showNotification('הקובץ הורד למחשב.');
     } catch (error) {
@@ -486,7 +513,7 @@ window.downloadSelectedMedia = async function(button) {
                 const index = next++;
                 const item = selected[index];
                 try {
-                    const blob = await prepareGalleryDownload(await fetchGalleryMediaBlob(item), item);
+                    const blob = await prepareGalleryDownload(await editedDownloadBlob(await fetchGalleryMediaBlob(item), item), item);
                     files[index] = { item, blob, data: new Uint8Array(await blob.arrayBuffer()) };
                 } catch (error) {
                     console.error('Bulk media download failed:', error);
@@ -556,10 +583,15 @@ window.openEventPage = function(event, folderId) {
     const coverRecord = media.find(item => !window.isVideoRecord(item));
     const cover = document.getElementById('eventPageCover');
     if (cover) {
-        const coverUrl = window.safeImageUrl(folder.coverUrl || coverRecord?.url);
+        // תמונת השער שמנהל בחר, בתצוגה הבינונית; בלעדיה (או כשנמחקה) — כמו היום:
+        // השער הישן של התיקייה או התמונה הראשונה שנטענה.
+        const chosenCover = coverSource(folderCoverRecord(folder), { large: true });
+        const fallbackRecord = coverRecord && recordEdit(coverRecord) ? null : coverRecord;
+        const coverUrl = chosenCover || window.safeImageUrl(folder.coverUrl || fallbackRecord?.url);
         cover.src = coverUrl || cover.src;
         cover.classList.toggle('hidden', !coverUrl);
     }
+    renderEventCoverPicker(folder, media);
     window.state.activeEventFolderId = id;
     document.getElementById('eventPageTitle').textContent = folder.name || 'אירוע';
     document.getElementById('eventPageDate').textContent = eventHeaderDate(folder, media);
@@ -610,6 +642,31 @@ window.openEventPage = function(event, folderId) {
     window.scheduleIconRefresh();
 };
 
+// בחירת תמונת השער בטופס העריכה של עמוד האירוע (למנהל): "אוטומטי" או אחת
+// מהתמונות שכבר נטענו מהתיקייה. כל תמונה היא כפתור רדיו עם שם, כך שהבחירה
+// נגישה במקלדת ובקורא מסך.
+const EVENT_COVER_CHOICES = 24;
+function renderEventCoverPicker(folder, media) {
+    const list = document.getElementById('eventEditCoverList');
+    if (!list) return;
+    // הטופס פתוח למנהל בלבד; לצופה אין טעם לבנות את התמונות.
+    if (!window.state.isAdminLoggedIn) { list.replaceChildren(); return; }
+    const current = window.safeRecordId(folder?.coverImageId);
+    const images = media.filter(item => !window.isVideoRecord(item) && window.safeRecordId(item.id)).slice(0, EVENT_COVER_CHOICES);
+    const currentRecord = folderCoverRecord(folder);
+    if (currentRecord && !images.some(item => window.safeRecordId(item.id) === current)) images.unshift(currentRecord);
+    const option = (value, label, thumb) => `<label class="event-cover-choice">
+            <input type="radio" name="eventEditCover" value="${value}" ${value === current ? 'checked' : ''}>
+            ${thumb ? `<img src="${window.escapeHtml(thumb)}" alt="" loading="lazy" decoding="async">` : '<span class="event-cover-auto" aria-hidden="true"><i data-lucide="wand-sparkles" class="w-4 h-4"></i></span>'}
+            <span class="sr-only">${label}</span>
+        </label>`;
+    list.innerHTML = [
+        option('', 'אוטומטי: התמונה הראשונה בתיקייה', ''),
+        ...images.map(item => option(window.safeRecordId(item.id), window.escapeHtml(mediaAltText(item)), coverSource(item)))
+    ].join('');
+    window.scheduleIconRefresh?.(list);
+}
+
 window.toggleFollowEvent = async function(folderId) {
     const id = window.safeRecordId(folderId);
     if (!id || !window.state.currentUser?.uid) return;
@@ -647,6 +704,9 @@ window.saveEventDetails = async function(event) {
         eventDate: document.getElementById('eventEditDate')?.value || '',
         description: String(document.getElementById('eventEditDescription')?.value || '').trim().slice(0, 600)
     };
+    // תמונת השער: רק כשהטופס מציג את הבחירה; "אוטומטי" מוחק את השדה (null).
+    const coverChoice = document.querySelector('input[name="eventEditCover"]:checked');
+    if (coverChoice) updated.coverImageId = window.safeRecordId(coverChoice.value) || null;
     try {
         await window.saveFolderToCloud(updated);
         toggleEventEdit(false);
@@ -665,10 +725,19 @@ function setActiveFolder(folderId) {
     window.state.tempSearchResults = null;
     const searchBanner = document.getElementById('tempSearchBanner');
     if(searchBanner) searchBanner.classList.add('hidden');
-    window.state.activeFolderId = safeFolderId; window.renderFolders(); window.renderImages();
+    window.state.activeFolderId = safeFolderId;
+    applyFolderDefaultSort(safeFolderId);
+    window.renderFolders(); window.renderImages();
     window.noteGallerySearchChange?.();
     // התיקייה שנבחרה נטענת לבדה: מהמטמון של הביקור, או העמוד הראשון מהענן.
-    return window.loadFolderImages?.(safeFolderId);
+    const loading = window.loadFolderImages?.(safeFolderId);
+    // בסדר ידני כל התיקייה נטענת: הדירוגים פזורים בכל העמודים.
+    if (window.state.gallerySort === 'manual') {
+        Promise.resolve(loading).then(() => {
+            if (window.safeRecordId(window.state.activeFolderId) === safeFolderId) loadAllForManualSort();
+        }).catch(() => {});
+    }
+    return loading;
 }
 
 window.openFavoritesFromProfile = function() {
@@ -691,7 +760,79 @@ function handleSearch(val) {
     }
 }
 
-const GALLERY_SORTS = ['newest', 'oldest', 'name', 'random'];
+const GALLERY_SORTS = ['newest', 'oldest', 'name', 'random', 'manual'];
+
+// "סדר ידני" קיים רק בתוך תיקייה אמיתית: שם הדירוגים (order) של התמונות
+// נקבעו. בכל הארכיון, במועדפים או בתוצאות חיפוש זמני הוא חוזר ל"החדש ביותר".
+function manualSortAvailable() {
+    return window.state.tempSearchResults === null && currentFolderTree().has(window.state.activeFolderId);
+}
+
+function activeGallerySort() {
+    const sort = window.state.gallerySort;
+    return sort === 'manual' && !manualSortAvailable() ? 'newest' : sort;
+}
+
+function syncManualSortOption() {
+    const available = manualSortAvailable();
+    const option = document.querySelector('#gallerySortSelect option[value="manual"]');
+    if (option) {
+        option.hidden = !available;
+        option.disabled = !available;
+    }
+    // כפתור מצב הסידור: למנהל, ורק בתוך תיקייה. יציאה מהתיקייה מסיימת את המצב.
+    const arrangeButton = document.getElementById('galleryArrangeButton');
+    const canArrange = available && Boolean(window.state.isAdminLoggedIn) && !galleryEditBlocked();
+    arrangeButton?.classList.toggle('hidden', !canArrange);
+    if (!canArrange && window.state.arrangeMode) window.cancelGalleryArrangeMode?.();
+}
+window.syncManualSortOption = syncManualSortOption;
+
+// מצב "סדר ידני" נטען רק כשמנהל לוחץ על הכפתור (manual-order-ui.js).
+let manualOrderUiPromise = null;
+function loadManualOrderUi() {
+    manualOrderUiPromise ||= import('./manual-order-ui.js').catch(error => {
+        manualOrderUiPromise = null;
+        throw error;
+    });
+    return manualOrderUiPromise;
+}
+window.toggleGalleryArrangeMode = function() {
+    if (!window.checkAdminPermission()) return;
+    loadManualOrderUi()
+        .then(module => module.toggleArrangeMode())
+        .catch(error => {
+            console.error('Manual order module failed to load:', error);
+            window.showNotification('מצב הסידור לא נטען. בדוק את החיבור ונסה שוב.', false);
+        });
+};
+
+// תיקייה שמנהל הגדיר לה סדר ידני כברירת מחדל נפתחת בו — כל עוד הצופה לא
+// בחר מיון בעצמו. ביציאה ממנה חוזרים למיון שהיה.
+let gallerySortChosen = false;
+function applyFolderDefaultSort(folderId) {
+    const folder = currentFolderTree().get(folderId);
+    // מחוץ לתיקייה אמיתית אין סדר ידני, גם אם הצופה בחר בו קודם.
+    if (!folder && window.state.gallerySort === 'manual') {
+        window.state.gallerySort = 'newest';
+        syncRandomSortControls();
+        return;
+    }
+    if (gallerySortChosen) return;
+    const wantsManual = folder?.manualOrder === true;
+    if (wantsManual && window.state.gallerySort !== 'manual') {
+        window.state.gallerySort = 'manual';
+        syncRandomSortControls();
+    } else if (!wantsManual && window.state.gallerySort === 'manual') {
+        window.state.gallerySort = 'newest';
+        syncRandomSortControls();
+    }
+}
+
+function loadAllForManualSort() {
+    if (activeGallerySort() !== 'manual' || !window.state.imagesHasMore) return;
+    window.loadAllImagesForSearch?.()?.catch(error => console.warn('Manual order autoload failed:', error));
+}
 // הסדר האקראי נקבע פעם אחת לביקור: חזרה ל"אקראי" אחרי מיון אחר, עמוד נוסף
 // בגלילה או ציור מחדש אינם מערבבים מחדש — רק "ערבב מחדש".
 const randomGalleryOrder = createStableShuffle({ keyOf: item => window.safeRecordId(item?.id) });
@@ -707,8 +848,10 @@ function syncRandomSortControls() {
 
 window.setGallerySort = function(sort) {
     window.state.gallerySort = GALLERY_SORTS.includes(sort) ? sort : 'newest';
+    gallerySortChosen = true;
     syncRandomSortControls();
     window.renderImages();
+    loadAllForManualSort();
 };
 
 window.reshuffleGallery = function() {
@@ -1368,11 +1511,19 @@ function getFilteredSortedImages() {
 // לפי זמן ההעלאה. משמש גם את רשימת הדפדוף של קישור ישיר לפריט. במיון
 // האקראי scope הוא כל הפריטים שלפני הסינון (ראו למטה).
 function sortGalleryItems(items, scope = items) {
-    if (window.state.gallerySort === 'oldest') {
+    const sort = activeGallerySort();
+    if (sort === 'manual') {
+        // מצב הסידור של המנהל (manual-order-ui.js) מחזיק סדר עבודה שטרם נשמר.
+        const arranged = window.galleryArrangeOrder?.(items);
+        if (arranged) return arranged;
+        // מדורגים לפי order, ואחריהם הלא מדורגים מהישן לחדש.
+        return sortByManualRank(items, compareCaptureAsc);
+    }
+    if (sort === 'oldest') {
         items.sort(compareCaptureAsc);
-    } else if (window.state.gallerySort === 'name') {
+    } else if (sort === 'name') {
         items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'he'));
-    } else if (window.state.gallerySort === 'random') {
+    } else if (sort === 'random') {
         // כל התיקייה מדורגת לפני הסינון, כדי שביטול סינון לא ידחוף את מה
         // שהיה מסונן אל סוף הסדר.
         const orderScope = randomOrderScope();
@@ -1519,18 +1670,15 @@ window._doRenderFolders = function() {
     const profileFavoritesCount = document.getElementById('profileFavoritesCount');
     if (profileFavoritesCount) profileFavoritesCount.textContent = String(favoriteCount);
 
-    const folders = [...(window.state.folders || [])].sort(function(a, b) {
-        if (a.id === 'all') return -1;
-        if (b.id === 'all') return 1;
-        if (a.syncedFromDrive !== b.syncedFromDrive) return a.syncedFromDrive ? 1 : -1;
-        if (a.syncedFromDrive && b.syncedFromDrive) {
-            const pathCompare = String(a.drivePath || a.name || '').localeCompare(String(b.drivePath || b.name || ''), 'he');
-            if (pathCompare) return pathCompare;
-        }
-        return String(a.name || '').localeCompare(String(b.name || ''), 'he');
-    });
+    // ברשימה רק התיקיות העליונות (ו"כל הארכיון"); תת־תיקיות מוצגות כשבבים
+    // בכרטיס של ההורה ומעל הרשת כשההורה פתוח (gallery-folders.js). רשומה בלי
+    // parentId — כל רשומה ישנה — עליונה, ולכן בלי תיקיות מקוננות הרשימה כמו היום.
+    const tree = currentFolderTree();
+    const allFolder = (window.state.folders || []).find(folder => window.safeRecordId(folder.id) === 'all');
+    const folders = [...(allFolder ? [allFolder] : []), ...tree.roots.map(id => tree.get(id))];
 
-    const eventCount = Math.max(0, folders.filter(folder => folder.id !== 'all').length);
+    // מונה התיקיות בכותרת: כל התיקיות, גם המקוננות.
+    const eventCount = tree.byId.size;
     // המונים מגיעים מהשרת בשאילתה אחת (GET /data/images/counts?by=folderId);
     // בלעדיהם — ממה שטעון בזיכרון, כמו בדף הניהול.
     const folderCounts = window.state.folderCounts;
@@ -1552,9 +1700,11 @@ window._doRenderFolders = function() {
         );
         const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
         const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" data-event-folder="${folderId}" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
-        const count = folderCounts
-            ? (folderId === 'all' ? mediaCount : (Number(folderCounts[folderId]) || 0))
-            : (folder.id === 'all' ? window.state.images.length : window.state.images.filter(img => img.folderId === folder.id).length);
+        // תיקייה עם תת־תיקיות: הפריטים שלה ועוד של כל הצאצאים, מהמונים שכבר
+        // הגיעו מהשרת לכל תיקייה — בלי שאילתה נוספת.
+        const count = folderId === 'all'
+            ? (folderCounts ? mediaCount : window.state.images.length)
+            : folderBadgeCount(folderId, folderCounts);
         const depth = folder.syncedFromDrive ? Math.max(0, Math.min(12, Number(folder.driveDepth) || 0)) : 0;
         const nestingStyle = depth ? `style="margin-inline-start:${Math.min(depth * 18, 144)}px"` : '';
         const branchIcon = depth ? '<span class="text-slate-600 shrink-0" aria-hidden="true">↳</span>' : '';
@@ -1564,13 +1714,16 @@ window._doRenderFolders = function() {
             ? 'כל התמונות והסרטונים במקום אחד'
             : (folder.syncedFromDrive ? 'מסונכרן מ־Google Drive' : (folder.eventDate ? window.escapeHtml(folderEventDateLabel(folder)) : 'אוסף מהגלריה'));
         const folderIcon = folderId === 'all' ? 'layout-grid' : window.safeIconName(folder.icon);
+        // תמונת השער שמנהל בחר, מעל הסמל; בלעדיה (או כשנמחקה) — הסמל כמו היום.
+        const coverHtml = folderId === 'all' ? '' : folderCoverHtml(folder);
+        const childrenHtml = folderId === 'all' ? '' : subfolderChipsHtml(folderId);
         // "חדש": בתיקייה יש פריט שנוסף מאז הביקור הקודם; "כל הארכיון" — בכל תיקייה שהיא.
-        const isNewFolder = folderId === 'all' ? newSince.count > 0 : newSince.folderIds.has(folderId);
+        const isNewFolder = folderId === 'all' ? newSince.count > 0 : folderHasNew(folderId, newSince.folderIds);
         const newBadge = isNewFolder ? '<span class="new-since-badge" title="נוספו פריטים מאז הביקור הקודם שלך">חדש</span>' : '';
         folderParts.push(`
             <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}" data-folder-id="${folderId}">
                 <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
-                    <span class="collection-card-icon" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i></span>
+                    <span class="collection-card-icon${coverHtml ? ' has-cover' : ''}" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i>${coverHtml}</span>
                     <span class="collection-card-content">
                         <strong class="collection-card-title">${folderLabel}</strong>
                         <span class="collection-card-meta">${folderMeta}</span>
@@ -1578,12 +1731,17 @@ window._doRenderFolders = function() {
                     <span class="folder-count collection-card-count"><strong>${count}</strong><small>פריטים</small></span>
                     ${newBadge}
                 </button>
+                ${childrenHtml}
                 <div class="collection-card-actions">${eventBtn}${delBtn}</div>
                 <span class="collection-card-active-label" aria-hidden="true"><i data-lucide="check" class="w-3 h-3"></i> נבחר</span>
             </article>`);
     });
     folderList.innerHTML = folderParts.join('');
     window.scheduleIconRefresh(folderList);
+    renderFolderContext();
+    syncManualSortOption();
+    // שערים שהתמונה שלהם עוד לא נטענה בביקור — בקשה אחת לכולם.
+    requestMissingCovers(() => window.renderFolders());
     // התצוגה המקדימה של התיקייה שתחת העכבר עוברת לכרטיס החדש שלה.
     folderList.__folderHoverPreview?.refresh();
 }
@@ -1858,11 +2016,31 @@ function placeDateGroupLabel(node, index) {
     const label = node.querySelector('.gallery-date-group');
     if (!label) return;
     const item = galleryPageItems[index];
-    const byDate = window.state.gallerySort === 'newest' || window.state.gallerySort === 'oldest';
+    const byDate = ['newest', 'oldest'].includes(activeGallerySort());
     const key = dateGroupKey(item);
     const starts = Boolean(byDate && key && (index === 0 || dateGroupKey(galleryPageItems[index - 1]) !== key));
     label.hidden = !starts;
     label.textContent = starts ? formatHebrewMonthYear(hebrewDateFromDateKey(captureDateKey(item))) : '';
+}
+
+// תמונה שסובבה או נחתכה (media-edit.js): כשהתצוגות כבר נוצרו מהעריכה הן מוצגות
+// כרגיל, אבל בלי נפילה אל המקור — הוא אינו ערוך. כשטרם נוצרו (היצירה נכשלה או
+// עדיין רצה), מציגים את המקור ומציירים עליו את העריכה בדפדפן (editPending).
+function editAwareSource(record, source) {
+    if (window.isVideoRecord(record)) return source;
+    const display = editDisplay(record);
+    if (!display.edit) return source;
+    if (display.baked) return { ...source, fallbackUrl: '' };
+    return { url: source.original, srcset: '', avifSrcset: '', sizes: '', original: source.original, fallbackUrl: '', editPending: display.edit };
+}
+
+let mediaEditCanvasPromise = null;
+function loadMediaEditCanvas() {
+    mediaEditCanvasPromise ||= import('./media-edit-canvas.js').catch(error => {
+        mediaEditCanvasPromise = null;
+        throw error;
+    });
+    return mediaEditCanvasPromise;
 }
 
 // בונה כרטיס אחד, בלי מספרו ומיקומו (אלה נכתבים ב-placeGalleryCard). הוצא
@@ -1883,11 +2061,14 @@ function buildGalleryCard(img, isEditBlocked) {
     // הכרטיס מציג את התצוגה הקטנה (thumb) כשקיימת; סרטון מקבל אותה כפוסטר
     // במקום ריבוע שחור. אם התצוגה לא נטענת — נופלים אל המקור.
     const videoPoster = pickPosterSource(img, window.safeImageUrl, { small: true });
-    const cardSource = pickCardSource(img, window.safeImageUrl);
+    const cardSource = editAwareSource(img, pickCardSource(img, window.safeImageUrl));
     const durationLabel = formatMediaDuration(img.duration);
     // נוסף מאז הביקור הקודם. נקודת הייחוס קבועה לאורך הביקור, ולכן התג חלק
     // מהמרקאפ שמושווה בלי לגרום לבנייה מחדש של כרטיסים.
     const isNew = isNewSince(img, newSinceBaseline());
+    // באלבום של אדם וב"התמונות שלי": פריט שבו האדם תויג ידנית (ולא זוהה בפנים).
+    const manualAlbum = window.state.manualTagAlbum;
+    const isManualTag = Boolean(manualAlbum && manualAlbum.results === window.state.tempSearchResults && manualAlbum.ids.has(imageId));
     // בתג הסרטון המילה והמשך בנפרד: בכרטיס צר ה-CSS משאיר רק את המשך (האייקון
     // כבר אומר "סרטון"), כדי שהתג לא ייכנס מתחת ללב.
     const mediaHtml = isVideo
@@ -1901,14 +2082,24 @@ function buildGalleryCard(img, isEditBlocked) {
     // הרקע המטושטש (placeholder) יושב מתחת לתמונה עד שהיא נטענת, ונעלם כשהכרטיס
     // מסומן is-loaded. רק לתמונה: כרטיס של סרטון מסומן טעון מראש. הערך עבר
     // בדיקה של data URL נקי (media-variants.js), ובכל זאת נכתב דרך escapeHtml.
-    const placeholderUrl = isVideo ? '' : placeholderCssUrl(img);
+    // תמונה ערוכה שעדיין מוצגת מהמקור (editPending) אינה מקבלת אותו: הרקע תיאר
+    // את התמונה לפני הסיבוב/החיתוך, ותצוגות ערוכות מוחקות אותו בשרת.
+    const placeholderUrl = isVideo || cardSource.editPending ? '' : placeholderCssUrl(img);
     const placeholderClass = placeholderUrl ? ' has-placeholder' : '';
     const placeholderStyle = placeholderUrl ? ` style="--media-placeholder:${window.escapeHtml(placeholderUrl)}"` : '';
+    const arranging = window.state.arrangeMode === true;
+    // מצב "סדר ידני" של המנהל (manual-order-ui.js): גרירה, וכפתורי הזזה לנגישות
+    // ולמקלדת. הכפתורים בתוך המרקאפ, ולכן כניסה ויציאה מהמצב בונות את הכרטיסים מחדש.
+    const arrangeHtml = arranging ? `<div class="arrange-controls" role="group" aria-label="מיקום ${title} בסדר הידני">
+                <button type="button" class="arrange-move" data-arrange-move="-1" data-media-id="${imageId}" aria-label="הזזת ${title} מקום אחד קודם"><i data-lucide="arrow-right" class="w-4 h-4"></i><span>קודם</span></button>
+                <button type="button" class="arrange-move" data-arrange-move="1" data-media-id="${imageId}" aria-label="הזזת ${title} מקום אחד אחר כך"><span>אחר כך</span><i data-lucide="arrow-left" class="w-4 h-4"></i></button>
+            </div>` : '';
     const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
-    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}" data-media-id="${imageId}" style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}${placeholderClass}"${placeholderStyle} onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}">
+    return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}${arranging ? ' is-arranging' : ''}" data-media-id="${imageId}"${arranging ? ' draggable="true"' : ''} style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}${placeholderClass}"${placeholderStyle} onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}${isManualTag ? ' (תיוג ידני)' : ''}">
                 ${mediaHtml}
                 ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
+                ${isManualTag ? '<span class="gallery-manual-badge" aria-hidden="true"><i data-lucide="tag" class="w-3 h-3"></i> תיוג ידני</span>' : ''}
                 <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
@@ -1916,6 +2107,7 @@ function buildGalleryCard(img, isEditBlocked) {
             <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="gallery-fav${window.state.bulkSelectionMode ? ' is-stacked' : ''}${isFavorite ? ' is-favorite' : ''}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
             <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
                 <span class="gallery-date-group" hidden></span>
+                ${arrangeHtml}
                 <div><h3 class="gallery-title font-bold truncate mb-1">${title}</h3><div class="gallery-meta flex items-center gap-2 text-[11px]"><span class="gallery-folder-tag px-2 py-0.5 font-medium">${window.escapeHtml(folder ? folder.name : 'כללי')}</span><span aria-hidden="true">•</span>${buildCardDate(img)}</div></div>${actionHtml}
             </div>
         </article>`;
@@ -1944,7 +2136,8 @@ function buildCardDate(img) {
 // כשהתמונה נטענת — handleCardImageLoad (עצירת השלד והיחס של הכרטיס).
 function buildCardPicture(source, altText) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
+    const editAttr = source.editPending ? attr('data-media-edit', JSON.stringify(source.editPending)) : '';
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)}${editAttr} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }
@@ -1954,6 +2147,13 @@ function buildCardPicture(source, altText) {
 // לא ידעה אותו או טעתה בו — לפיו הפסיפס מסדר את השורה. הכתיבה היא על האלמנט
 // ולא במרקאפ שמושווה, ולכן רינדור מחדש אינו בונה את הכרטיס שוב בגללה.
 window.handleCardImageLoad = function(image) {
+    // תמונה ערוכה שהתצוגות שלה עוד לא נוצרו מחדש: המקור נטען, ועכשיו מציירים
+    // עליו את הסיבוב והחיתוך (media-edit-canvas.js).
+    if (image.dataset.mediaEdit && !image.dataset.mediaEditApplied) {
+        let edit = null;
+        try { edit = JSON.parse(image.dataset.mediaEdit); } catch { edit = null; }
+        if (edit) loadMediaEditCanvas().then(module => module.applyEditToImage(image, image.currentSrc || image.src, edit, { maxSide: 960 })).catch(() => {});
+    }
     image.closest('.gallery-media')?.classList.add('is-loaded');
     const card = image.closest('.gallery-card');
     if (!card) return;
@@ -2131,12 +2331,18 @@ window.fetchOlderImages = async function() {
 window.populateFolderSelects = function() {
     ['pendingTargetFolder', 'moveFolderSelect', 'adminTargetFolderSelect', 'userTargetFolderSelect'].forEach(id => {
         const s = document.getElementById(id); if (!s) return;
-        s.innerHTML = id === 'pendingTargetFolder' || id === 'adminTargetFolderSelect' ? '<option value="auto" class="font-bold text-amber-400 bg-slate-950">יצירה וחלוקה אוטומטית לפי תיקיות משנה</option>' : '';
-        window.state.folders.filter(f => f.id !== 'all').forEach(f => {
-            const folderId = window.safeRecordId(f.id);
-            if (folderId) s.insertAdjacentHTML('beforeend', `<option value="${folderId}" class="bg-slate-950 text-white">${window.escapeHtml(f.name)}</option>`);
-        });
+        s.innerHTML = (id === 'pendingTargetFolder' || id === 'adminTargetFolderSelect' ? '<option value="auto" class="font-bold text-amber-400 bg-slate-950">יצירה וחלוקה אוטומטית לפי תיקיות משנה</option>' : '')
+            + folderOptionsHtml();
     });
+    // תיקיית האב של תיקייה חדשה (admin.html): ריק = תיקייה עליונה. תיקייה ברמה
+    // השלישית אינה יכולה לקבל ילדים, ולכן אינה ברשימה.
+    const parentSelect = document.getElementById('emptyFolderParent');
+    if (parentSelect) {
+        const selected = parentSelect.value;
+        const tree = currentFolderTree();
+        const tooDeep = [...tree.byId.keys()].filter(folderId => tree.depthOf(folderId) >= 3);
+        parentSelect.innerHTML = '<option value="">ללא — תיקייה עליונה</option>' + folderOptionsHtml({ selectedId: selected, excludeIds: tooDeep });
+    }
 };
 
 // Debounced render wrappers — collapse rapid successive calls into one DOM update
@@ -2169,70 +2375,117 @@ function isSupportedMediaFile(file) {
     ));
 }
 
-// טביעת התוכן לזיהוי כפילויות. קובץ גדול (סרטון של מאות מגה) אינו נקרא
-// כולו לזיכרון: נגזרת טביעה מהגודל ומדגימות בתחילתו, באמצעו ובסופו. הקידומת
-// "s1:" מבטיחה שטביעה כזו לעולם אינה שווה לטביעה מלאה של קובץ אחר.
-const FULL_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
-const FINGERPRINT_SAMPLE_BYTES = 1024 * 1024;
+// --- כפילויות לפני העלאה ---
+// לכל קובץ מחושבת טביעת תוכן — SHA-256 של הקובץ כפי שנבחר, לפני ההקטנה
+// (content-hash.js; קובץ גדול נקרא בחלקים) — והיא נשמרת ברשומה (contentHash).
+// לפני שהתור מתחיל, השרת נשאל אם כבר יש פריט מאושר או ממתין עם אותה טביעה
+// (POST /duplicates) — גם בתיקיות שלא נטענו. קובץ כפול מסומן בשורה
+// שלו ("כבר קיים בגלריה") ומדולג כברירת מחדל; "העלה בכל זאת" בשורה מחזיר אותו.
+// Worker ישן (404) אינו מכיר את הבדיקה: נבדקות אז רק כפילויות באותה בחירה.
+const DUPLICATE_CHECK_BATCH = 100;
 
-async function createFileFingerprint(file) {
-    if (!(file instanceof Blob) || !window.crypto?.subtle) return '';
-    const hex = digest => Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
-    if (file.size <= FULL_FINGERPRINT_MAX_BYTES) {
-        return hex(await window.crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+async function findServerDuplicates(records) {
+    const hashes = duplicateLookupHashes(records, Number.MAX_SAFE_INTEGER);
+    const results = [];
+    for (let offset = 0; offset < hashes.length; offset += DUPLICATE_CHECK_BATCH) {
+        try {
+            const payload = await window.r2Request('/duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hashes: hashes.slice(offset, offset + DUPLICATE_CHECK_BATCH) })
+            });
+            if (Array.isArray(payload?.results)) results.push(...payload.results);
+        } catch (error) {
+            if (error?.status !== 404) console.warn('Duplicate check failed:', error);
+            break;
+        }
     }
-    const middle = Math.floor(file.size / 2);
-    const samples = await new Blob([
-        String(file.size),
-        file.slice(0, FINGERPRINT_SAMPLE_BYTES),
-        file.slice(middle, middle + FINGERPRINT_SAMPLE_BYTES),
-        file.slice(file.size - FINGERPRINT_SAMPLE_BYTES)
-    ]).arrayBuffer();
-    return `s1:${hex(await window.crypto.subtle.digest('SHA-256', samples))}`;
+    return results;
 }
 
-let duplicateUploadResolver = null;
+function queueRow(containerId, index) {
+    return document.querySelector(`#${containerId} [data-upload-index="${index}"]`);
+}
 
-window.resolveDuplicateUpload = function(choice) {
-    window.closeModal('duplicateMediaModal');
-    const resolver = duplicateUploadResolver;
-    duplicateUploadResolver = null;
-    if (resolver) resolver(choice);
-};
-
-async function resolveDuplicateMedia(records) {
-    const knownHashes = new Set(
-        [...(window.state.images || []), ...(window.state.pendingImages || [])]
-            .map(item => String(item.contentHash || ''))
-            .filter(Boolean)
-    );
-    const currentHashes = new Set();
-    records.forEach(record => {
-        const hash = String(record.contentHash || '');
-        record._isDuplicate = Boolean(hash && (knownHashes.has(hash) || currentHashes.has(hash)));
-        if (hash) currentHashes.add(hash);
-    });
-    const duplicates = records.filter(record => record._isDuplicate);
+// הבחירה לכל קובץ כפול נעשית בשורה שלו בתור; ההעלאה ממשיכה רק אחרי "המשך".
+async function resolveDuplicateMedia(records, containerId) {
+    const duplicates = markDuplicates(records, await findServerDuplicates(records));
     if (!duplicates.length) return records;
-
-    const message = document.getElementById('duplicateMediaMessage');
-    const list = document.getElementById('duplicateMediaList');
-    if (message) message.textContent = `נמצאו ${duplicates.length} קבצים שכבר קיימים בגלריה או מופיעים יותר מפעם אחת בבחירה הנוכחית.`;
-    if (list) {
-        list.replaceChildren();
-        duplicates.slice(0, 20).forEach(record => {
-            const row = document.createElement('p');
-            row.className = 'rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] text-slate-300 truncate';
-            row.textContent = record.title || 'קובץ ללא שם';
-            list.appendChild(row);
+    const container = document.getElementById(containerId);
+    if (!container) return records.filter(record => !record.duplicateOf);
+    const uploadAnyway = new Set();
+    for (const record of duplicates) {
+        const label = duplicateLabel(record.duplicateOf);
+        updateUploadQueueItem(containerId, record.uploadQueueIndex, 'duplicate', label);
+        const row = queueRow(containerId, record.uploadQueueIndex);
+        if (!row) continue;
+        row.querySelector('.upload-queue-duplicate')?.remove();
+        const choice = document.createElement('div');
+        choice.className = 'upload-queue-duplicate';
+        if (record.duplicateOf?.imageId && record.duplicateOf.state === 'approved') {
+            const link = document.createElement('a');
+            link.href = `./#media/${encodeURIComponent(record.duplicateOf.imageId)}`;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = 'הצג את הקיים';
+            choice.append(link);
+        }
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'upload-queue-duplicate-toggle';
+        toggle.textContent = 'העלה בכל זאת';
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', `העלה בכל זאת: ${record.title || 'קובץ'}`);
+        toggle.addEventListener('click', () => {
+            const on = !uploadAnyway.has(record.id);
+            if (on) uploadAnyway.add(record.id); else uploadAnyway.delete(record.id);
+            toggle.setAttribute('aria-pressed', String(on));
+            updateUploadQueueItem(containerId, record.uploadQueueIndex, 'duplicate', on ? 'יועלה בכל זאת' : label);
         });
+        choice.append(toggle);
+        row.querySelector('.min-w-0')?.append(choice);
     }
-    window.openModal('duplicateMediaModal');
+    const bar = document.createElement('div');
+    bar.className = 'upload-duplicate-bar';
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-labelledby', `${containerId}DuplicateText`);
+    const message = document.createElement('p');
+    message.id = `${containerId}DuplicateText`;
+    message.setAttribute('role', 'status');
+    message.textContent = duplicates.length === 1
+        ? 'קובץ אחד כבר קיים. הוא ידולג, אלא אם תסמנו בשורה שלו "העלה בכל זאת".'
+        : `${duplicates.length} קבצים כבר קיימים. הם ידולגו, אלא אם תסמנו בשורה של כל אחד "העלה בכל זאת".`;
+    const actions = document.createElement('div');
+    actions.className = 'upload-duplicate-actions';
+    const proceed = document.createElement('button');
+    proceed.type = 'button';
+    proceed.className = 'btn-primary-gold';
+    proceed.textContent = 'המשך בהעלאה';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn-secondary-dark';
+    cancel.textContent = 'ביטול';
+    actions.append(proceed, cancel);
+    bar.append(message, actions);
+    container.prepend(bar);
+    container.classList.remove('hidden');
     window.scheduleIconRefresh();
-    const choice = await new Promise(resolve => { duplicateUploadResolver = resolve; });
-    if (choice === 'cancel') return [];
-    if (choice === 'skip') return records.filter(record => !record._isDuplicate);
-    return records;
+    proceed.focus({ preventScroll: true });
+    const go = await new Promise(resolve => {
+        proceed.addEventListener('click', () => resolve(true), { once: true });
+        cancel.addEventListener('click', () => resolve(false), { once: true });
+    });
+    bar.remove();
+    container.querySelectorAll('.upload-queue-duplicate').forEach(node => node.remove());
+    if (!go) {
+        for (const record of records) updateUploadQueueItem(containerId, record.uploadQueueIndex, 'cancelled', 'בוטל');
+        return [];
+    }
+    for (const record of duplicates) {
+        if (!uploadAnyway.has(record.id)) updateUploadQueueItem(containerId, record.uploadQueueIndex, 'cancelled', `דולג — ${duplicateLabel(record.duplicateOf)}`);
+        else updateUploadQueueItem(containerId, record.uploadQueueIndex, 'ready', 'יועלה בכל זאת');
+    }
+    return records.filter(record => !record.duplicateOf || uploadAnyway.has(record.id));
 }
 
 function inspectVideoFile(file) {
@@ -2309,8 +2562,9 @@ function loadUploadModules() {
     uploadModulesPromise ||= Promise.all([
         import('./upload-queue.js'),
         import('./upload-resumable.js'),
-        import('./upload-compress.js')
-    ]).then(([queue, resumable, compress]) => ({ queue, resumable, compress })).catch(error => {
+        import('./upload-compress.js'),
+        import('./content-hash.js')
+    ]).then(([queue, resumable, compress, hashing]) => ({ queue, resumable, compress, hashing })).catch(error => {
         uploadModulesPromise = null;
         throw error;
     });
@@ -2416,6 +2670,7 @@ async function markResumableRows(files, containerId) {
 }
 
 const UPLOAD_STATE_TEXT_CLASS = {
+    duplicate: 'text-amber-300',
     success: 'text-emerald-300',
     error: 'text-red-300',
     active: 'text-cyan-300',
@@ -2423,6 +2678,7 @@ const UPLOAD_STATE_TEXT_CLASS = {
     cancelled: 'text-slate-500'
 };
 const UPLOAD_STATE_ICON = {
+    duplicate: 'copy',
     success: 'circle-check',
     error: 'circle-x',
     active: 'loader-circle',
@@ -2646,7 +2902,7 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
     if (!fallbackFolderId) throw new Error('יש ליצור לפחות תיקיית יעד אחת לפני העלאת קבצים.');
     const progressEl = document.getElementById(isAdmin ? 'adminUploadProgressText' : 'userUploadProgressText');
     const queueId = isAdmin ? 'adminUploadQueue' : 'userUploadQueue';
-    const { resumable, compress } = await loadUploadModules();
+    const { resumable, compress, hashing } = await loadUploadModules();
     const scope = uploadScope();
     // העלאה שמורה מריצה קודמת: אותו מזהה מדיה, כדי שה-Worker ימשיך את אותו קובץ.
     const resumeFor = async (blob, key) => {
@@ -2662,11 +2918,21 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
             continue;
         }
         updateUploadQueueItem(queueId, i, 'active', 'מעבד');
+        // טביעת התוכן של הקובץ כפי שנבחר (לפני הקטנה): נשמרת ברשומה ונבדקת
+        // מול השרת לפני ההעלאה. בקובץ גדול מוצגת ההתקדמות של החישוב.
         let contentHash = '';
-        try {
-            contentHash = await createFileFingerprint(file);
-        } catch (error) {
-            console.warn('File fingerprint failed:', error);
+        let duplicateLookup = [];
+        // סרטון מעל 1GB ממילא אינו עולה — אין טעם לקרוא את כולו לחישוב הטביעה.
+        if (!(isSupportedVideoFile(file) && file.size > MAX_VIDEO_UPLOAD_BYTES)) {
+            try {
+                const fingerprint = await hashing.fingerprintForUpload(file, {
+                    onProgress: progress => updateUploadQueueItem(queueId, i, 'active', `מחשב טביעה · ${Math.round(progress * 100)}%`)
+                });
+                contentHash = fingerprint.contentHash;
+                duplicateLookup = fingerprint.lookup;
+            } catch (error) {
+                console.warn('File fingerprint failed:', error);
+            }
         }
         if (file.webkitRelativePath) {
             const parts = file.webkitRelativePath.split('/');
@@ -2706,7 +2972,7 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
                 sourceFile: videoFile, mediaType: 'video', mimeType: videoMimeType,
                 duration: videoInfo.duration,
                 thumbnailDataUrl: videoInfo.thumbnailDataUrl,
-                contentHash, originalSize: file.size,
+                contentHash, duplicateLookup, originalSize: file.size,
                 ...(resumeKey ? { _resumeKey: resumeKey } : {}),
                 date: new Date().toISOString().split('T')[0], createdAt: Date.now(), originalFolderName: folderName,
                 ...captureFields
@@ -2729,7 +2995,7 @@ async function processFilesWithFolders(files, targetFolderId = 'auto', isAdmin =
                 id: saved?.imageId || `img_${crypto.randomUUID()}`,
                 folderId: destFolderId || fallbackFolderId, title: file.name.replace(/\.[^.]+$/, ''), url: '',
                 sourceFile: uploadFile, mediaType: 'image', mimeType,
-                contentHash, originalSize: file.size,
+                contentHash, duplicateLookup, originalSize: file.size,
                 ...(prepared.compressed ? { uploadedSize: uploadFile.size } : {}),
                 ...(prepared.width && prepared.height ? { width: prepared.width, height: prepared.height } : {}),
                 ...(prepared.captureDate ? { capturedAt: prepared.captureDate } : {}),
@@ -2808,7 +3074,7 @@ async function handleAddPhotoAdmin(event, confirmed = false) {
         if(pText) pText.innerText = 'מכין את הקבצים להעלאה...';
         const newImages = await processFilesWithFolders(allFiles, targetFolderId, true);
         if (newImages.length === 0) throw new Error('לא נמצאו קובצי מדיה תקינים.');
-        const uploadRecords = await resolveDuplicateMedia(newImages);
+        const uploadRecords = await resolveDuplicateMedia(newImages, 'adminUploadQueue');
         if (uploadRecords.length === 0) {
             window.showNotification('ההעלאה בוטלה או שכל הקבצים הכפולים דולגו.', true);
             return;
@@ -2886,7 +3152,7 @@ async function submitUserUpload(confirmed = false) {
             }
             throw new Error('לא נמצאו קובצי מדיה תקינים.');
         }
-        const uploadRecords = await resolveDuplicateMedia(newImages);
+        const uploadRecords = await resolveDuplicateMedia(newImages, 'userUploadQueue');
         if (uploadRecords.length === 0) {
             window.showNotification('ההעלאה בוטלה או שכל הקבצים הכפולים דולגו.', true);
             return;
@@ -2930,13 +3196,16 @@ async function handleCreateEmptyFolder(event, confirmed = false) {
         return;
     }
     const newFolder = { id: 'folder_' + crypto.randomUUID(), name, icon, isDefault: false };
+    // תת־תיקייה: ההורה שנבחר בטופס (ריק = תיקייה עליונה). ה-Worker בודק עומק ומעגל.
+    const parentId = window.safeRecordId(document.getElementById('emptyFolderParent')?.value);
+    if (parentId) newFolder.parentId = parentId;
     try {
         await window.saveFolderToCloud(newFolder);
         if(nameEl) nameEl.value = '';
         window.showNotification(`התיקייה "${name}" נוצרה בענן!`);
     } catch (error) {
         console.error('Folder creation failed:', error);
-        window.showNotification('יצירת התיקייה נכשלה. נסה שוב.', false);
+        window.showNotification(error.message || 'יצירת התיקייה נכשלה. נסה שוב.', false);
     }
 }
 
@@ -2949,6 +3218,12 @@ function handleDeleteFolder(event, folderId) {
         return;
     }
     const folder = window.state.folders.find(item => window.safeRecordId(item.id) === folderId);
+    // אין מחיקה מדורגת: קודם מעבירים או מוחקים את תת־התיקיות (גם ה-Worker אוכף).
+    const children = currentFolderTree().childrenOf(folderId);
+    if (children.length) {
+        window.showNotification(`אי אפשר למחוק תיקייה שיש בה תת־תיקיות (${children.length}). העבר או מחק קודם את תת־התיקיות.`, false);
+        return;
+    }
     if (!window.state.isSuperAdmin) {
         window.showConfirm('בקשת מחיקת תיקייה', 'לשלוח למנהל־העל בקשה למחיקת התיקייה?', async () => {
             try {
@@ -3006,11 +3281,8 @@ function changeImageFolder(id) {
     const img = window.state.images.find(i => window.safeRecordId(i.id) === id); if (!img) return;
     const s = document.getElementById('moveFolderSelect');
     if(!s) return;
-    s.innerHTML = '';
-    window.state.folders.filter(f => f.id !== 'all').forEach(f => {
-        const folderId = window.safeRecordId(f.id);
-        if (folderId) s.insertAdjacentHTML('beforeend', `<option value="${folderId}" ${folderId === window.safeRecordId(img.folderId) ? 'selected' : ''}>${window.escapeHtml(f.name)}</option>`);
-    });
+    // לפי העץ, עם הזחה לתת־תיקיות.
+    s.innerHTML = folderOptionsHtml({ selectedId: img.folderId });
     const moveBtn = document.getElementById('moveFolderSubmitBtn');
     if(moveBtn) {
         moveBtn.onclick = () => {
@@ -3051,9 +3323,10 @@ function ensureLightboxInteractions() {
         atStart: () => window.state.currentLightboxIndex <= 0,
         atEnd: () => window.state.currentLightboxIndex >= currentFilteredImages.length - 1,
         // הזום מחליף לקובץ המקורי ברזולוציה מלאה, לא לתצוגה הבינונית.
+        // תמונה ערוכה נשארת בזום על התצוגה הערוכה: המקור אינו ערוך.
         getOriginalUrl: () => {
             const item = currentItem();
-            return item && !window.isVideoRecord(item) ? window.safeImageUrl(item.url) : '';
+            return item && !window.isVideoRecord(item) && !recordEdit(item) ? window.safeImageUrl(item.url) : '';
         },
         canZoom: () => !isSlideshowActive() && !window.isVideoRecord(currentItem()),
         canSwipe: () => true
@@ -3146,6 +3419,101 @@ async function saveMediaDescription(imageId, { caption, sceneTags }) {
         renderLightboxDescription(saved, { canEdit: true });
     }
     return saved;
+}
+
+// הפריט שמוצג עכשיו בתצוגה המלאה — לחלון התיוג הידני (manual-tags.js).
+window.currentLightboxRecord = () => currentFilteredImages[window.state.currentLightboxIndex] || null;
+window.openLightboxTagger = function() {
+    if (!window.checkAdminPermission()) return;
+    // מצגת שרצה הייתה מחליפה את הפריט שמאחורי החלון בזמן התיוג.
+    stopSlideshow({ silent: true });
+    window.openManualTagger?.();
+};
+
+// רשומה שהשתנתה מחוץ לזרימה הרגילה (עריכת סיבוב/חיתוך, תצוגות חדשות, סדר ידני):
+// כל העותקים שבזיכרון מתעדכנים, והתצוגה המלאה מוצגת מחדש כשהפריט פתוח בה.
+function applyUpdatedMediaRecords(records, { refreshLightbox = true } = {}) {
+    const list = (Array.isArray(records) ? records : [records]).filter(record => window.safeRecordId(record?.id));
+    if (!list.length) return;
+    for (const saved of list) {
+        window.state.images = replaceLoadedRecord(window.state.images, saved);
+        window.state.latestImages = replaceLoadedRecord(window.state.latestImages, saved);
+        if (window.state.tempSearchResults !== null) window.state.tempSearchResults = replaceLoadedRecord(window.state.tempSearchResults, saved);
+        currentFilteredImages = replaceLoadedRecord(currentFilteredImages, saved);
+        window.noteGalleryImageUpserted?.(saved);
+        noteCoverRecord(saved);
+    }
+    window.renderImages();
+    window.renderFolders();
+    const lightbox = document.getElementById('lightboxModal');
+    const shown = currentFilteredImages[window.state.currentLightboxIndex];
+    if (refreshLightbox && lightbox && !lightbox.classList.contains('hidden')
+        && list.some(record => window.safeRecordId(record.id) === window.safeRecordId(shown?.id))) {
+        updateLightbox(true);
+    }
+}
+window.applyGalleryRecordUpdates = applyUpdatedMediaRecords;
+
+// --- כלי המנהל בתצוגה המלאה: עריכה, תמונת שער והורדת המקור ---
+let mediaEditUiPromise = null;
+function openMediaEditorFor(img) {
+    if (!window.checkAdminPermission()) return;
+    stopSlideshow({ silent: true });
+    mediaEditUiPromise ||= import('./media-edit-ui.js').catch(error => {
+        mediaEditUiPromise = null;
+        throw error;
+    });
+    mediaEditUiPromise
+        .then(module => module.openMediaEditor(img, { onSaved: record => applyUpdatedMediaRecords(record) }))
+        .catch(error => {
+            console.error('Media editor failed to load:', error);
+            window.showNotification('עורך התמונה לא נטען. בדוק את החיבור ונסה שוב.', false);
+        });
+}
+
+// "קבע כתמונת שער": השער של התיקייה שבה הפריט נמצא. לחיצה נוספת על שער קיים
+// מחזירה את התיקייה לסמל (null מוחק את השדה בשרת).
+async function setFolderCover(folderId, imageId) {
+    if (!window.checkAdminPermission()) return;
+    const folder = currentFolderTree().get(folderId);
+    if (!folder) return;
+    const id = window.safeRecordId(imageId);
+    const clearing = window.safeRecordId(folder.coverImageId) === id;
+    try {
+        await window.saveFolderToCloud({ ...folder, coverImageId: clearing ? null : id });
+        window.showNotification(clearing ? `תמונת השער של "${folder.name || 'התיקייה'}" הוסרה.` : `התמונה נקבעה כתמונת השער של "${folder.name || 'התיקייה'}".`);
+        const shown = currentFilteredImages[window.state.currentLightboxIndex];
+        if (shown) syncLightboxAdminTools(shown, window.isVideoRecord(shown));
+    } catch (error) {
+        console.error('Set folder cover failed:', error);
+        window.showNotification(error.message || 'קביעת תמונת השער נכשלה.', false);
+    }
+}
+window.setFolderCover = setFolderCover;
+
+// לצופה הכלים מוסתרים; ה-Worker בודק את ההרשאה בכל מקרה.
+function syncLightboxAdminTools(img, isVideo) {
+    const admin = Boolean(window.state.isAdminLoggedIn) && !galleryEditBlocked();
+    const folder = currentFolderTree().get(img?.folderId);
+    const editButton = document.getElementById('lightboxEditMedia');
+    if (editButton) {
+        editButton.hidden = !admin || isVideo;
+        editButton.onclick = admin && !isVideo ? () => openMediaEditorFor(img) : null;
+    }
+    const coverButton = document.getElementById('lightboxSetCover');
+    if (coverButton) {
+        const isCover = Boolean(folder) && window.safeRecordId(folder.coverImageId) === window.safeRecordId(img?.id);
+        coverButton.hidden = !admin || !folder;
+        coverButton.setAttribute('aria-pressed', isCover ? 'true' : 'false');
+        coverButton.title = isCover ? 'זו תמונת השער של התיקייה — לחיצה מסירה אותה' : 'קבע כתמונת שער של התיקייה';
+        coverButton.onclick = admin && folder ? () => setFolderCover(folder.id, img.id) : null;
+    }
+    const originalButton = document.getElementById('lightboxDownloadOriginal');
+    if (originalButton) {
+        const edited = !isVideo && Boolean(recordEdit(img));
+        originalButton.hidden = !edited;
+        originalButton.onclick = edited ? () => window.downloadGalleryMedia(img, { original: true }) : null;
+    }
 }
 
 function editCurrentLightboxDescription() {
@@ -3493,7 +3861,7 @@ function lightboxPreviewSource(item) {
     if (window.isVideoRecord(item)) {
         return { url: pickPosterSource(item, window.safeImageUrl), srcset: '', avifSrcset: '', sizes: '', fallbackUrl: '' };
     }
-    return pickLightboxSource(item, window.safeImageUrl);
+    return editAwareSource(item, pickLightboxSource(item, window.safeImageUrl));
 }
 
 function lightboxSourceKey(source) {
@@ -3502,6 +3870,8 @@ function lightboxSourceKey(source) {
 
 // מציב מקור על תמונת התצוגה המלאה (ועל ה-<source> של AVIF שב-<picture>).
 function applyLightboxImageSource(lbImage, source) {
+    // הסימון של עריכה שכבר צוירה שייך לפריט הקודם.
+    delete lbImage.dataset.mediaEditApplied;
     if (source.fallbackUrl) lbImage.dataset.fallbackSrc = source.fallbackUrl;
     else delete lbImage.dataset.fallbackSrc;
     // מקור ה-AVIF שב-<picture> של התצוגה המלאה: בלי srcset הדפדפן מתעלם ממנו.
@@ -3696,6 +4066,12 @@ function updateLightbox(immediate = false) {
             setLightboxPlaceholder(lbImage, placeholderUrl, request);
             applyLightboxImageSource(lbImage, source);
             lbStage?.classList.remove('is-loading');
+            // תמונה ערוכה שהתצוגות שלה עוד אינן ערוכות: העריכה מצוירת על המקור.
+            if (source.editPending) {
+                loadMediaEditCanvas()
+                    .then(module => (request === lightboxImageRequest ? module.applyEditToImage(lbImage, source.url, source.editPending, { maxSide: 2560 }) : null))
+                    .catch(error => console.warn('Lightbox edit preview failed:', error));
+            }
         };
         // התמונה הקודמת נשארת על המסך עד שהבאה פוענחה, ורק אז מתחלפת — בלי
         // הבזק של מסך ריק. בפתיחה, או כשאין תמונה קודמת (ממלא מקום של תמונה
@@ -3717,6 +4093,9 @@ function updateLightbox(immediate = false) {
     // הכיתוב ותגיות הסצנה, וכפתור העריכה למנהל. הכיתוב הוא גם הטקסט החלופי
     // של התמונה לקוראי מסך, כשיש כזה; אחרת השם או התאריך (media-alt.js).
     renderLightboxDescription(img, { canEdit: Boolean(window.state.isAdminLoggedIn) });
+    // תיוג ידני של אדם שהזיהוי פספס (manual-tags.js) — למנהלים בלבד.
+    const tagButton = document.getElementById('lightboxTagPerson');
+    if (tagButton) tagButton.hidden = !window.state.isAdminLoggedIn;
     if (lbImage && !isVideo) lbImage.alt = mediaAltText(img);
 
     const lbDownload = document.getElementById('lightboxDownload');
@@ -3725,6 +4104,7 @@ function updateLightbox(immediate = false) {
         lbDownload.setAttribute('aria-disabled', imageUrl ? 'false' : 'true');
         lbDownload.onclick = imageUrl ? () => window.downloadGalleryMedia(img) : null;
     }
+    syncLightboxAdminTools(img, isVideo);
 
     syncLightboxFavorite(img);
 
@@ -3753,7 +4133,7 @@ document.addEventListener('keydown', e => {
     const lightbox = document.getElementById('lightboxModal');
     // חלון עריכת הכיתוב וחלון קיצורי המקלדת יושבים מעל התצוגה המלאה: החצים
     // והרווח שייכים להם, ורק Escape ממשיך אל הסגירה הכללית שלמטה.
-    const overlayOpen = ['mediaDescriptionModal', 'shortcutsHelpModal']
+    const overlayOpen = ['mediaDescriptionModal', 'shortcutsHelpModal', 'mediaEditModal']
         .some(id => document.getElementById(id)?.classList.contains('hidden') === false);
     if (lightbox && !lightbox.classList.contains('hidden') && !overlayOpen) {
         // רווח ו-Escape שייכים למצגת כשהיא פועלת (Escape עוצר אותה בלבד).

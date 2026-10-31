@@ -215,3 +215,54 @@ CREATE TABLE IF NOT EXISTS admin_user_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_user_notes_target
   ON admin_user_notes (target_uid, created_at);
+
+-- גרסה 11: "ההעלאות שלי", זיהוי כפילויות, תיוג ידני והזמנות לאירוע.
+-- תיעוד דחייה מינימלי של העלאה ממתינה — רק מה שהמעלה עצמו רואה. נמחק
+-- בתחזוקה היומית אחרי 60 יום.
+CREATE TABLE IF NOT EXISTS upload_rejections (
+  image_id TEXT PRIMARY KEY,
+  uploader_uid TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  rejected_by TEXT NOT NULL DEFAULT '',
+  rejected_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_upload_rejections_uploader
+  ON upload_rejections (uploader_uid, rejected_at);
+CREATE INDEX IF NOT EXISTS idx_upload_rejections_time
+  ON upload_rejections (rejected_at);
+
+-- תיוג ידני של אדם בתמונה שבה זיהוי הפנים לא מצא אותו. box_json ריק = התמונה כולה.
+CREATE TABLE IF NOT EXISTS face_manual_tags (
+  image_id TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  box_json TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (image_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS idx_face_manual_tags_person
+  ON face_manual_tags (person_id);
+
+-- קישור הזמנה לאירוע: רק SHA-256 של האסימון נשמר, לעולם לא האסימון עצמו.
+CREATE TABLE IF NOT EXISTS invite_links (
+  invite_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  folder_id TEXT NOT NULL,
+  folder_name TEXT NOT NULL DEFAULT '',
+  auto_approve INTEGER NOT NULL DEFAULT 0,
+  max_uses INTEGER NOT NULL DEFAULT 0,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_invite_links_expires
+  ON invite_links (expires_at);
+
+-- זיהוי כפילויות לפני העלאה: הביטוי והתנאי זהים לאלה שב-Worker
+-- (CONTENT_HASH_SQL). אינדקס חלקי — רק רשומות מדיה.
+CREATE INDEX IF NOT EXISTS idx_gallery_documents_content_hash
+  ON gallery_documents (collection_name, json_extract(data_json, '$.contentHash'))
+  WHERE collection_name IN ('images', 'pendingImages');

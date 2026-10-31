@@ -53,7 +53,7 @@ function commitDecision(id, action, meta) {
     }
     return action === 'approve'
         ? window.approvePendingImage(id, meta.folder || 'auto')
-        : window.rejectPendingImage(id);
+        : window.rejectPendingImage(id, { reason: meta.reason || '' });
 }
 
 // המפגש אחד לכל הדף: פריט שנשלחה עליו בקשת מחיקה נשאר ב-pendingImages
@@ -299,11 +299,16 @@ function decide(action) {
     decidedTitles.set(id, cardTitle(record));
     // מי החליט: השמירה תצא רק אם זה עדיין החשבון המחובר (commitDecision).
     const uid = currentUid();
+    // סיבת הדחייה (רשות) — מה שהמנהל כתב בשדה לפני הדחייה. השדה מתרוקן מיד,
+    // כך שהסיבה אינה עוברת בטעות לפריט הבא.
+    const reasonField = $('pendingSwipeReason');
+    const reason = action === 'reject' ? String(reasonField?.value || '').trim() : '';
+    if (action === 'reject' && reasonField) reasonField.value = '';
     const card = $('pendingSwipeCard');
     const recordDecision = () => {
         leaving = false;
         if (!isOpen) return;
-        if (currentId !== id || !session.decide(id, action, { folder: targetFolderId(), uid })) {
+        if (currentId !== id || !session.decide(id, action, { folder: targetFolderId(), uid, reason })) {
             resetCardPosition(card, { animate: false });
             render();
         }
@@ -510,6 +515,8 @@ export function endPendingSwipe() {
     // פרטי ההעלאה של החשבון הקודם אינם נשארים גם ב-DOM המוסתר.
     $('pendingSwipeCard')?.replaceChildren();
     $('pendingSwipeNext')?.replaceChildren();
+    const reasonField = $('pendingSwipeReason');
+    if (reasonField) reasonField.value = '';
     const undoText = $('pendingSwipeUndoText');
     if (undoText) undoText.textContent = '';
     const live = $('pendingSwipeLive');

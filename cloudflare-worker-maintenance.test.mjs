@@ -271,7 +271,7 @@ test("הגיבוי היומי: כל הטבלאות בעמודים, דחוס, ב�
   assert.ok(!text.includes("super-secret-value"), "מפתח החתימה אסור בגיבוי");
   const backup = JSON.parse(text);
   assert.equal(backup.format, "simchas-gallery-d1-backup");
-  assert.equal(backup.schemaVersion, 9);
+  assert.equal(backup.schemaVersion, 11);
   const names = backup.tables.map(table => table.name);
   for (const name of ["gallery_documents", "client_errors", "face_persons", "media_variant_files", "upload_sessions", "gallery_schema_meta"]) assert.ok(names.includes(name), name);
   assert.ok(!names.includes("auth_secrets") && !names.includes("request_rate_limits"));
@@ -594,4 +594,28 @@ test("קישורים שבורים: רשומות בלי קובץ וקבצים ב�
   // אחרי סריקה מלאה: עד מחר הקריאה רק בודקת ואינה כותבת.
   const idle = await (await call("/maintenance/broken-links", "POST", {}, token)).json();
   assert.equal(idle.idle, true);
+});
+
+test("ניקוי יומי: תיעוד דחייה בן יותר מ-60 יום וקישורי הזמנה שפגו לפני יותר מ-30 יום נמחקים, והשאר נשאר", async () => {
+  const db = database.database;
+  db.exec("DELETE FROM upload_rejections");
+  db.exec("DELETE FROM invite_links");
+  const now = Date.now();
+  const reject = db.prepare("INSERT INTO upload_rejections (image_id, uploader_uid, title, reason, rejected_by, rejected_at) VALUES (?, 'google-viewer', 't', '', 'google-admin', ?)");
+  reject.run("old_rejection", now - 61 * DAY);
+  reject.run("recent_rejection", now - 59 * DAY);
+  const invite = db.prepare(`INSERT INTO invite_links (invite_id, token_hash, folder_id, folder_name, created_by, created_at, expires_at, revoked_at)
+    VALUES (?, ?, 'f1', 'אירוע', 'google-admin', ?, ?, ?)`);
+  invite.run("expired_long_ago", "h1", now - 60 * DAY, now - 31 * DAY, 0);
+  invite.run("revoked_long_ago", "h2", now - 60 * DAY, now + 5 * DAY, now - 40 * DAY);
+  invite.run("expired_recently", "h3", now - 20 * DAY, now - 3 * DAY, 0);
+  invite.run("revoked_recently", "h4", now - 10 * DAY, now + 20 * DAY, now - 2 * DAY);
+  invite.run("expired_then_revoked", "h6", now - 70 * DAY, now - 40 * DAY, now - 2 * DAY);
+  invite.run("active", "h5", now, now + 7 * DAY, 0);
+  const result = await (await call("/maintenance/trash-purge", "POST", {}, await session())).json();
+  assert.equal(result.rejectionsPurged, 1);
+  assert.equal(result.invitesPurged, 3);
+  assert.deepEqual(db.prepare("SELECT image_id FROM upload_rejections").all().map(row => row.image_id), ["recent_rejection"]);
+  assert.deepEqual(db.prepare("SELECT invite_id FROM invite_links ORDER BY invite_id").all().map(row => row.invite_id),
+    ["active", "expired_recently", "revoked_recently"]);
 });

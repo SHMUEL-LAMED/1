@@ -463,6 +463,10 @@ function clearPrivateGalleryViews() {
     window.resetMediaLinkState?.();
     window.resetNewUpdatesState?.();
     window.resetPrintAlbum?.();
+    // "ההעלאות שלי" וחלון התיוג הידני (רק אם נטענו): הרשימה והתיוגים נמחקים מהדף.
+    window.resetMyUploads?.();
+    window.resetManualTagger?.();
+    window.state.manualTagAlbum = null;
     window.state.tempSearchResults = null;
     const banner = document.getElementById('tempSearchBanner');
     if (banner) {
@@ -614,6 +618,7 @@ function setupFirestoreListeners(user) {
                 window.stopAdminListeners?.();
             }
             window.updateAdminUI();
+            window.afterProfileReady?.(profile);
             if (approved && window.state.popupAnnouncementConfig) {
                 window.showPopupAnnouncement?.(window.state.popupAnnouncementConfig);
             }

@@ -15,6 +15,8 @@
 import { selectVariantCandidates, runVariantBackfill, MEDIA_VARIANTS_VERSION, selectPlaceholderCandidates } from './media-variants.js';
 import { generateMediaVariants, appendVariantParts, generatePlaceholderFromBlob } from './media-variants-generate.js';
 import { API_BASE_URLS } from './api-environment.js';
+import { recordEdit } from './media-edit.js';
+import { renderEditedBlob } from './media-edit-canvas.js';
 
 // שלושה פריטים במקביל: פענוח תמונה גדולה או סרטון תופס זיכרון, ויותר מזה
 // רק מקפיא את הדף בלי לקצר את הריצה.
@@ -272,10 +274,16 @@ async function processVariantCandidate(candidate) {
     // לפריים, במקום להוריד קובץ של עשרות מגה-בייט. סרטון ממתין דורש אסימון
     // שאי אפשר לצרף ל-<video>, ולכן הוא יורד כקובץ.
     const streamable = candidate.isVideo && !candidate.url.includes('/media/pending/');
-    const source = streamable ? candidate.url : await fetchMediaBlob(candidate.url);
+    let source = streamable ? candidate.url : await fetchMediaBlob(candidate.url);
+    // תמונה שמנהל סובב או חתך: התצוגות נוצרות מהגרסה הערוכה, עם מזהה העריכה,
+    // כדי שהגלריה תציג אותן כערוכות (media-edit.js). המקור עצמו אינו משתנה.
+    const record = (window.state?.images || []).find(item => window.safeRecordId(item?.id) === candidate.imageId);
+    const edit = candidate.isVideo ? null : recordEdit(record);
+    if (edit && source instanceof Blob) source = await renderEditedBlob(source, edit, { maxSide: 2560, type: 'image/jpeg', quality: 0.95 });
     const generated = await generateMediaVariants(source, { isVideo: candidate.isVideo });
     const form = new FormData();
     form.append('imageId', candidate.imageId);
+    if (edit) form.append('editRevision', edit.rev);
     if (!appendVariantParts(form, generated)) throw new Error('לא נוצרה אף תצוגה מקדימה.');
     const response = await postMediaVariants(form);
     applyVariantsLocally(candidate.imageId, response?.variants, Number(response?.variantsVersion) || MEDIA_VARIANTS_VERSION);

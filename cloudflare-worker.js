@@ -90,9 +90,18 @@ const DRIVE_ACCESS_TOKEN_SAFETY_MS = 60 * 1000;
 //   9 — usage_daily (מוני שימוש מצטברים: שורה לכל יום ומדד, מספרים בלבד)
 //       ו-admin_user_notes (הערות פנימיות של מנהלים על משתמש, מחוץ ל-userProfiles).
 //       שתי טבלאות חדשות בלבד; אף טבלה או עמודה קיימת אינה משתנה.
+//   10 — הייתה שמורה לענף התיקיות והתמונות, שלא נזקק לה: תיקיות מקוננות, תמונת
+//       שער, סדר ידני ועריכה הם שדות בתוך מסמך ה-JSON, בלי טבלה או עמודה חדשה.
+//   11 — משתמשים ואנשים: upload_rejections (תיעוד דחייה מינימלי ל"ההעלאות שלי",
+//       נמחק אחרי 60 יום), face_manual_tags (תיוג ידני של אדם בתמונה שהזיהוי
+//       פספס), invite_links (קישורי הזמנה לאירוע; רק גיבוב האסימון נשמר) ואינדקס
+//       על contentHash לזיהוי כפילויות לפני העלאה. רק תוספות — אין שינוי בנתונים.
+// כל הטבלאות והאינדקסים נוצרים ב-CREATE ... IF NOT EXISTS בכל ריצה שבה הגרסה
+// הרשומה נמוכה מהנוכחית, ולכן מסד בגרסה 8 (לפני ניהול המשתמשים) ומסד בגרסה 9
+// (אחריו) מגיעים שניהם ל-11 באותה ריצה: מה שכבר קיים נשאר, מה שחסר נוצר.
 // גרסאות הנתונים של שכבת הנתונים (data_version:<אוסף>, ראו bumpDataVersion)
 // נשמרות באותה טבלה תחת מפתחות אחרים, והעלאת הסכימה אינה נוגעת בהן.
-const DATABASE_SCHEMA_VERSION = 9;
+const DATABASE_SCHEMA_VERSION = 11;
 // גודל עמוד ברשימת מסמכים. הלקוח מבקש עמודים ומצרף אותם, כך שאין תקרה
 // על המספר הכולל של המסמכים שנטענים — רק על גודל התשובה הבודדת.
 const DATA_PAGE_MAX_LIMIT = 1000;
@@ -221,6 +230,47 @@ const FACE_ME_RATE_WINDOW_MS = 10 * 60 * 1000;
 // ממפתח מטמון הקצה של רשימת האנשים ושל האלבום של כל אדם.
 const FACE_PEOPLE_DATA_VERSION = "facePeople";
 const FACE_VIEWER_ROLES = ["viewer", "uploader", "admin", "super_admin"];
+// תיוג ידני של אדם בתמונה (POST /face/tags): תקרה לתמונה אחת.
+const FACE_TAGS_MAX_PER_IMAGE = 30;
+
+// --- משתמשים: "ההעלאות שלי", כפילויות והזמנות לאירוע ---
+const MY_UPLOADS_LIMIT = 200;
+const MY_UPLOADS_RATE_LIMIT = 60;
+const MY_UPLOADS_RATE_WINDOW_MS = 10 * 60 * 1000;
+// תיעוד דחייה נשמר חודשיים: מספיק כדי שהמעלה יראה מה נדחה ולמה, ולא יותר.
+const UPLOAD_REJECTION_RETENTION_DAYS = 60;
+const UPLOAD_REJECTION_REASON_MAX_LENGTH = 300;
+const UPLOAD_REJECT_RATE_LIMIT = 600;
+const UPLOAD_REJECT_RATE_WINDOW_MS = 10 * 60 * 1000;
+// טביעת התוכן של קובץ: SHA-256 מלא (hex), או "s1:" — טביעה מדגימות שדפדפן
+// ישן חישב לקובץ מעל 64MB. אחרת השדה נמחק מהרשומה.
+const CONTENT_HASH_PATTERN = /^(?:s1:)?[a-f0-9]{64}$/;
+const CONTENT_HASH_SQL = "json_extract(data_json, '$.contentHash')";
+const CONTENT_HASH_COLLECTIONS_SQL = "collection_name IN ('images', 'pendingImages')";
+const DUPLICATE_CHECK_MAX_HASHES = 100;
+const DUPLICATE_CHECK_RATE_LIMIT = 120;
+const DUPLICATE_CHECK_RATE_WINDOW_MS = 10 * 60 * 1000;
+// קישורי הזמנה: תוקף של יום, שבוע או חודש, ותקרת שימושים אופציונלית.
+const INVITE_DAY_OPTIONS = [1, 7, 30];
+const INVITE_MAX_USES_LIMIT = 1000;
+const INVITE_TOKEN_BYTES = 32;
+const INVITE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const INVITE_ID_PATTERN = /^[A-Za-z0-9_-]{12,32}$/;
+const INVITE_MAX_ACTIVE = 100;
+const INVITE_LIST_LIMIT = 200;
+// קישור שפג או בוטל נשאר ברשימה עוד 30 יום, ואחר כך נמחק בתחזוקה היומית.
+const INVITE_RETENTION_DAYS = 30;
+// מתי קישור הפסיק לעבוד: מועד הביטול, אם בוטל לפני שפג, ואחרת מועד התפוגה.
+const INVITE_ENDED_AT_SQL = "CASE WHEN revoked_at > 0 AND revoked_at < expires_at THEN revoked_at ELSE expires_at END";
+const INVITE_CREATE_RATE_LIMIT = 30;
+const INVITE_CREATE_RATE_WINDOW_MS = 60 * 60 * 1000;
+// מימוש הזמנה: לכל חשבון, ובנוסף לכל כתובת IP — כדי שניחוש אסימונים לא
+// יהיה אפשרי גם מכמה חשבונות.
+const INVITE_REDEEM_RATE_LIMIT = 10;
+const INVITE_REDEEM_IP_RATE_LIMIT = 30;
+const INVITE_REDEEM_RATE_WINDOW_MS = 60 * 60 * 1000;
+// שדות ההזמנה בפרופיל: רק השרת כותב אותם (POST /invites/redeem).
+const INVITE_PROFILE_FIELDS = ["inviteId", "inviteFolderId", "inviteFolderName", "invitedAt", "inviteAutoApproved"];
 
 const FACE_ASSETS = new Map([
   ["face-api.js", { upstreamPath: "dist/face-api.js", contentType: "application/javascript; charset=utf-8" }],
@@ -971,6 +1021,67 @@ async function ensureDatabaseSchema(env) {
     // orderExpression, כדי ש-SQLite ישתמש באינדקס.
     await env.GALLERY_DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_gallery_documents_taken_at ON gallery_documents (collection_name, ${TAKEN_AT_ORDER_SQL})`
+    ).run();
+    // גרסה 11: "ההעלאות שלי", זיהוי כפילויות, תיוג ידני והזמנות לאירוע.
+    // תיעוד דחייה של העלאה ממתינה: רק מה שהמעלה עצמו צריך לראות (מזהה, שם,
+    // זמן וסיבה אופציונלית). נמחק בתחזוקה היומית אחרי UPLOAD_REJECTION_RETENTION_DAYS.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS upload_rejections (
+        image_id TEXT PRIMARY KEY,
+        uploader_uid TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        rejected_by TEXT NOT NULL DEFAULT '',
+        rejected_at INTEGER NOT NULL
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_upload_rejections_uploader ON upload_rejections (uploader_uid, rejected_at)"
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_upload_rejections_time ON upload_rejections (rejected_at)"
+    ).run();
+    // תיוג ידני של אדם בתמונה שבה זיהוי הפנים לא מצא אותו: אין כאן טביעה,
+    // ולכן זו טבלה נפרדת מ-face_people. box_json ריק = התמונה כולה.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS face_manual_tags (
+        image_id TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        box_json TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (image_id, person_id)
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_face_manual_tags_person ON face_manual_tags (person_id)"
+    ).run();
+    // קישור הזמנה לאירוע. האסימון עצמו לעולם אינו נשמר: רק SHA-256 שלו.
+    await env.GALLERY_DB.prepare(
+      `CREATE TABLE IF NOT EXISTS invite_links (
+        invite_id TEXT PRIMARY KEY,
+        token_hash TEXT NOT NULL UNIQUE,
+        folder_id TEXT NOT NULL,
+        folder_name TEXT NOT NULL DEFAULT '',
+        auto_approve INTEGER NOT NULL DEFAULT 0,
+        max_uses INTEGER NOT NULL DEFAULT 0,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        revoked_at INTEGER NOT NULL DEFAULT 0
+      )`
+    ).run();
+    await env.GALLERY_DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_invite_links_expires ON invite_links (expires_at)"
+    ).run();
+    // זיהוי כפילויות לפני העלאה (POST /duplicates). הביטוי והתנאי זהים לאלה
+    // שבשאילתה (CONTENT_HASH_SQL), כדי ש-SQLite ישתמש באינדקס. האינדקס חלקי —
+    // רק רשומות מדיה — כך שכתיבה לאוספים אחרים (יומן, מונים, העדפות) אינה
+    // מעדכנת אותו ואינה עולה בכתיבות נוספות ב-D1.
+    await env.GALLERY_DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_gallery_documents_content_hash ON gallery_documents (collection_name, ${CONTENT_HASH_SQL})
+       WHERE ${CONTENT_HASH_COLLECTIONS_SQL}`
     ).run();
     const versionRow = await env.GALLERY_DB.prepare(
       "SELECT schema_version FROM gallery_schema_meta WHERE schema_key = 'gallery'"
@@ -1871,10 +1982,13 @@ async function handleDataRequest(request, env, url, ctx) {
       else delete nextData.placeholder;
     }
     if (["images", "pendingImages"].includes(collectionName)) {
+      nextData = normalizeContentHash(nextData, existing);
       nextData = normalizeCaptureFields(nextData, existing);
       // כיתוב ותגיות: רק מנהל משנה אותם, ועותק ישן בלי השדות אינו מוחק אותם.
       const canEditDescription = (actor.status === "approved" || actor.initialAdmin) && ["admin", "super_admin"].includes(actor.role);
       nextData = normalizeImageDescriptionFields(nextData, existing, { canEdit: canEditDescription });
+      // סדר ידני ועריכת סיבוב/חיתוך: אותו כלל — רק מנהל, ועותק ישן אינו מוחק.
+      nextData = normalizeImageArrangeFields(nextData, existing, { canEdit: canEditDescription, existed: Boolean(existingRow) });
       if (existing.aiTitleVersion === 1) {
         nextData.aiTitleVersion = existing.aiTitleVersion;
         nextData.aiTitleGeneratedAt = existing.aiTitleGeneratedAt;
@@ -1900,7 +2014,13 @@ async function handleDataRequest(request, env, url, ctx) {
       if (nextData.captionSource !== "manual") {
         for (const field of ["caption", "sceneTags", "captionSource", "aiCaptionVersion", "aiCaptionGeneratedAt"]) delete nextData[field];
       }
+      // סיבוב וחיתוך שנקבעו לקובץ הקודם אינם מתאימים לתוכן החדש.
+      delete nextData.edit;
       await deleteFaceIndexForImage(env, documentId);
+    }
+    if (collectionName === "folders") {
+      // תיקיית אב, תמונת שער וסדר: נבדקים כאן ולא סומכים על הדפדפן.
+      nextData = await normalizeFolderFields(env, documentId, nextData, existing);
     }
     if (collectionName === "activityLogs") {
       if (existingRow && actor.role !== "super_admin") {
@@ -1934,6 +2054,26 @@ async function handleDataRequest(request, env, url, ctx) {
         status: existingRow ? (existing.status || "pending") : "pending",
         role: existingRow ? (existing.role || "viewer") : "viewer"
       };
+      // "הגיע מהזמנה לאירוע" נכתב רק בשרת (redeemInvite); המשתמש אינו יכול
+      // לסמן את עצמו כמוזמן כדי להיראות אמין יותר בבקשת ההצטרפות.
+      for (const field of INVITE_PROFILE_FIELDS) {
+        if (existing[field] !== undefined) nextData[field] = existing[field];
+        else delete nextData[field];
+      }
+    }
+    // צופה ששולח העלאה לאישור כותב רק רשומה משלו: המעלה הוא החשבון המאומת,
+    // המצב תמיד "ממתין", ורשומה ממתינה של משתמש אחר אינה נדרסת. כך "ההעלאות
+    // שלי" (GET /my-uploads) לעולם אינו מציג למשתמש פריט של מישהו אחר.
+    if (collectionName === "pendingImages" && !["admin", "super_admin"].includes(actor.role)) {
+      if (existingRow && existing.uploadedBy && existing.uploadedBy !== actor.uid) {
+        throw apiError("אין הרשאה לפעולה זו.", 403, "permission_denied");
+      }
+      // פריט שכבר אושר אינו חוזר לתור האישור בכתיבה של המעלה.
+      if (existingRow && existing.status === "approved") {
+        throw apiError("הפריט כבר אושר.", 409, "already_approved");
+      }
+      nextData = { ...nextData, uploadedBy: actor.uid, status: "pending" };
+      delete nextData.uid;
     }
     if (collectionName === "userProfiles" && actor.initialAdmin && documentId === actor.uid) {
       nextData = { ...nextData, uid: actor.uid, email: actor.email, status: "approved", role: "super_admin" };
@@ -1972,6 +2112,10 @@ async function handleDataRequest(request, env, url, ctx) {
     if (collectionName === "userProfiles") {
       await updateUserEmailIndex(env, documentId, nextData.email, now);
     }
+    // פריט ממתין שחזר (שחזור מסל המחזור) אינו "נדחה" עוד אצל המעלה.
+    if (collectionName === "pendingImages" && !existingRow && ["admin", "super_admin"].includes(actor.role)) {
+      await env.GALLERY_DB.prepare("DELETE FROM upload_rejections WHERE image_id = ?").bind(documentId).run();
+    }
     await bumpDataVersion(env, collectionName);
     if (collectionName === "images" && !existingRow && nextData.mediaType !== "video" && env.OPENAI_API_KEY && ctx?.waitUntil) {
       // שם, כיתוב ותגיות לתמונה חדשה נוצרים ברקע, אחרי שהתשובה יצאה — רק כשמשימת
@@ -1985,19 +2129,38 @@ async function handleDataRequest(request, env, url, ctx) {
   }
 
   if (request.method === "DELETE" && documentId) {
+    if (collectionName === "folders") {
+      // אין מחיקה מדורגת: תיקייה שיש בה תת־תיקיות נשארת עד שהן מועברות או
+      // נמחקות. כך גם דפדפן ישן, או ניקוי התיקיות הריקות, אינם משאירים
+      // תת־תיקיות יתומות.
+      const child = await env.GALLERY_DB.prepare(
+        `SELECT document_id FROM gallery_documents
+         WHERE collection_name = 'folders' AND json_extract(data_json, '$.parentId') = ? LIMIT 1`
+      ).bind(documentId).first();
+      if (child) {
+        throw apiError("אי אפשר למחוק תיקייה שיש בה תת־תיקיות. העבר או מחק קודם את תת־התיקיות.", 409, "folder_has_children");
+      }
+    }
     // מחיקת פרופיל היא גם הסרת הגישה: אותם כללים כמו בחסימה (ראו assertSuperAdminRetained).
+    // פריט ממתין נקרא פעם אחת, לפני המחיקה, לשני צרכים: פריט שנמחק לפני שאושר
+    // (סל המחזור, מחיקה סופית) נדחה מבחינת המעלה — נשאר ממנו רק תיעוד מינימלי,
+    // שהמעלה עצמו רואה ב"ההעלאות שלי"; ורק פריט שעדיין המתין נספר כ"נדחה"
+    // בסטטיסטיקות (רשומת תיעוד של פריט שאושר אינה). POST /pending/reject רק
+    // רושם את הסיבה ואינו סופר, כך שכל דחייה נספרת כאן, פעם אחת.
+    let deletedPending = null;
     let deletedPendingStatus = "";
     if (collectionName === "userProfiles") {
       const existingRow = await readGalleryDocumentRow(env, collectionName, documentId);
       if (existingRow) await assertSuperAdminRetained(env, actor, documentId, parseDocumentData(existingRow), {});
     } else if (collectionName === "pendingImages") {
-      // רק פריט שעדיין המתין נספר כ"נדחה" בסטטיסטיקות; רשומת תיעוד של פריט שאושר אינה.
       const pendingRow = await readGalleryDocumentRow(env, collectionName, documentId);
-      deletedPendingStatus = pendingRow ? String(parseDocumentData(pendingRow).status || "pending") : "";
+      deletedPending = pendingRow ? parseDocumentData(pendingRow) : null;
+      deletedPendingStatus = deletedPending ? String(deletedPending.status || "pending") : "";
     }
     await env.GALLERY_DB.prepare(
       "DELETE FROM gallery_documents WHERE collection_name = ? AND document_id = ?"
     ).bind(collectionName, documentId).run();
+    if (deletedPending) await recordUploadRejection(env, documentId, deletedPending, { actorUid: actor.uid });
     await bumpDataVersion(env, collectionName);
     if (collectionName === "userProfiles") {
       await env.GALLERY_DB.prepare("DELETE FROM user_email_index WHERE document_id = ?").bind(documentId).run();
@@ -3086,8 +3249,12 @@ async function forgetVariantFiles(env, keys) {
   }
 }
 
-async function storeMediaVariants(request, env, imageId, parts, { ownerUid, state }) {
+async function storeMediaVariants(request, env, imageId, parts, { ownerUid, state, editRevision = "" }) {
   const variants = {};
+  // תצוגה שנוצרה מחדש אחרי סיבוב/חיתוך נכתבת לאותו מפתח ב-R2, אבל הכתובת
+  // שלה נושאת את מזהה העריכה (?v=): התצוגות נשמרות במטמון לשנה (immutable),
+  // וכתובת חדשה היא הדרך היחידה שהדפדפן יבקש את התוכן החדש.
+  const versioned = url => (editRevision ? `${url}?v=${editRevision}` : url);
   const createdAt = new Date().toISOString();
   const putVariant = async (key, part, type, entry) => {
     const bytes = await part.arrayBuffer();
@@ -3120,11 +3287,12 @@ async function storeMediaVariants(request, env, imageId, parts, { ownerUid, stat
     await putVariant(key, entry.part, entry.type, entry);
     const variant = {
       key,
-      url: mediaUrl(request, key, env),
+      url: versioned(mediaUrl(request, key, env)),
       width: entry.width,
       height: entry.height,
       type: entry.type
     };
+    if (editRevision) variant.editRev = editRevision;
     // אותה תצוגה בסיומת האחרת (JPEG מול WebP) אינה נשארת כקובץ יתום, וגם לא
     // עותק AVIF ישן כשהתצוגה החדשה נשלחה בלעדיו: הוא כבר אינו תואם לה.
     const staleKeys = [...ALLOWED_VARIANT_TYPES.values()]
@@ -3133,7 +3301,7 @@ async function storeMediaVariants(request, env, imageId, parts, { ownerUid, stat
     if (entry.avif) {
       const avifKey = variantObjectKey(imageId, entry.name, VARIANT_AVIF_EXTENSION);
       await putVariant(avifKey, entry.avif, VARIANT_AVIF_TYPE, entry);
-      variant.avif = { key: avifKey, url: mediaUrl(request, avifKey, env), type: VARIANT_AVIF_TYPE };
+      variant.avif = { key: avifKey, url: versioned(mediaUrl(request, avifKey, env)), type: VARIANT_AVIF_TYPE };
     } else {
       staleKeys.push(variantObjectKey(imageId, entry.name, VARIANT_AVIF_EXTENSION));
     }
@@ -3154,7 +3322,7 @@ async function readGalleryDocumentRow(env, collectionName, documentId) {
 // רשומה ממתינה נשמרת כתיעוד גם אחרי האישור. תצוגות קודמות שלא נשלחו שוב נשמרות.
 // placeholder (רשות) הוא הרקע המטושטש שנוצר יחד עם התצוגות; בקשה שיש בה רק
 // אותו (השלמה לפריט שכבר יש לו תצוגות) אינה נוגעת ב-variants.
-async function attachVariantsToRecords(env, imageId, variants, { placeholder = "" } = {}) {
+async function attachVariantsToRecords(env, imageId, variants, { placeholder = "", editRevision = "" } = {}) {
   const updated = [];
   let merged = variants;
   const hasVariants = Object.keys(variants || {}).length > 0;
@@ -3165,6 +3333,10 @@ async function attachVariantsToRecords(env, imageId, variants, { placeholder = "
     const existing = data.variants && typeof data.variants === "object" ? data.variants : {};
     merged = { ...existing, ...variants };
     const next = hasVariants ? { ...data, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION } : { ...data };
+    // תצוגות של סיבוב/חיתוך (או של ביטול עריכה) משנות את התמונה המוצגת: ממלא
+    // המקום המטושטש הקודם תיאר את התמונה הקודמת ונמחק. רקע מטושטש שנשלח באותה
+    // בקשה נוצר מהתצוגות הערוכות, ולכן הוא נשמר במקומו.
+    if (editRevision) delete next.placeholder;
     if (placeholder) next.placeholder = placeholder;
     if (!hasVariants && !placeholder) continue;
     const updatedAt = Math.max(Date.now(), (Number(row.updated_at) || 0) + 1);
@@ -3253,6 +3425,23 @@ async function attachMediaVariants(request, env) {
     }
   }
 
+  // מזהה עריכה: התצוגות נוצרו מהתמונה אחרי סיבוב/חיתוך (או מחדש מהמקור,
+  // בביטול עריכה). רק מנהל עורך תמונות, ולכן רק הוא שולח אותו.
+  const rawEditRevision = form.get("editRevision");
+  let editRevision = "";
+  if (rawEditRevision !== null && rawEditRevision !== undefined && rawEditRevision !== "") {
+    if (!["admin", "super_admin"].includes(user.role)) {
+      throw apiError("רק מנהל רשאי לצרף תצוגות של תמונה ערוכה.", 403, "permission_denied");
+    }
+    editRevision = String(rawEditRevision);
+    if (!MEDIA_EDIT_REVISION_PATTERN.test(editRevision)) {
+      throw apiError("מזהה העריכה אינו תקין.", 400, "invalid_edit_revision");
+    }
+    if (isVideoLikeData(record)) {
+      throw apiError("עריכת סיבוב וחיתוך זמינה לתמונות בלבד.", 400, "media_edit_unsupported");
+    }
+  }
+
   const parts = readVariantParts(form);
   // הרקע המטושטש: כאן — בניגוד להעלאה — ערך פסול מכשיל את הבקשה, כמו תצוגה פסולה.
   const rawPlaceholder = form.get("placeholder");
@@ -3264,9 +3453,10 @@ async function attachMediaVariants(request, env) {
 
   const variants = parts.length ? await storeMediaVariants(request, env, imageId, parts, {
     ownerUid: ownerUid || user.uid,
-    state: activeRow ? "approved" : "pending"
+    state: activeRow ? "approved" : "pending",
+    editRevision
   }) : {};
-  const attached = await attachVariantsToRecords(env, imageId, variants, { placeholder });
+  const attached = await attachVariantsToRecords(env, imageId, variants, { placeholder, editRevision });
   return json(request, {
     success: true,
     imageId,
@@ -3626,6 +3816,307 @@ export function normalizeImageDescriptionFields(data, existing = {}, { canEdit =
   return next;
 }
 
+// --- תיקיות מקוננות, תמונת שער, סדר ידני ועריכה לא הורסת ---
+// כל השדות האלה נשמרים בתוך מסמך ה-JSON של התיקייה או התמונה, בלי עמודה או
+// טבלה חדשה ובלי שינוי סכימה. שדה שחסר בכתיבה נשמר מהרשומה הקיימת — כך דפדפן
+// ישן שכותב רשומה שלמה (שינוי שם, סנכרון Drive, העברת תמונה) אינו מוחק את
+// ההורה, את השער, את הסדר או את העריכה שמנהל קבע. null מפורש מנקה את השדה.
+
+// עומק מרבי של עץ התיקיות: שנה › אירוע › חלק באירוע.
+const FOLDER_MAX_DEPTH = 3;
+// מזהים של תצוגות, לא תיקיות: אסור שיהיו הורה, ואסור לתת להם הורה.
+const RESERVED_FOLDER_IDS = new Set(["all", "favorites"]);
+const RECORD_ID_PATTERN = /^[a-zA-Z0-9_-]{1,120}$/;
+// דירוג "סדר ידני": מספר דליל. התקרה מרחיקה ערכים שאינם מספר אמיתי ב-JSON.
+const ORDER_RANK_LIMIT = 1e15;
+// כמה רשומות לכל היותר בכתיבת סדר אחת (POST /order). כולן ב-batch אחד של D1.
+const ORDER_BATCH_MAX = 500;
+const ORDER_COLLECTIONS = new Set(["images", "folders"]);
+// עריכה לא הורסת של תמונה: סיבוב ברבעים וחיתוך מנורמל (0..1) של התמונה
+// שאחרי הסיבוב. המקור ב-R2 לעולם אינו משתנה.
+const MEDIA_EDIT_ROTATIONS = new Set([0, 90, 180, 270]);
+const MEDIA_EDIT_MIN_CROP = 0.02;
+// מזהה העריכה (rev): התצוגות המקדימות שנוצרו ממנה נושאות אותו, וכך הדפדפן יודע
+// אם הן כבר ערוכות או שעליו להחיל את העריכה בעצמו.
+const MEDIA_EDIT_REVISION_PATTERN = /^[a-z0-9]{1,24}$/;
+
+function hasOwnField(object, field) {
+  return Boolean(object) && Object.prototype.hasOwnProperty.call(object, field) && object[field] !== undefined;
+}
+
+function isAdminActor(actor) {
+  return Boolean(actor?.status === "approved" || actor?.initialAdmin) && ["admin", "super_admin"].includes(actor?.role);
+}
+
+// מזהה רשומה שהגיע מהלקוח: חייב להיות תקין כמות שהוא. מזהה ש"ניקוי" היה משנה
+// (רווח, תו אחר) נדחה, כדי שלא יצביע בשקט על רשומה אחרת.
+function strictRecordId(value, label, code) {
+  const id = typeof value === "string" ? value : "";
+  if (!RECORD_ID_PATTERN.test(id)) throw apiError(`${label} אינו תקין.`, 400, code);
+  return id;
+}
+
+export function normalizeOrderRank(value) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > ORDER_RANK_LIMIT) {
+    throw apiError("מיקום בסדר הידני חייב להיות מספר.", 400, "invalid_order");
+  }
+  return value;
+}
+
+function roundEditNumber(value) {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+// מחזיר את העריכה המנורמלת, או null כשאין עריכה (או שהיא זהות: בלי סיבוב ובלי חיתוך).
+export function normalizeMediaEdit(value) {
+  if (value === null) return null;
+  const invalid = () => apiError("נתוני העריכה של התמונה אינם תקינים.", 400, "invalid_media_edit");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const rotate = value.rotate === undefined ? 0 : value.rotate;
+  if (typeof rotate !== "number" || !MEDIA_EDIT_ROTATIONS.has(rotate)) throw invalid();
+  let crop = null;
+  if (value.crop !== undefined && value.crop !== null) {
+    const raw = value.crop;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw invalid();
+    const parts = {};
+    for (const key of ["x", "y", "w", "h"]) {
+      const number = raw[key];
+      if (typeof number !== "number" || !Number.isFinite(number) || number < 0 || number > 1) throw invalid();
+      parts[key] = roundEditNumber(number);
+    }
+    if (parts.w < MEDIA_EDIT_MIN_CROP || parts.h < MEDIA_EDIT_MIN_CROP) throw invalid();
+    if (parts.x + parts.w > 1 + 1e-6 || parts.y + parts.h > 1 + 1e-6) throw invalid();
+    // חיתוך שמכסה את כל התמונה אינו חיתוך.
+    const full = parts.x <= 1e-6 && parts.y <= 1e-6 && parts.w >= 1 - 1e-6 && parts.h >= 1 - 1e-6;
+    crop = full ? null : parts;
+  }
+  if (typeof value.rev !== "string" || !MEDIA_EDIT_REVISION_PATTERN.test(value.rev)) throw invalid();
+  if (rotate === 0 && !crop) return null;
+  return { rotate, crop, rev: value.rev };
+}
+
+// שדה שהמבקש אינו רשאי לשנות, או שלא נשלח, נלקח מהרשומה הקיימת; אחרת
+// נבדק ומנורמל, ו-null מוחק אותו מהרשומה.
+function applyGuardedField(next, previous, field, canEdit, normalize) {
+  if (!canEdit || !hasOwnField(next, field)) {
+    if (previous?.[field] === undefined) delete next[field];
+    else next[field] = previous[field];
+    return;
+  }
+  const value = normalize(next[field]);
+  if (value === null) delete next[field];
+  else next[field] = value;
+}
+
+function isVideoLikeData(data) {
+  return data?.mediaType === "video" || /^video\//i.test(String(data?.mimeType || ""));
+}
+
+// order ו-edit של תמונה: רק מנהל קובע אותם. מעלה שכותב את הרשומה שלו (או
+// רשומה ממתינה) אינו יכול להכניס אותם, ועותק ישן בלי השדות אינו מוחק אותם.
+export function normalizeImageArrangeFields(data, existing = {}, { canEdit = false, existed = false } = {}) {
+  const next = { ...data };
+  const previous = existing && typeof existing === "object" ? existing : {};
+  applyGuardedField(next, previous, "order", canEdit, normalizeOrderRank);
+  // הדירוג שייך לסדר של התיקייה שבה נקבע. תמונה שעברה תיקייה עם אותו דירוג
+  // (הדפדפן שלח את הרשומה כפי שהייתה) מצטרפת לסוף התיקייה החדשה.
+  if (existed && next.order !== undefined && next.order === previous.order &&
+      String(next.folderId ?? "") !== String(previous.folderId ?? "")) {
+    delete next.order;
+  }
+  applyGuardedField(next, previous, "edit", canEdit, normalizeMediaEdit);
+  if (next.edit && canEdit && hasOwnField(data, "edit") && isVideoLikeData(next)) {
+    throw apiError("עריכת סיבוב וחיתוך זמינה לתמונות בלבד.", 400, "media_edit_unsupported");
+  }
+  return next;
+}
+
+// מפת התיקיות (מזהה → הורה) מתוך D1. האוסף קטן — עשרות או מאות תיקיות.
+async function readFolderParents(env) {
+  const { results } = await env.GALLERY_DB.prepare(
+    `SELECT document_id AS id, json_extract(data_json, '$.parentId') AS parentId
+     FROM gallery_documents WHERE collection_name = 'folders'`
+  ).all();
+  const parents = new Map();
+  for (const row of results || []) {
+    parents.set(String(row.id), row.parentId === null || row.parentId === undefined ? "" : String(row.parentId));
+  }
+  return parents;
+}
+
+// בודק שהתיקייה folderId יכולה לשבת תחת parentId: ההורה קיים, אין מעגל,
+// והעץ — כולל תת־התיקיות שכבר בתוכה — אינו עמוק מ-FOLDER_MAX_DEPTH.
+export function checkFolderPlacement(parents, folderId, parentId) {
+  if (!parents.has(parentId)) {
+    throw apiError("תיקיית האב אינה קיימת.", 400, "folder_parent_not_found");
+  }
+  // העומק של ההורה (תיקייה עליונה = 1). הליכה במעלה העץ עם רשימת ביקורים,
+  // כדי שגם נתונים פגומים (מעגל ישן) לא יכניסו את ה-Worker ללולאה.
+  let depth = 0;
+  let current = parentId;
+  const seen = new Set();
+  while (current) {
+    if (current === folderId) {
+      throw apiError("אי אפשר להעביר תיקייה אל תוך עצמה או אל תוך תת־תיקייה שלה.", 400, "folder_cycle");
+    }
+    if (seen.has(current)) throw apiError("מבנה התיקיות פגום (מעגל). פנה למנהל.", 409, "folder_tree_corrupt");
+    if (!parents.has(current)) break;
+    seen.add(current);
+    depth += 1;
+    current = parents.get(current) || "";
+  }
+  // הגובה של התיקייה עצמה: היא ועוד השכבה העמוקה ביותר שמתחתיה.
+  const children = new Map();
+  for (const [id, parent] of parents) {
+    if (!parent) continue;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(id);
+  }
+  let height = 0;
+  let layer = [folderId];
+  const visited = new Set();
+  while (layer.length && height <= FOLDER_MAX_DEPTH) {
+    const nextLayer = [];
+    for (const id of layer) {
+      if (visited.has(id)) continue;
+      visited.add(id);
+      nextLayer.push(...(children.get(id) || []));
+    }
+    height += 1;
+    layer = nextLayer;
+  }
+  if (depth + height > FOLDER_MAX_DEPTH) {
+    throw apiError(`אפשר לקנן תיקיות עד ${FOLDER_MAX_DEPTH} רמות בלבד.`, 400, "folder_too_deep");
+  }
+}
+
+// תמונת שער קיימת: באוסף התמונות, או בסל המחזור — כדי ששחזור תיקייה עם
+// התמונות שלה (התיקייה נכתבת לפני התמונות) לא ייכשל.
+async function coverImageExists(env, imageId) {
+  const active = await env.GALLERY_DB.prepare(
+    "SELECT 1 AS found FROM gallery_documents WHERE collection_name = 'images' AND document_id = ?"
+  ).bind(imageId).first();
+  if (active) return true;
+  const trashed = await env.GALLERY_DB.prepare(
+    `SELECT 1 AS found FROM gallery_documents
+     WHERE collection_name = 'trashItems'
+       AND json_extract(data_json, '$.originalCollection') = 'images'
+       AND json_extract(data_json, '$.originalId') = ?
+     LIMIT 1`
+  ).bind(imageId).first();
+  return Boolean(trashed);
+}
+
+// השדות החדשים של תיקייה. נבדקים רק כשהם משתנים, כך שכתיבה רגילה (שם, תיאור)
+// אינה עולה בשאילתה נוספת ואינה נכשלת בגלל מצב ישן.
+export async function normalizeFolderFields(env, documentId, data, existing = {}) {
+  const next = { ...data };
+  const previous = existing && typeof existing === "object" ? existing : {};
+
+  if (!hasOwnField(next, "parentId")) {
+    if (previous.parentId === undefined) delete next.parentId;
+    else next.parentId = previous.parentId;
+  } else if (next.parentId === null || next.parentId === "") {
+    delete next.parentId;
+  } else {
+    const parentId = strictRecordId(next.parentId, "תיקיית האב", "invalid_folder_parent");
+    if (parentId === documentId) {
+      throw apiError("תיקייה אינה יכולה להיות תת־תיקייה של עצמה.", 400, "folder_cycle");
+    }
+    if (RESERVED_FOLDER_IDS.has(parentId) || RESERVED_FOLDER_IDS.has(documentId)) {
+      throw apiError("התצוגה הזו אינה יכולה להשתתף במבנה התיקיות.", 400, "invalid_folder_parent");
+    }
+    if (parentId !== previous.parentId) checkFolderPlacement(await readFolderParents(env), documentId, parentId);
+    next.parentId = parentId;
+  }
+
+  if (!hasOwnField(next, "coverImageId")) {
+    if (previous.coverImageId === undefined) delete next.coverImageId;
+    else next.coverImageId = previous.coverImageId;
+  } else if (next.coverImageId === null || next.coverImageId === "") {
+    delete next.coverImageId;
+  } else {
+    const coverImageId = strictRecordId(next.coverImageId, "תמונת השער", "invalid_cover_image");
+    if (coverImageId !== previous.coverImageId && !(await coverImageExists(env, coverImageId))) {
+      throw apiError("תמונת השער לא נמצאה בגלריה.", 400, "cover_image_not_found");
+    }
+    next.coverImageId = coverImageId;
+  }
+
+  applyGuardedField(next, previous, "order", true, normalizeOrderRank);
+
+  if (!hasOwnField(next, "manualOrder")) {
+    if (previous.manualOrder === undefined) delete next.manualOrder;
+    else next.manualOrder = previous.manualOrder;
+  } else if (next.manualOrder === null || next.manualOrder === false) {
+    delete next.manualOrder;
+  } else if (next.manualOrder !== true) {
+    throw apiError("הגדרת הסדר הידני אינה תקינה.", 400, "invalid_manual_order");
+  }
+  return next;
+}
+
+// POST /order — כתיבת הסדר הידני של כמה תמונות או תיקיות יחד. רק הרשומות
+// שהדירוג שלהן השתנה נשלחות, וכולן נכתבות ב-batch אחד של D1 (טרנזקציה): או
+// שכל הסדר נשמר, או ששום דבר אינו משתנה. העדכון נוגע רק בשדה order שבתוך
+// ה-JSON (json_set), ולכן אינו דורס שינוי מקביל בשדה אחר של אותה רשומה.
+async function saveManualOrder(request, env) {
+  await ensureDatabaseSchema(env);
+  const actor = await dataActor(request, env);
+  const payload = await request.json().catch(() => null);
+  const collectionName = typeof payload?.collection === "string" ? payload.collection : "";
+  if (!ORDER_COLLECTIONS.has(collectionName)) {
+    throw apiError("אפשר לסדר רק תמונות או תיקיות.", 400, "invalid_order_collection");
+  }
+  assertDataPermission(actor, collectionName, "PUT");
+  if (!isAdminActor(actor)) throw apiError("רק מנהל רשאי לשנות את הסדר הידני.", 403, "permission_denied");
+  const items = Array.isArray(payload?.items) ? payload.items : null;
+  if (!items || !items.length) throw apiError("לא נשלחו פריטים לסידור.", 400, "order_items_missing");
+  if (items.length > ORDER_BATCH_MAX) {
+    throw apiError(`אפשר לסדר עד ${ORDER_BATCH_MAX} פריטים בבקשה אחת.`, 400, "too_many_order_items");
+  }
+  const updates = new Map();
+  for (const item of items) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw apiError("פריט בסדר הידני אינו תקין.", 400, "invalid_order");
+    }
+    const id = strictRecordId(item.id, "מזהה הפריט", "invalid_order_id");
+    if (collectionName === "folders" && RESERVED_FOLDER_IDS.has(id)) {
+      throw apiError("התצוגה הזו אינה תיקייה שאפשר לסדר.", 400, "invalid_order_id");
+    }
+    if (updates.has(id)) throw apiError("פריט הופיע פעמיים בסדר.", 400, "duplicate_order_id");
+    if (!Object.prototype.hasOwnProperty.call(item, "order")) throw apiError("חסר מיקום לפריט.", 400, "invalid_order");
+    updates.set(id, normalizeOrderRank(item.order));
+  }
+  // כל המזהים חייבים להיות קיימים לפני שנכתב דבר.
+  const ids = [...updates.keys()];
+  const found = new Set();
+  for (let index = 0; index < ids.length; index += 90) {
+    const chunk = ids.slice(index, index + 90);
+    const { results } = await env.GALLERY_DB.prepare(
+      `SELECT document_id FROM gallery_documents WHERE collection_name = ? AND document_id IN (${chunk.map(() => "?").join(", ")})`
+    ).bind(collectionName, ...chunk).all();
+    for (const row of results || []) found.add(String(row.document_id));
+  }
+  if (ids.some(id => !found.has(id))) {
+    throw apiError("חלק מהפריטים כבר אינם קיימים. רענן ונסה שוב.", 409, "order_items_not_found");
+  }
+  const now = Date.now();
+  const statements = [...updates].map(([id, order]) => (order === null
+    ? env.GALLERY_DB.prepare(
+      `UPDATE gallery_documents SET data_json = json_remove(data_json, '$.order'), updated_at = MAX(updated_at + 1, ?)
+       WHERE collection_name = ? AND document_id = ?`
+    ).bind(now, collectionName, id)
+    : env.GALLERY_DB.prepare(
+      `UPDATE gallery_documents SET data_json = json_set(data_json, '$.order', ?), updated_at = MAX(updated_at + 1, ?)
+       WHERE collection_name = ? AND document_id = ?`
+    ).bind(order, now, collectionName, id)));
+  await runDatabaseStatements(env, statements);
+  await bumpDataVersion(env, collectionName);
+  return json(request, { success: true, collection: collectionName, updated: updates.size });
+}
+
 function cleanAiTitle(value) {
   return String(value ?? "").replace(/[\r\n\u0000-\u001f]/g, " ").replace(/^["'״]+|["'״]+$/g, "").trim().slice(0, 120);
 }
@@ -3941,15 +4432,17 @@ async function deleteFaceIndexForImage(env, imageId) {
   const affected = await env.GALLERY_DB.prepare(
     "SELECT DISTINCT person_id FROM face_people WHERE image_id = ?"
   ).bind(safeId).all();
+  // תיוג ידני שייך לתמונה, כמו הטביעות: נמחק יחד איתה.
+  const tagged = await env.GALLERY_DB.prepare(
+    "DELETE FROM face_manual_tags WHERE image_id = ? RETURNING person_id"
+  ).bind(safeId).all();
   await env.GALLERY_DB.prepare("DELETE FROM face_people WHERE image_id = ?").bind(safeId).run();
   await env.GALLERY_DB.prepare("DELETE FROM face_cluster_marks WHERE image_id = ?").bind(safeId).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE image_id = ?").bind(safeId).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE image_id = ?").bind(safeId).run();
   const personIds = (affected.results || []).map(row => String(row.person_id)).filter(Boolean);
-  if (personIds.length) {
-    await refreshFacePersons(env, personIds);
-    await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
-  }
+  if (personIds.length) await refreshFacePersons(env, personIds);
+  if (personIds.length || (tagged.results || []).length) await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
 }
 
 async function hasActiveImageDocument(env, imageId) {
@@ -4206,6 +4699,7 @@ async function resetFaceIndex(request, env) {
     await env.GALLERY_DB.prepare("DELETE FROM face_people").run();
     await env.GALLERY_DB.prepare("DELETE FROM face_cluster_marks").run();
     await env.GALLERY_DB.prepare("DELETE FROM face_persons").run();
+    await env.GALLERY_DB.prepare("DELETE FROM face_manual_tags").run();
     await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors").run();
     await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state").run();
     await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
@@ -4215,6 +4709,10 @@ async function resetFaceIndex(request, env) {
   await env.GALLERY_DB.prepare("DELETE FROM face_people WHERE model_version = ?").bind(modelVersion).run();
   await env.GALLERY_DB.prepare("DELETE FROM face_cluster_marks WHERE model_version = ?").bind(modelVersion).run();
   await env.GALLERY_DB.prepare("DELETE FROM face_persons WHERE model_version = ?").bind(modelVersion).run();
+  // תיוג ידני של אדם שנמחק יחד עם הגרסה אינו נשאר יתום.
+  await env.GALLERY_DB.prepare(
+    "DELETE FROM face_manual_tags WHERE NOT EXISTS (SELECT 1 FROM face_persons fp WHERE fp.person_id = face_manual_tags.person_id)"
+  ).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_descriptors WHERE model_version = ?").bind(modelVersion).run();
   await env.GALLERY_DB.prepare("DELETE FROM image_face_index_state WHERE model_version = ?").bind(modelVersion).run();
   await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
@@ -4259,7 +4757,10 @@ const FACE_UNCLUSTERED_FROM = `FROM image_face_descriptors f
     AND m.model_version = f.model_version AND m.descriptor_json = f.descriptor_json
   WHERE f.model_version = ? AND p.image_id IS NULL AND m.image_id IS NULL`;
 // כתובת התצוגה הקטנה של התמונה, ובלעדיה המקור — לחיתוך הפרצוף בדפדפן.
-const FACE_IMAGE_URL_COLUMNS = `json_extract(d.data_json, '$.variants.thumb.url') AS thumbUrl,
+// תמונה שסובבה או נחתכה (edit) מקבלת את המקור: מיקומי הפרצופים נמדדו עליו,
+// והתצוגה הקטנה שלה כבר ערוכה.
+const FACE_IMAGE_URL_COLUMNS = `CASE WHEN json_type(d.data_json, '$.edit') = 'object' THEN NULL
+    ELSE json_extract(d.data_json, '$.variants.thumb.url') END AS thumbUrl,
   json_extract(d.data_json, '$.url') AS imageUrl`;
 
 async function manageFacePeople(request, env, url) {
@@ -4400,6 +4901,20 @@ async function runFaceSearch(env, queryDescriptor, modelVersion, resultLimit) {
         AND (p.source = 'manual' OR fp.status = 'approved') LIMIT ?`
     ).bind(personId, modelVersion, FACE_SEARCH_MAX_LIMIT).all();
     for (const row of linked.results || []) {
+      if (!bestSquaredDistances.has(row.image_id)) {
+        bestSquaredDistances.set(row.image_id, distance);
+        manuallyLinkedImages.add(row.image_id);
+      }
+    }
+  }
+  // תיוג ידני (face_manual_tags): תמונה שבה מנהל תייג אדם מאושר שזוהה כאן,
+  // גם כשזיהוי הפנים לא מצא אותו בה. אותו מרחק כמו האדם, ומסומנת "ידני".
+  for (const [personId, distance] of personDistances) {
+    const tagged = await env.GALLERY_DB.prepare(`SELECT t.image_id FROM face_manual_tags t
+      JOIN face_persons fp ON fp.person_id = t.person_id
+      WHERE t.person_id = ? AND fp.status = 'approved' AND fp.hidden = 0 LIMIT ?`
+    ).bind(personId, FACE_SEARCH_MAX_LIMIT).all();
+    for (const row of tagged.results || []) {
       if (!bestSquaredDistances.has(row.image_id)) {
         bestSquaredDistances.set(row.image_id, distance);
         manuallyLinkedImages.add(row.image_id);
@@ -5436,7 +5951,11 @@ async function mutateFaceGroups(env, payload) {
         env.GALLERY_DB.prepare("UPDATE face_people SET person_id = ?, source = 'manual', assigned_at = ? WHERE person_id = ?")
           .bind(target.personId, now, source.personId),
         env.GALLERY_DB.prepare("UPDATE face_cluster_marks SET candidate_person_id = ? WHERE candidate_person_id = ?")
-          .bind(target.personId, source.personId)
+          .bind(target.personId, source.personId),
+        // התיוגים הידניים עוברים לאדם שנשאר; תמונה שתויגה בשניהם נשארת פעם אחת.
+        env.GALLERY_DB.prepare("UPDATE OR IGNORE face_manual_tags SET person_id = ? WHERE person_id = ?")
+          .bind(target.personId, source.personId),
+        env.GALLERY_DB.prepare("DELETE FROM face_manual_tags WHERE person_id = ?").bind(source.personId)
       ]);
       await adoptFacePersonDetails(env, target.personId, [source.personId], now);
       await env.GALLERY_DB.prepare("DELETE FROM face_persons WHERE person_id = ?").bind(source.personId).run();
@@ -5568,12 +6087,23 @@ async function listFacePersons(request, env, ctx) {
   const user = await requireFaceViewer(request, env);
   const version = await readDataVersion(env, FACE_PEOPLE_DATA_VERSION);
   return serveCachedFaceJson(request, ctx, `persons?v=${version}&p=${facePermissionClass(user)}`, async () => {
+    // אדם שמופיע רק בתיוגים ידניים (בלי פרצוף שזוהה) מופיע גם הוא ברשימה.
     const rows = (await env.GALLERY_DB.prepare(
-      `SELECT ${FACE_PERSON_COLUMNS} FROM face_persons
-       WHERE model_version = ? AND status = 'approved' AND hidden = 0 AND face_count > 0 AND name <> ''
+      `SELECT ${FACE_PERSON_COLUMNS},
+         (SELECT COUNT(*) FROM face_manual_tags t
+            JOIN gallery_documents d ON d.collection_name = 'images' AND d.document_id = t.image_id
+          WHERE t.person_id = face_persons.person_id
+            AND NOT EXISTS (SELECT 1 FROM face_people p WHERE p.person_id = t.person_id AND p.image_id = t.image_id)) AS manualCount
+       FROM face_persons
+       WHERE model_version = ? AND status = 'approved' AND hidden = 0 AND name <> ''
+         AND (face_count > 0 OR EXISTS (SELECT 1 FROM face_manual_tags t WHERE t.person_id = face_persons.person_id))
        ORDER BY name, person_id LIMIT ?`
     ).bind(FACE_MODEL_VERSION, FACE_PERSONS_LIST_LIMIT).all()).results || [];
-    const persons = (await readFacePersonSummaries(env, rows)).map(publicPersonView);
+    const manualCounts = new Map(rows.map(row => [String(row.personId), Number(row.manualCount) || 0]));
+    const persons = (await readFacePersonSummaries(env, rows))
+      .map(person => ({ ...person, imageCount: person.imageCount + (manualCounts.get(person.personId) || 0) }))
+      .filter(person => person.imageCount > 0)
+      .map(publicPersonView);
     return { success: true, version, persons };
   });
 }
@@ -5601,11 +6131,21 @@ async function facePersonAlbum(request, env, ctx, url) {
        GROUP BY p.image_id
        ORDER BY orderValue DESC, p.image_id LIMIT ?`
     ).bind(personId, FACE_PERSON_MEDIA_LIMIT).all()).results || [];
+    // תמונות שבהן מנהל תייג את האדם ידנית (הזיהוי לא מצא אותו בהן) מצטרפות
+    // לאלבום לפי אותו מיון, ומסומנות ב-manualImageIds.
+    const detected = new Set(media.map(item => String(item.imageId)));
+    const manual = (await readManualTagMedia(env, personId, FACE_PERSON_MEDIA_LIMIT))
+      .filter(item => !detected.has(String(item.imageId)));
+    const ordered = [...media, ...manual]
+      .sort((left, right) => (Number(right.orderValue) - Number(left.orderValue)) || String(left.imageId).localeCompare(String(right.imageId)))
+      .slice(0, FACE_PERSON_MEDIA_LIMIT);
+    const manualIds = new Set(manual.map(item => String(item.imageId)));
     return {
       success: true,
       version,
       person: { ...publicPersonView(person), ...(isAdmin ? { status: person.status, hidden: person.hidden } : {}) },
-      imageIds: media.map(item => String(item.imageId))
+      imageIds: ordered.map(item => String(item.imageId)),
+      manualImageIds: ordered.map(item => String(item.imageId)).filter(id => manualIds.has(id))
     };
   });
 }
@@ -6585,9 +7125,18 @@ async function maintenanceTrashPurge(request, env) {
     }));
   }
   if (purged.length || purgedChildren) await bumpDataVersions(env, purged.length ? ["trashItems", "activityLogs"] : ["trashItems"]);
+  // באותה ריצה: תיעוד דחייה בן יותר מ-60 יום, וקישורי הזמנה שפגו או בוטלו לפני
+  // יותר מ-30 יום, נמחקים. שתי שאילתות על אינדקס — בדרך כלל אינן מוחקות דבר.
+  const rejectionsPurged = ((await env.GALLERY_DB.prepare(
+    "DELETE FROM upload_rejections WHERE rejected_at < ? RETURNING image_id"
+  ).bind(now - UPLOAD_REJECTION_RETENTION_DAYS * MAINTENANCE_DAY_MS).all()).results || []).length;
+  const invitesPurged = ((await env.GALLERY_DB.prepare(
+    `DELETE FROM invite_links WHERE ${INVITE_ENDED_AT_SQL} < ? RETURNING invite_id`
+  ).bind(now - INVITE_RETENTION_DAYS * MAINTENANCE_DAY_MS).all()).results || []).length;
   return json(request, {
     success: true, retentionDays: TRASH_RETENTION_DAYS,
-    purged: purged.length, purgedChildren, ...totals, more
+    purged: purged.length, purgedChildren, ...totals, more,
+    rejectionsPurged, invitesPurged
   });
 }
 
@@ -7530,6 +8079,561 @@ export function normalizeMediaPlaceholder(value) {
   return text.length <= MEDIA_PLACEHOLDER_MAX_LENGTH && MEDIA_PLACEHOLDER_PATTERN.test(text) ? text : "";
 }
 
+// ==========================================================================
+// משתמשים: "ההעלאות שלי", כפילויות לפני העלאה, תיוג ידני והזמנות לאירוע
+// ==========================================================================
+
+// טקסט חופשי קצר (סיבת דחייה, שם תיקייה): בלי תווי בקרה ובלי תווי כיווניות
+// שמאפשרים להציג טקסט מטעה. הדפדפן מציג אותו תמיד כטקסט, לא כ-HTML.
+function cleanShortText(value, maxLength) {
+  const text = String(value ?? "")
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f‎‏‪-‮⁦-⁩]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [...text].slice(0, maxLength).join("").trim();
+}
+
+// טביעת התוכן ברשומת מדיה: נשמרת רק בצורה תקינה (contentHash הוא כבר שדה
+// שהדפדפן כותב מאז זיהוי הכפילויות הראשון). עותק בלי השדה אינו מוחק אותו.
+export function normalizeContentHash(data, existing = {}) {
+  const next = { ...data };
+  if (next.contentHash === undefined) {
+    if (typeof existing?.contentHash === "string" && CONTENT_HASH_PATTERN.test(existing.contentHash)) next.contentHash = existing.contentHash;
+    return next;
+  }
+  const value = typeof next.contentHash === "string" ? next.contentHash.trim().toLowerCase() : "";
+  if (CONTENT_HASH_PATTERN.test(value)) next.contentHash = value;
+  else delete next.contentHash;
+  return next;
+}
+
+function safeUid(value) {
+  const uid = String(value ?? "");
+  return /^[a-zA-Z0-9_-]{1,128}$/.test(uid) ? uid : "";
+}
+
+// תיעוד דחייה של פריט ממתין. reason === null: נקרא ממחיקת הרשומה הממתינה —
+// תיעוד קיים (עם הסיבה שהמנהל כתב ב-/pending/reject) נשאר כפי שהוא.
+async function recordUploadRejection(env, imageId, data, { actorUid = "", reason = null } = {}) {
+  if (!data || data.status === "approved") return false;
+  const uploader = safeUid(data.uploadedBy);
+  if (!uploader) return false;
+  // הפריט כבר בגלריה (האישור נכשל באמצע וסימון "אושר" לא נכתב) — לא נדחה.
+  if (await hasActiveImageDocument(env, imageId)) return false;
+  const now = Date.now();
+  const title = cleanShortText(data.title, 160);
+  if (reason === null) {
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO upload_rejections (image_id, uploader_uid, title, reason, rejected_by, rejected_at)
+       VALUES (?, ?, ?, '', ?, ?)
+       ON CONFLICT(image_id) DO NOTHING`
+    ).bind(imageId, uploader, title, safeUid(actorUid), now).run();
+  } else {
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO upload_rejections (image_id, uploader_uid, title, reason, rejected_by, rejected_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(image_id) DO UPDATE SET
+         uploader_uid = excluded.uploader_uid, title = excluded.title, reason = excluded.reason,
+         rejected_by = excluded.rejected_by, rejected_at = excluded.rejected_at`
+    ).bind(imageId, uploader, title, reason, safeUid(actorUid), now).run();
+  }
+  return true;
+}
+
+function mediaThumbUrl(data) {
+  const isVideo = data?.mediaType === "video";
+  return httpsUrl(data?.variants?.thumb?.url)
+    || (isVideo ? httpsUrl(data?.variants?.poster?.url) : httpsUrl(data?.url));
+}
+
+async function readDocumentsByIds(env, collectionName, ids, columns = "document_id, data_json") {
+  const rows = [];
+  for (let offset = 0; offset < ids.length; offset += FACE_ID_QUERY_CHUNK) {
+    const chunk = ids.slice(offset, offset + FACE_ID_QUERY_CHUNK);
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const result = await env.GALLERY_DB.prepare(
+      `SELECT ${columns} FROM gallery_documents WHERE collection_name = ? AND document_id IN (${placeholders})`
+    ).bind(collectionName, ...chunk).all();
+    rows.push(...(result.results || []));
+  }
+  return rows;
+}
+
+// GET /my-uploads — ההעלאות של המשתמש המחובר בלבד: ממתינות, שאושרו (ולאיזו
+// תיקייה) ושנדחו (עם הסיבה, אם המנהל כתב). כל השאילתות מסוננות לפי המזהה
+// המאומת — גם owner_uid וגם uploadedBy — ואין פרמטר שמאפשר לבקש משתמש אחר.
+// לא נשלחים כתובות דוא"ל, שמות של מנהלים או פרטים של משתמשים אחרים.
+async function listMyUploads(request, env) {
+  const user = await requireUser(request, env, FACE_VIEWER_ROLES);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env, `my-uploads:${user.uid}`, MY_UPLOADS_RATE_LIMIT, MY_UPLOADS_RATE_WINDOW_MS,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.", "my_uploads_rate_limit"
+  );
+  const uid = user.uid;
+  const rejectionCutoff = Date.now() - UPLOAD_REJECTION_RETENTION_DAYS * MAINTENANCE_DAY_MS;
+  const pendingRows = (await env.GALLERY_DB.prepare(
+    `SELECT document_id, data_json, created_at, updated_at FROM gallery_documents
+     WHERE collection_name = 'pendingImages' AND owner_uid = ? AND json_extract(data_json, '$.uploadedBy') = ?
+     ORDER BY updated_at DESC LIMIT ?`
+  ).bind(uid, uid, MY_UPLOADS_LIMIT).all()).results || [];
+  const imageRows = (await env.GALLERY_DB.prepare(
+    `SELECT document_id, data_json, created_at FROM gallery_documents
+     WHERE collection_name = 'images' AND owner_uid = ? AND json_extract(data_json, '$.uploadedBy') = ?
+     ORDER BY created_at DESC LIMIT ?`
+  ).bind(uid, uid, MY_UPLOADS_LIMIT).all()).results || [];
+  const rejectionRows = (await env.GALLERY_DB.prepare(
+    `SELECT image_id, title, reason, rejected_at FROM upload_rejections
+     WHERE uploader_uid = ? AND rejected_at >= ?
+     ORDER BY rejected_at DESC LIMIT ?`
+  ).bind(uid, rejectionCutoff, MY_UPLOADS_LIMIT).all()).results || [];
+
+  const images = new Map(imageRows.map(row => [String(row.document_id), { data: parseDocumentData(row), createdAt: Number(row.created_at) || 0 }]));
+  // פריט שאושר מזמן ואינו בין 200 האחרונים — נקרא לפי מזהה, כדי שיופיע עם התיקייה שלו.
+  const missingIds = pendingRows
+    .filter(row => parseDocumentData(row).status === "approved")
+    .map(row => String(row.document_id))
+    .filter(id => !images.has(id));
+  for (const row of await readDocumentsByIds(env, "images", missingIds, "document_id, data_json, created_at")) {
+    const data = parseDocumentData(row);
+    if (safeUid(data.uploadedBy) !== uid) continue;
+    images.set(String(row.document_id), { data, createdAt: Number(row.created_at) || 0 });
+  }
+  const rejections = new Map(rejectionRows.map(row => [String(row.image_id), row]));
+  const items = new Map();
+  for (const [id, { data, createdAt }] of images) {
+    items.set(id, {
+      id,
+      title: cleanShortText(data.title, 160),
+      mediaType: data.mediaType === "video" ? "video" : "image",
+      status: "approved",
+      uploadedAt: Number(data.createdAt) || createdAt,
+      decidedAt: 0,
+      folderId: String(data.folderId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 120),
+      thumbUrl: mediaThumbUrl(data)
+    });
+  }
+  for (const row of pendingRows) {
+    const id = String(row.document_id);
+    const data = parseDocumentData(row);
+    const existing = items.get(id);
+    if (existing) {
+      // אושר מתוך התור: מתי — לטובת ההודעה "X מההעלאות שלך אושרו".
+      if (data.status === "approved") existing.decidedAt = Number(data.approvedAt) || 0;
+      continue;
+    }
+    // סומן "אושר" אבל אינו בגלריה (נמחק אחר כך) — אינו מוצג.
+    if (data.status === "approved") continue;
+    const rejection = rejections.get(id);
+    items.set(id, {
+      id,
+      title: cleanShortText(data.title, 160),
+      mediaType: data.mediaType === "video" ? "video" : "image",
+      status: rejection ? "rejected" : "pending",
+      uploadedAt: Number(data.createdAt) || Number(row.created_at) || 0,
+      decidedAt: rejection ? Number(rejection.rejected_at) || 0 : 0,
+      ...(rejection && rejection.reason ? { reason: String(rejection.reason) } : {})
+    });
+  }
+  for (const [id, row] of rejections) {
+    if (items.has(id)) continue;
+    items.set(id, {
+      id,
+      title: String(row.title || ""),
+      mediaType: "image",
+      status: "rejected",
+      uploadedAt: 0,
+      decidedAt: Number(row.rejected_at) || 0,
+      ...(row.reason ? { reason: String(row.reason) } : {})
+    });
+  }
+  // שמות התיקיות שאליהן הפריטים שאושרו נכנסו — כל מאושר רואה את התיקיות ממילא.
+  const folderIds = [...new Set([...items.values()].map(item => item.folderId).filter(Boolean))];
+  const folderNames = new Map();
+  for (const row of await readDocumentsByIds(env, "folders", folderIds)) {
+    folderNames.set(String(row.document_id), cleanShortText(parseDocumentData(row).name, 120));
+  }
+  const all = [...items.values()];
+  for (const item of all) {
+    if (item.folderId) item.folderName = folderNames.get(item.folderId) || "";
+  }
+  all.sort((left, right) => (Math.max(right.decidedAt, right.uploadedAt) - Math.max(left.decidedAt, left.uploadedAt)) || left.id.localeCompare(right.id));
+  const counts = { pending: 0, approved: 0, rejected: 0 };
+  for (const item of all) counts[item.status] += 1;
+  return json(request, {
+    success: true,
+    retentionDays: UPLOAD_REJECTION_RETENTION_DAYS,
+    counts,
+    uploads: all.slice(0, MY_UPLOADS_LIMIT)
+  });
+}
+
+// POST /pending/reject { imageId, reason } — מנהל רושם סיבה (רשות) לדחייה של
+// פריט ממתין, לפני שהוא עובר לסל המחזור או לבקשת מחיקה. המעלה רואה את הסיבה
+// ב"ההעלאות שלי"; איש מלבדו אינו מקבל אותה מהשרת.
+async function rejectPendingUpload(request, env) {
+  const user = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env, `upload-reject:${user.uid}`, UPLOAD_REJECT_RATE_LIMIT, UPLOAD_REJECT_RATE_WINDOW_MS,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.", "upload_reject_rate_limit"
+  );
+  const payload = await request.json().catch(() => ({}));
+  const imageId = safeImageId(payload?.imageId);
+  if (payload?.reason !== undefined && payload?.reason !== null && typeof payload.reason !== "string") {
+    throw apiError("סיבת הדחייה אינה תקינה.", 400, "invalid_reason");
+  }
+  const reason = cleanShortText(payload?.reason, UPLOAD_REJECTION_REASON_MAX_LENGTH);
+  const row = await readGalleryDocumentRow(env, "pendingImages", imageId);
+  if (!row) throw apiError("הפריט הממתין לא נמצא.", 404, "pending_not_found");
+  const data = parseDocumentData(row);
+  if (data.status === "approved") throw apiError("הפריט כבר אושר.", 409, "already_approved");
+  const recorded = await recordUploadRejection(env, imageId, data, { actorUid: user.uid, reason });
+  return json(request, { success: true, recorded });
+}
+
+// POST /duplicates { hashes: [...] } — האם כבר יש בגלריה (או בתור
+// האישור) פריט עם אותה טביעת תוכן. התשובה לכל טביעה: exists בלבד, ומזהה
+// הפריט רק כשהשואל רשאי לראות אותו — פריט מאושר, פריט ממתין שלו, או כל פריט
+// למנהל. על פריט ממתין של משתמש אחר נאמר רק שהוא קיים.
+async function checkDuplicateUploads(request, env) {
+  const user = await requireUser(request, env, FACE_VIEWER_ROLES);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env, `duplicates:${user.uid}`, DUPLICATE_CHECK_RATE_LIMIT, DUPLICATE_CHECK_RATE_WINDOW_MS,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.", "duplicates_rate_limit"
+  );
+  const payload = await request.json().catch(() => ({}));
+  if (!Array.isArray(payload?.hashes) || payload.hashes.length > DUPLICATE_CHECK_MAX_HASHES) {
+    throw apiError(`יש לשלוח עד ${DUPLICATE_CHECK_MAX_HASHES} טביעות.`, 400, "invalid_hashes");
+  }
+  const hashes = [...new Set(payload.hashes.map(value => (typeof value === "string" ? value.trim().toLowerCase() : "")))];
+  if (hashes.some(hash => !CONTENT_HASH_PATTERN.test(hash))) {
+    throw apiError("טביעת התוכן אינה תקינה.", 400, "invalid_hashes");
+  }
+  const isAdmin = ["admin", "super_admin"].includes(user.role);
+  const found = new Map();
+  const rank = entry => (entry.collection === "images" ? 3 : entry.visible ? 2 : 1);
+  for (let offset = 0; offset < hashes.length; offset += 50) {
+    const chunk = hashes.slice(offset, offset + 50);
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = (await env.GALLERY_DB.prepare(
+      `SELECT collection_name AS collectionName, document_id AS id, owner_uid AS ownerUid,
+         ${CONTENT_HASH_SQL} AS hash,
+         json_extract(data_json, '$.status') AS status,
+         json_extract(data_json, '$.uploadedBy') AS uploadedBy
+       FROM gallery_documents
+       WHERE ${CONTENT_HASH_COLLECTIONS_SQL} AND ${CONTENT_HASH_SQL} IN (${placeholders})`
+    ).bind(...chunk).all()).results || [];
+    for (const row of rows) {
+      const collection = String(row.collectionName);
+      if (collection === "pendingImages" && row.status === "approved") continue;
+      const own = String(row.ownerUid || "") === user.uid && String(row.uploadedBy || "") === user.uid;
+      const entry = { collection, id: String(row.id), visible: collection === "images" || isAdmin || own };
+      const previous = found.get(String(row.hash));
+      if (!previous || rank(entry) > rank(previous)) found.set(String(row.hash), entry);
+    }
+  }
+  return json(request, {
+    success: true,
+    results: hashes.map(hash => {
+      const entry = found.get(hash);
+      if (!entry) return { hash, exists: false };
+      return entry.visible
+        ? { hash, exists: true, imageId: entry.id, state: entry.collection === "images" ? "approved" : "pending" }
+        : { hash, exists: true };
+    })
+  });
+}
+
+// --- תיוג ידני של אדם בתמונה (מנהלים) ---
+// זיהוי הפנים מפספס לפעמים פנים (צד, צל, מרחק). מנהל מתייג אדם מאושר עם שם
+// בתמונה כולה, או במלבן שסימן. התיוג מופיע באלבום של האדם ובתוצאות "התמונות
+// שלי" שלו, מסומן "ידני", ואינו נוגע בטביעות או בקיבוץ.
+
+async function readFaceTags(env, imageId) {
+  const rows = (await env.GALLERY_DB.prepare(
+    `SELECT t.person_id AS personId, t.box_json AS boxJson, t.created_at AS createdAt,
+       fp.name AS name, fp.hidden AS hidden
+     FROM face_manual_tags t LEFT JOIN face_persons fp ON fp.person_id = t.person_id
+     WHERE t.image_id = ? ORDER BY t.created_at, t.person_id`
+  ).bind(imageId).all()).results || [];
+  return rows.map(row => ({
+    personId: String(row.personId),
+    name: String(row.name || ""),
+    hidden: Number(row.hidden) === 1,
+    box: readFaceBox(row.boxJson),
+    createdAt: Number(row.createdAt) || 0
+  }));
+}
+
+// GET /face/tags?imageId= ו-POST /face/tags { action: add|remove, imageId, personId, box? }
+async function faceTagsRequest(request, env, url) {
+  const user = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env, `face-groups:${user.uid}`, FACE_GROUPS_RATE_LIMIT, FACE_GROUPS_RATE_WINDOW_MS,
+    "בוצעו בקשות רבות. המתן מעט ונסה שוב.", "face_groups_rate_limit"
+  );
+  if (request.method === "GET") {
+    const imageId = safeImageId(url.searchParams.get("imageId"));
+    return json(request, { success: true, imageId, tags: await readFaceTags(env, imageId) });
+  }
+  const payload = await request.json().catch(() => ({}));
+  const action = String(payload?.action || "");
+  if (!["add", "remove"].includes(action)) throw apiError("הפעולה המבוקשת אינה מוכרת.", 400, "invalid_action");
+  const imageId = safeImageId(payload?.imageId);
+  const personId = facePersonId(payload?.personId);
+  if (action === "add") {
+    const box = parseFaceBox(payload?.box ?? null);
+    if (!(await hasActiveImageDocument(env, imageId))) throw apiError("התמונה לא נמצאה בגלריה.", 404, "image_not_found");
+    const person = await readFacePersonRow(env, personId);
+    if (!person || person.status !== "approved" || !person.name) {
+      throw apiError("אפשר לתייג רק אדם מאושר עם שם.", 400, "invalid_tag_person");
+    }
+    const count = await env.GALLERY_DB.prepare(
+      "SELECT COUNT(*) AS total FROM face_manual_tags WHERE image_id = ? AND person_id <> ?"
+    ).bind(imageId, personId).first();
+    if (Number(count?.total) >= FACE_TAGS_MAX_PER_IMAGE) {
+      throw apiError(`אפשר לתייג עד ${FACE_TAGS_MAX_PER_IMAGE} אנשים בתמונה.`, 400, "too_many_tags");
+    }
+    await env.GALLERY_DB.prepare(
+      `INSERT INTO face_manual_tags (image_id, person_id, box_json, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(image_id, person_id) DO UPDATE SET box_json = excluded.box_json`
+    ).bind(imageId, personId, serializeFaceBox(box), safeUid(user.uid), Date.now()).run();
+  } else {
+    await env.GALLERY_DB.prepare("DELETE FROM face_manual_tags WHERE image_id = ? AND person_id = ?").bind(imageId, personId).run();
+  }
+  await bumpDataVersion(env, FACE_PEOPLE_DATA_VERSION);
+  return json(request, { success: true, imageId, tags: await readFaceTags(env, imageId) });
+}
+
+// מזהי התמונות המאושרות שבהן אדם תויג ידנית, עם ערך המיון שלהן.
+async function readManualTagMedia(env, personId, limit) {
+  return (await env.GALLERY_DB.prepare(
+    `SELECT t.image_id AS imageId, ${TAKEN_AT_ORDER_SQL} AS orderValue
+     FROM face_manual_tags t
+     JOIN gallery_documents d ON d.collection_name = 'images' AND d.document_id = t.image_id
+     WHERE t.person_id = ?
+     ORDER BY orderValue DESC, t.image_id LIMIT ?`
+  ).bind(personId, limit).all()).results || [];
+}
+
+// --- קישורי הזמנה לאירוע ---
+// מנהל יוצר קישור לתיקייה, בתוקף ליום, שבוע או חודש, ואפשר גם עם תקרת שימושים.
+// האסימון (256 ביט) מוחזר פעם אחת בלבד, ביצירה; בשרת נשמר רק SHA-256 שלו, והוא
+// לעולם אינו נכתב ליומן. מבקר שפותח את הקישור ומתחבר עם Google מסומן בבקשת
+// ההצטרפות "הגיע מהזמנה לאירוע X"; הוא מאושר אוטומטית כצופה רק אם מנהל־על
+// סימן "אישור אוטומטי" ביצירת הקישור. צופה מאושר רואה את מה שכל צופה רואה —
+// הקישור אינו מעניק שום הרשאה מעבר לזה.
+
+function inviteStatus(row, now = Date.now()) {
+  if (Number(row.revoked_at) > 0) return "revoked";
+  if (Number(row.expires_at) <= now) return "expired";
+  if (Number(row.max_uses) > 0 && Number(row.use_count) >= Number(row.max_uses)) return "exhausted";
+  return "active";
+}
+
+function inviteView(row, uid, now = Date.now()) {
+  return {
+    inviteId: String(row.invite_id),
+    folderId: String(row.folder_id),
+    folderName: String(row.folder_name || ""),
+    autoApprove: Number(row.auto_approve) === 1,
+    maxUses: Number(row.max_uses) || 0,
+    useCount: Number(row.use_count) || 0,
+    createdAt: Number(row.created_at) || 0,
+    expiresAt: Number(row.expires_at) || 0,
+    revokedAt: Number(row.revoked_at) || 0,
+    status: inviteStatus(row, now),
+    mine: String(row.created_by) === uid
+  };
+}
+
+function hashInviteToken(token) {
+  return sha256(token, { normalize: false });
+}
+
+// POST /invites { folderId, days, maxUses, autoApprove }
+async function createInvite(request, env) {
+  const user = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  await consumeRateLimit(
+    env, `invite-create:${user.uid}`, INVITE_CREATE_RATE_LIMIT, INVITE_CREATE_RATE_WINDOW_MS,
+    "נוצרו קישורים רבים. המתן מעט ונסה שוב.", "invite_rate_limit"
+  );
+  const payload = await request.json().catch(() => ({}));
+  const folderId = safeDataPart(payload?.folderId, "מזהה התיקייה");
+  const folderRow = folderId === "all" ? null : await readGalleryDocumentRow(env, "folders", folderId);
+  if (!folderRow) throw apiError("התיקייה לא נמצאה.", 404, "folder_not_found");
+  const folderName = cleanShortText(parseDocumentData(folderRow).name, 120) || "אירוע";
+  const days = Number(payload?.days);
+  if (!INVITE_DAY_OPTIONS.includes(days)) throw apiError("תוקף הקישור חייב להיות יום, שבוע או חודש.", 400, "invalid_invite_days");
+  const rawUses = payload?.maxUses;
+  const maxUses = rawUses === undefined || rawUses === null || rawUses === "" ? 0 : Number(rawUses);
+  if (!Number.isInteger(maxUses) || maxUses < 0 || maxUses > INVITE_MAX_USES_LIMIT) {
+    throw apiError(`מספר השימושים חייב להיות בין 1 ל־${INVITE_MAX_USES_LIMIT}, או ללא הגבלה.`, 400, "invalid_invite_uses");
+  }
+  if (payload?.autoApprove !== undefined && typeof payload.autoApprove !== "boolean") {
+    throw apiError("ערך האישור האוטומטי אינו תקין.", 400, "invalid_invite_auto_approve");
+  }
+  const autoApprove = payload?.autoApprove === true;
+  // אישור משתמשים הוא סמכות של מנהל־על בלבד, ולכן גם קישור שמאשר אוטומטית.
+  if (autoApprove && user.role !== "super_admin") {
+    throw apiError("רק מנהל־על יכול ליצור קישור עם אישור אוטומטי.", 403, "permission_denied");
+  }
+  const now = Date.now();
+  const active = await env.GALLERY_DB.prepare(
+    "SELECT COUNT(*) AS total FROM invite_links WHERE revoked_at = 0 AND expires_at > ?"
+  ).bind(now).first();
+  if (Number(active?.total) >= INVITE_MAX_ACTIVE) {
+    throw apiError(`יש כבר ${INVITE_MAX_ACTIVE} קישורים פעילים. בטל קישורים ישנים ונסה שוב.`, 409, "too_many_invites");
+  }
+  const token = randomUrlSafeToken(INVITE_TOKEN_BYTES);
+  const row = {
+    invite_id: randomUrlSafeToken(12),
+    token_hash: await hashInviteToken(token),
+    folder_id: folderId,
+    folder_name: folderName,
+    auto_approve: autoApprove ? 1 : 0,
+    max_uses: maxUses,
+    use_count: 0,
+    created_by: user.uid,
+    created_at: now,
+    expires_at: now + days * MAINTENANCE_DAY_MS,
+    revoked_at: 0
+  };
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO invite_links (invite_id, token_hash, folder_id, folder_name, auto_approve, max_uses, use_count, created_by, created_at, expires_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)`
+  ).bind(row.invite_id, row.token_hash, row.folder_id, row.folder_name, row.auto_approve, row.max_uses, row.created_by, row.created_at, row.expires_at).run();
+  // האסימון חוזר כאן בלבד. אין דרך לקבל אותו שוב — רק לבטל וליצור חדש.
+  return json(request, { success: true, invite: inviteView(row, user.uid, now), token }, 201);
+}
+
+// GET /invites — הקישורים הפעילים, ואלה שפגו או בוטלו ב-30 הימים האחרונים.
+async function listInvites(request, env) {
+  const user = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const now = Date.now();
+  const rows = (await env.GALLERY_DB.prepare(
+    `SELECT invite_id, folder_id, folder_name, auto_approve, max_uses, use_count, created_by, created_at, expires_at, revoked_at
+     FROM invite_links WHERE ${INVITE_ENDED_AT_SQL} > ?
+     ORDER BY created_at DESC LIMIT ?`
+  ).bind(now - INVITE_RETENTION_DAYS * MAINTENANCE_DAY_MS, INVITE_LIST_LIMIT).all()).results || [];
+  return json(request, {
+    success: true,
+    canAutoApprove: user.role === "super_admin",
+    dayOptions: INVITE_DAY_OPTIONS,
+    maxUsesLimit: INVITE_MAX_USES_LIMIT,
+    invites: rows.map(row => inviteView(row, user.uid, now))
+  });
+}
+
+// POST /invites/revoke { inviteId } — מי שיצר את הקישור, או מנהל־על.
+async function revokeInvite(request, env) {
+  const user = await requireUser(request, env, ["admin", "super_admin"]);
+  await ensureDatabaseSchema(env);
+  const payload = await request.json().catch(() => ({}));
+  const inviteId = String(payload?.inviteId ?? "");
+  if (!INVITE_ID_PATTERN.test(inviteId)) throw apiError("מזהה הקישור אינו תקין.", 400, "invalid_invite_id");
+  const row = await env.GALLERY_DB.prepare("SELECT * FROM invite_links WHERE invite_id = ?").bind(inviteId).first();
+  if (!row) throw apiError("הקישור לא נמצא.", 404, "invite_not_found");
+  if (String(row.created_by) !== user.uid && user.role !== "super_admin") {
+    throw apiError("רק מי שיצר את הקישור, או מנהל־על, יכול לבטל אותו.", 403, "permission_denied");
+  }
+  const now = Date.now();
+  await env.GALLERY_DB.prepare("UPDATE invite_links SET revoked_at = ? WHERE invite_id = ? AND revoked_at = 0").bind(now, inviteId).run();
+  const updated = await env.GALLERY_DB.prepare("SELECT * FROM invite_links WHERE invite_id = ?").bind(inviteId).first();
+  return json(request, { success: true, invite: inviteView(updated, user.uid, now) });
+}
+
+// POST /invites/redeem { token } — כל חשבון Google מחובר, גם כזה שעוד ממתין
+// לאישור (בשבילו הקישור קיים). מוגבל בקצב לחשבון ולכתובת IP, לפני כל בדיקה.
+async function redeemInvite(request, env) {
+  const { account } = await resolveAccount(request, env);
+  await ensureDatabaseSchema(env);
+  const uid = account.localId;
+  const limitMessage = "בוצעו ניסיונות רבים. המתן שעה ונסה שוב.";
+  await consumeRateLimit(env, `invite-redeem-ip:${reportingClientBucket(request)}`, INVITE_REDEEM_IP_RATE_LIMIT, INVITE_REDEEM_RATE_WINDOW_MS, limitMessage, "invite_rate_limit");
+  await consumeRateLimit(env, `invite-redeem:${uid}`, INVITE_REDEEM_RATE_LIMIT, INVITE_REDEEM_RATE_WINDOW_MS, limitMessage, "invite_rate_limit");
+  const payload = await request.json().catch(() => ({}));
+  const token = typeof payload?.token === "string" ? payload.token : "";
+  const invalid = () => apiError("קישור ההזמנה אינו תקף.", 404, "invite_invalid");
+  if (!INVITE_TOKEN_PATTERN.test(token)) throw invalid();
+  const row = await env.GALLERY_DB.prepare("SELECT * FROM invite_links WHERE token_hash = ?").bind(await hashInviteToken(token)).first();
+  if (!row) throw invalid();
+  const now = Date.now();
+  const status = inviteStatus(row, now);
+  if (status === "revoked") throw apiError("קישור ההזמנה בוטל.", 410, "invite_revoked");
+  if (status === "expired") throw apiError("תוקף קישור ההזמנה פג.", 410, "invite_expired");
+
+  const initialAdmin = isInitialSuperAdminHash(await sha256(account.email));
+  const profile = initialAdmin ? await ensureInitialSuperAdminProfile(account, env) : await readUserProfile(uid, env, account.email);
+  if (!profile) throw apiError("פרופיל המשתמש עדיין לא נוצר. רענן את האתר ונסה שוב.", 403, "profile_missing");
+  if (profile.status === "blocked") throw apiError("החשבון חסום.", 403, "account_blocked");
+  const base = { success: true, folderId: String(row.folder_id), folderName: String(row.folder_name || "") };
+  // משתמש מאושר רק מגיע לאירוע; שימוש אינו נספר, והפרופיל אינו משתנה.
+  if (profile.status === "approved") return json(request, { ...base, status: "approved", autoApproved: false, alreadyApproved: true });
+  // אותו קישור פעם שנייה (רענון, מכשיר אחר) אינו צורך שימוש נוסף.
+  if (profile.inviteId === row.invite_id) {
+    return json(request, { ...base, status: profile.status || "pending", autoApproved: false });
+  }
+  if (status === "exhausted") throw apiError("קישור ההזמנה כבר נוצל עד הסוף.", 410, "invite_exhausted");
+  // השימוש נספר באטומיות: שני מבקרים בו-זמנית אינם עוברים יחד את התקרה.
+  const consumed = await env.GALLERY_DB.prepare(
+    `UPDATE invite_links SET use_count = use_count + 1
+     WHERE invite_id = ? AND revoked_at = 0 AND expires_at > ? AND (max_uses = 0 OR use_count < max_uses)
+     RETURNING use_count`
+  ).bind(row.invite_id, now).first();
+  if (!consumed) throw apiError("קישור ההזמנה כבר נוצל עד הסוף.", 410, "invite_exhausted");
+
+  const currentStatus = profile.status || "pending";
+  // משתמש שנדחה בעבר אינו מאושר דרך קישור — רק מסומן, וההחלטה נשארת אצל מנהל־העל.
+  const autoApprove = Number(row.auto_approve) === 1 && currentStatus === "pending";
+  const nextProfile = {
+    ...profile,
+    inviteId: String(row.invite_id),
+    inviteFolderId: String(row.folder_id),
+    inviteFolderName: String(row.folder_name || ""),
+    invitedAt: now,
+    inviteAutoApproved: autoApprove,
+    ...(autoApprove ? { status: "approved", role: "viewer", approvedAt: now, approvedBy: `invite:${row.invite_id}` } : {})
+  };
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+     VALUES ('userProfiles', ?, ?, ?, ?, ?)
+     ON CONFLICT(collection_name, document_id) DO UPDATE SET
+       data_json = excluded.data_json, owner_uid = excluded.owner_uid, updated_at = excluded.updated_at`
+  ).bind(uid, JSON.stringify(nextProfile), uid, now, now).run();
+  const logId = `log_${now}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const log = {
+    id: logId,
+    action: autoApprove ? "invite_auto_approved" : "invite_redeemed",
+    targetType: "user",
+    targetId: safeUid(uid) || "none",
+    targetName: cleanShortText(nextProfile.displayName || account.displayName || "משתמש", 160),
+    details: autoApprove
+      ? `אושר אוטומטית כצופה מהזמנה לאירוע ${nextProfile.inviteFolderName}`
+      : `בקשת הצטרפות מהזמנה לאירוע ${nextProfile.inviteFolderName}`,
+    actorUid: uid,
+    actorEmail: account.email,
+    actorName: cleanShortText(account.displayName || account.email || "משתמש", 160),
+    actorRole: "viewer",
+    createdAt: now
+  };
+  await env.GALLERY_DB.prepare(
+    `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
+     VALUES ('activityLogs', ?, ?, ?, ?, ?) ON CONFLICT(collection_name, document_id) DO NOTHING`
+  ).bind(logId, JSON.stringify(log), uid, now, now).run();
+  await bumpDataVersions(env, ["userProfiles", "activityLogs"]);
+  return json(request, { ...base, status: autoApprove ? "approved" : currentStatus, autoApproved: autoApprove });
+}
+
 export function unwrapGalleryProxy(request, env) {
   const headerNames = [...request.headers.keys()].filter(name => name.startsWith("x-gallery-proxy-"));
   if (!headerNames.length) return { request, env };
@@ -7624,6 +8728,7 @@ export default {
             "resumable-uploads", "face-people", "face-find-me",
             "d1-daily-backups", "trash-auto-purge", "maintenance-alerts", "broken-links-report",
             "usage-stats", "storage-report", "users-batch", "admin-user-notes", "media-placeholders",
+            "my-uploads", "upload-duplicates", "face-manual-tags", "event-invites",
             ...(streamConfig(env) ? ["cloudflare-stream"] : [])
           ],
           streamEnabled: Boolean(streamConfig(env)),
@@ -7662,6 +8767,27 @@ export default {
       if (request.method === "POST" && url.pathname === "/approve") {
         return await approveImage(request, env);
       }
+      if (request.method === "GET" && url.pathname === "/my-uploads") {
+        return await listMyUploads(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/pending/reject") {
+        return await rejectPendingUpload(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/duplicates") {
+        return await checkDuplicateUploads(request, env);
+      }
+      if (request.method === "GET" && url.pathname === "/invites") {
+        return await listInvites(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/invites") {
+        return await createInvite(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/invites/revoke") {
+        return await revokeInvite(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/invites/redeem") {
+        return await redeemInvite(request, env);
+      }
       if (request.method === "POST" && url.pathname === "/ai-title") {
         return await aiImageTitle(request, env);
       }
@@ -7698,6 +8824,9 @@ export default {
       if (["GET", "POST"].includes(request.method) && url.pathname === "/face/groups") {
         return await manageFaceGroups(request, env, url);
       }
+      if (["GET", "POST"].includes(request.method) && url.pathname === "/face/tags") {
+        return await faceTagsRequest(request, env, url);
+      }
       if (request.method === "GET" && url.pathname === "/face/persons") {
         return await listFacePersons(request, env, ctx);
       }
@@ -7721,6 +8850,9 @@ export default {
       }
       if (request.method === "GET" && url.pathname.startsWith("/face-assets/")) {
         return await serveFaceAsset(request, env, url.pathname);
+      }
+      if (request.method === "POST" && url.pathname === "/order") {
+        return await saveManualOrder(request, env);
       }
       if (request.method === "POST" && url.pathname === "/media/variants") {
         return await attachMediaVariants(request, env);

@@ -235,11 +235,14 @@ function renderAlbumBanner({ title, subtitle, cover, showDirectory }) {
     return heading;
 }
 
-function showAlbum(kind, personId, records, banner) {
+// manualIds: הפריטים שבהם האדם תויג ידנית בידי מנהל (ולא זוהה בפנים) —
+// הכרטיס שלהם מסומן "תיוג ידני" (gallery.js).
+function showAlbum(kind, personId, records, banner, manualIds = []) {
     if (!canUsePeople()) return;
     album.kind = kind;
     album.personId = personId;
     album.results = records;
+    window.state.manualTagAlbum = { results: records, ids: new Set(manualIds) };
     window.state.tempSearchResults = records;
     const heading = renderAlbumBanner(banner);
     window.renderImages?.();
@@ -275,6 +278,7 @@ function resetPeopleState() {
     album.kind = '';
     album.personId = '';
     album.results = null;
+    window.state.manualTagAlbum = null;
     peopleCache = null;
     peopleQuery = '';
     openModals.forEach(id => window.closeModal?.(id));
@@ -299,6 +303,7 @@ function closePeopleAlbum({ keepHash = false } = {}) {
     album.kind = '';
     album.personId = '';
     album.results = null;
+    window.state.manualTagAlbum = null;
     if (!keepHash) clearHashIfPerson();
     if (showing) window.clearTempSearchFilter?.();
 }
@@ -327,14 +332,17 @@ async function showPersonAlbum(personId) {
         const payload = await window.r2Request(`/face/persons/${encodeURIComponent(personId)}`);
         const person = normalizePerson(payload?.person, window.safeImageUrl);
         const ids = (Array.isArray(payload?.imageIds) ? payload.imageIds : []).map(window.safeRecordId).filter(Boolean);
+        // Worker ישן אינו שולח manualImageIds — אז אין תיוגים ידניים לסמן.
+        const manualIds = (Array.isArray(payload?.manualImageIds) ? payload.manualImageIds : []).map(window.safeRecordId).filter(Boolean);
         const records = await fetchImagesByIds(ids);
         if (generation !== albumGeneration) return;
+        const shownManual = records.filter(record => manualIds.includes(window.safeRecordId(record.id))).length;
         showAlbum('person', personId, records, {
             title: `התמונות של ${person?.name || cached?.name || 'האדם'}`,
-            subtitle: imageCountLabel(records.length),
+            subtitle: `${imageCountLabel(records.length)}${shownManual ? ` · ${shownManual === 1 ? 'אחת בתיוג ידני' : `${shownManual} בתיוג ידני`}` : ''}`,
             cover: person?.cover || cached?.cover || null,
             showDirectory: true
-        });
+        }, manualIds);
     } catch (error) {
         if (generation !== albumGeneration) return;
         console.warn('Person album failed to load:', error);
@@ -433,10 +441,11 @@ async function describeSingleFace(faceapi, image) {
 async function showFindMeResults(response, session) {
     if (session !== peopleSession) return;
     const threshold = Number(window.FACE_MATCH_THRESHOLD) || 0.48;
-    const ids = (Array.isArray(response?.matches) ? response.matches : [])
-        .filter(match => Number.isFinite(Number(match?.distance)) && Number(match.distance) < threshold)
-        .map(match => window.safeRecordId(match.imageId))
-        .filter(Boolean);
+    const matches = (Array.isArray(response?.matches) ? response.matches : [])
+        .filter(match => Number.isFinite(Number(match?.distance)) && Number(match.distance) < threshold);
+    const ids = matches.map(match => window.safeRecordId(match.imageId)).filter(Boolean);
+    // שיוך ידני (תיוג של מנהל, או איחוד ידני) — מסומן בכרטיס כמו באלבום.
+    const manualIds = matches.filter(match => match.source === 'manual').map(match => window.safeRecordId(match.imageId)).filter(Boolean);
     const records = ids.length ? await fetchImagesByIds(ids) : [];
     if (session !== peopleSession) return;
     if (!records.length) {
@@ -452,7 +461,7 @@ async function showFindMeResults(response, session) {
         subtitle: `${imageCountLabel(records.length)} שבהן זוהית`,
         cover: null,
         showDirectory: false
-    });
+    }, manualIds);
     window.showNotification?.(`נמצאו ${imageCountLabel(records.length)} שבהן זוהית.`, true);
 }
 

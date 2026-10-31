@@ -221,6 +221,10 @@
                                 <option value="auto">חלוקה אוטומטית לפי תיקיות מקוריות</option>
                             </select>
                         </label>
+                        <!-- סיבת הדחייה (רשות): המעלה רואה אותה ב"ההעלאות שלי", ורק הוא. -->
+                        <label class="block"><span class="field-label">סיבת הדחייה (רשות, תוצג רק למי שהעלה):</span>
+                            <input type="text" id="pendingRejectReason" maxlength="300" autocomplete="off" placeholder="למשל: התמונה מטושטשת">
+                        </label>
                         <div class="flex gap-2 flex-wrap">
                             <button type="button" onclick="approveSelectedPending()" class="btn-primary-gold flex-1 py-2.5 text-xs">אשר נבחרים</button>
                             <button type="button" id="rejectPendingBtn" onclick="rejectSelectedPending()" class="btn-danger-soft flex-1 py-2.5 text-xs">בקש מחיקה</button>
@@ -309,6 +313,10 @@
                             <label class="block"><span class="field-label">שם התיקייה</span>
                                 <input type="text" id="emptyFolderName" required maxlength="60" placeholder="שם התיקייה...">
                             </label>
+                            <!-- תת־תיקייה: עד שלוש רמות (שנה › אירוע › חלק). gallery.js ממלא את הרשימה. -->
+                            <label class="block"><span class="field-label">בתוך תיקייה</span>
+                                <select id="emptyFolderParent"><option value="">ללא — תיקייה עליונה</option></select>
+                            </label>
                             <div>
                                 <span class="field-label">סמל התיקייה</span>
                                 <div class="grid grid-cols-4 gap-2">
@@ -323,13 +331,51 @@
                     </div>
                 </div>
 
+                <!-- הזמנה לאירוע: קישור זמני לתיקייה (invites-admin.js, נטען בפתיחת המסך). -->
+                <div class="admin-panel">
+                    <div class="admin-panel-head">
+                        <h3><i data-lucide="link"></i> הזמנה לאירוע</h3>
+                    </div>
+                    <div class="admin-panel-body">
+                        <p>קישור זמני לאירוע: מי שפותח אותו ומתחבר עם Google שולח בקשת הצטרפות שמסומנת "הגיע מהזמנה", או — עם אישור אוטומטי — מאושר מיד כצופה ומגיע לאירוע. הקישור מוצג פעם אחת בלבד, ואפשר לבטל אותו בכל רגע.</p>
+                        <form id="inviteForm" onsubmit="event.preventDefault(); window.createInviteLink?.(event)" class="flex flex-col gap-3">
+                            <label class="block"><span class="field-label">התיקייה (האירוע)</span>
+                                <select id="inviteFolder" required></select>
+                            </label>
+                            <label class="block"><span class="field-label">תוקף הקישור</span>
+                                <select id="inviteDays">
+                                    <option value="1">יום אחד</option>
+                                    <option value="7" selected>שבוע</option>
+                                    <option value="30">חודש</option>
+                                </select>
+                            </label>
+                            <label class="block"><span class="field-label">מספר שימושים מרבי (ריק — ללא הגבלה)</span>
+                                <input type="number" id="inviteMaxUses" min="1" max="1000" step="1" inputmode="numeric" placeholder="ללא הגבלה">
+                            </label>
+                            <label id="inviteAutoApproveRow" class="invite-auto-row" hidden>
+                                <input type="checkbox" id="inviteAutoApprove">
+                                <span>אישור אוטומטי — מי שמתחבר מהקישור מאושר מיד כצופה (דרגה 1). למנהל־על בלבד. בלי הסימון הבקשה ממתינה לאישור.</span>
+                            </label>
+                            <button type="submit" id="inviteSubmit" class="btn-primary-gold w-full py-2.5 text-xs">צור קישור הזמנה</button>
+                        </form>
+                        <div id="inviteCreated" class="invite-created" hidden>
+                            <p class="text-xs font-bold">הקישור מוכן. הוא מוצג רק עכשיו — העתק אותו ושלח למוזמנים.</p>
+                            <p id="inviteCreatedSummary" class="field-hint"></p>
+                            <input id="inviteCreatedUrl" type="text" readonly aria-label="קישור ההזמנה">
+                            <button type="button" class="btn-secondary-dark py-2 text-xs" onclick="window.copyInviteLink?.()">העתק קישור</button>
+                        </div>
+                        <p id="invitesStatus" class="field-hint" role="status" aria-live="polite"></p>
+                        <div id="invitesList" class="admin-list"></div>
+                    </div>
+                </div>
+
                 <div class="admin-panel">
                     <div class="admin-panel-head">
                         <h3><i data-lucide="library-big"></i> תיקיות הגלריה</h3>
                         <button type="button" onclick="renderAdminFolders()" class="btn-secondary-dark px-3 py-1.5 text-[11px]">רענן</button>
                     </div>
                     <div class="admin-panel-body">
-                        <p>כאן מוצגת כל תיקייה עם מספר הפריטים שבה. מעבר לגלריה פותח אותה ישירות.</p>
+                        <p>כאן מוצג עץ התיקיות עם מספר הפריטים בכל אחת. אפשר להעביר תיקייה אל תוך אחרת (עד שלוש רמות), לשנות את הסדר בחיצים או בגרירה, ולקבוע סדר ידני כברירת מחדל לתמונות של תיקייה.</p>
                         <div id="adminFolderList" class="admin-list admin-list-scroll"></div>
                     </div>
                 </div>
@@ -1059,21 +1105,6 @@
         </div>
     </div>
 
-    <!-- קבצים כפולים -->
-    <div id="duplicateMediaModal" class="fixed inset-0 z-[140] hidden p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="duplicateMediaTitle">
-        <div class="modal-card modal-animate-popup max-w-lg">
-            <div class="modal-head"><h3 id="duplicateMediaTitle"><i data-lucide="copy-check" class="w-5 h-5"></i> נמצאו קבצים כפולים</h3></div>
-            <div class="modal-body">
-                <p id="duplicateMediaMessage"></p>
-                <div id="duplicateMediaList" class="admin-list max-h-36 overflow-y-auto"></div>
-            </div>
-            <div class="modal-foot">
-                <button type="button" onclick="resolveDuplicateUpload('cancel')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" onclick="resolveDuplicateUpload('upload')" class="btn-secondary-dark">העלה בכל זאת</button>
-                <button type="button" onclick="resolveDuplicateUpload('skip')" class="btn-primary-gold">דלג על הכפולים</button>
-            </div>
-        </div>
-    </div>
 
     <!-- שיחה עם משתמש -->
     <div id="conversationModal" class="fixed inset-0 z-[120] hidden p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="conversationTitle">
@@ -1192,6 +1223,10 @@
                 <button type="button" id="pendingSwipeReject" class="btn-danger-soft" aria-keyshortcuts="R ArrowLeft" aria-describedby="pendingSwipeRejectHint"><i data-lucide="x" class="w-5 h-5"></i> דחה</button>
                 <span id="pendingSwipeRejectHint" class="sr-only"></span>
             </div>
+            <!-- סיבה לדחייה הבאה — רשות, ואפשר לדלג. היא מתרוקנת אחרי כל דחייה. -->
+            <label class="pending-swipe-reason"><span>סיבה לדחייה (רשות)</span>
+                <input type="text" id="pendingSwipeReason" maxlength="300" autocomplete="off" placeholder="תוצג רק למי שהעלה">
+            </label>
             <!-- ההכרזה על ההחלטה: אזור שקיים מההתחלה ומתמלא פריים אחרי שהפס נחשף,
                  כדי שגם ההחלטה הראשונה תוכרז (pending-swipe.js, announceUndo). -->
             <p id="pendingSwipeUndoLive" class="sr-only" aria-live="polite" aria-atomic="true"></p>

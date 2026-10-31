@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v72";
+const CACHE_VERSION = "v73";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -12,8 +12,15 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // admin.html ומודולי הניהול אינם כאן בכוונה, מאותו טעם: הם שייכים למנהל
 // בלבד ונכנסים למטמון רק כשהוא פותח את לוח הניהול. גם face-index.js
 // ו-drive-sync.js הם כלי ניהול ולכן אינם נטענים מראש לאורח.
+// media-edit-ui.js (עורך הסיבוב והחיתוך) ו-manual-order-ui.js (מצב "סדר ידני")
+// נטענים בדף הגלריה רק למנהל, ולכן גם הם אינם כאן. media-edit-canvas.js כן:
+// צופה רגיל צריך אותו להורדה של תמונה ערוכה.
 // people.js ו-people-model.js (אנשים בגלריה ו"התמונות שלי") נטענים בייבוא
 // דינמי, אך נשמרים מראש כמו face-search.js, כי הם חלק מדף הגלריה עצמו.
+// כך גם my-uploads.js ("ההעלאות שלי"), invite-link.js (קישור הזמנה לאירוע)
+// ו-users-model.js שהם נשענים עליו. manual-tags.js (תיוג ידני, למנהלים) ו-
+// invites-admin.js (לוח הניהול) הם כלי ניהול ונשארים בחוץ, ו-content-hash.js
+// נטען רק בהעלאה, כמו upload-queue.js.
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -42,6 +49,11 @@ const APP_SHELL = [
   "./print-album.js",
   "./print-album-ui.js",
   "./media-variants.js",
+  "./folder-tree.js",
+  "./gallery-folders.js",
+  "./manual-order.js",
+  "./media-edit.js",
+  "./media-edit-canvas.js",
   "./video-hover-preview.js",
   "./new-since.js",
   "./folder-preview.js",
@@ -63,6 +75,9 @@ const APP_SHELL = [
   "./face-search.js",
   "./people.js",
   "./people-model.js",
+  "./users-model.js",
+  "./my-uploads.js",
+  "./invite-link.js",
   "./cloudflare-client.js",
   "./api-environment.js",
   "./auto-update.js",
