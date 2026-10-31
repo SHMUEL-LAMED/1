@@ -13,6 +13,9 @@ import { pickCardSource } from './media-variants.js';
 import { trashPurgeLabel } from './maintenance-model.js';
 // ייצוא CSV שמנטרל נוסחאות (=, +, -, @) — שמות המשתמשים מגיעים מחשבונות Google.
 import { csvText, userCsvRows } from './admin-users-model.js';
+// עץ התיקיות והסדר הידני שלהן (folder-tree.js, manual-order.js).
+import { FOLDER_MAX_DEPTH, buildFolderTree, compareFolders, parentChoices, subtreeCount, validateFolderMove } from './folder-tree.js';
+import { chunkOrderChanges, moveItem, rankChanges } from './manual-order.js';
 
 const { checkAdminPermission, checkSuperAdminPermission, canViewSuperAdminData } = window;
 const { openModal, closeModal, showConfirm, scheduleIconRefresh } = window;
@@ -61,9 +64,9 @@ const ADMIN_VIEWS = [
         id: 'folders',
         group: 'תוכן הגלריה',
         title: 'תיקיות ואירועים',
-        description: 'יצירת תיקייה חדשה ומעבר מהיר לכל תיקייה בגלריה.',
+        description: 'יצירת תיקייה חדשה, קישור הזמנה זמני לאירוע ומעבר מהיר לכל תיקייה בגלריה.',
         icon: 'folders',
-        keywords: 'תיקייה אירוע יצירה'
+        keywords: 'תיקייה אירוע יצירה הזמנה קישור מוזמנים'
     },
     {
         id: 'deletions',
@@ -405,6 +408,12 @@ function lazyAdminHandlers(ensure, names, label) {
 lazyAdminHandlers(ensureUsersBulkModule, ['selectVisibleUsers', 'clearUserSelection', 'runUsersBulkAction', 'openUserNotes', 'closeUserNotes', 'addUserNote'], 'Users bulk');
 lazyAdminHandlers(ensureAdminStatsModule, ['loadAdminStats', 'setAdminStatsRange', 'saveStorageBudget'], 'Stats');
 
+// קישורי ההזמנה לאירוע נטענים רק בפתיחת מסך התיקיות.
+let invitesModulePromise = null;
+function ensureInvitesModule() {
+    return (invitesModulePromise ||= import('./invites-admin.js'));
+}
+
 // הגיבויים היומיים והקישורים השבורים (מנהל־על) נטענים רק כשאחד המסכים נפתח.
 let maintenanceModulePromise = null;
 function ensureMaintenanceModule() {
@@ -464,7 +473,13 @@ function runViewHook(viewId) {
         }
     }
     if (viewId === 'stats' && window.state?.isSuperAdmin) window.loadAdminStats();
-    if (viewId === 'folders') window.renderAdminFolders();
+    if (viewId === 'folders') {
+        window.renderAdminFolders();
+        // קישורי ההזמנה לאירוע נטענים רק כשהמסך נפתח.
+        ensureInvitesModule()
+            .then(module => module.loadInvites())
+            .catch(error => console.error('Invites module failed to load:', error));
+    }
     if (viewId === 'deletions') window.renderDeletionRequests?.();
     if (viewId === 'trash') window.renderTrashItems?.();
     if (viewId === 'activity') window.renderActivityLogs?.();
@@ -765,10 +780,12 @@ window.refreshAdminData = async function() {
 window.renderAdminFolders = function() {
     const list = document.getElementById('adminFolderList');
     if (!list) return;
-    const folders = (window.state.folders || []).filter(folder => safeRecordId(folder.id) !== 'all');
     list.replaceChildren();
+    // תיקיית האב של תיקייה חדשה בטופס שמעל הרשימה מתעדכנת יחד איתה.
+    window.populateFolderSelects?.();
+    const tree = buildFolderTree(window.state.folders || []);
 
-    if (!folders.length) {
+    if (!tree.byId.size) {
         const empty = document.createElement('p');
         empty.className = 'admin-empty';
         empty.textContent = 'עדיין אין תיקיות בגלריה.';
@@ -776,13 +793,25 @@ window.renderAdminFolders = function() {
         return;
     }
 
-    folders.forEach(folder => {
-        const folderId = safeRecordId(folder.id);
-        if (!folderId) return;
-        const count = (window.state.images || []).filter(image => image.folderId === folder.id).length;
+    // בדף הניהול כל התמונות בזיכרון, ולכן המונים נספרים כאן.
+    const ownCounts = {};
+    for (const image of window.state.images || []) {
+        const folderId = safeRecordId(image.folderId);
+        if (folderId) ownCounts[folderId] = (ownCounts[folderId] || 0) + 1;
+    }
+    const canEdit = Boolean(window.state.isAdminLoggedIn);
+
+    // שורה לכל תיקייה, לפי סדר העץ; ההזחה לפי העומק (data-depth).
+    const renderRow = (folderId, depth, siblings) => {
+        const folder = tree.get(folderId);
+        const own = ownCounts[folderId] || 0;
+        const total = subtreeCount(tree, folderId, ownCounts);
 
         const row = document.createElement('div');
-        row.className = 'admin-row';
+        row.className = 'admin-row admin-folder-row';
+        row.dataset.folderId = folderId;
+        row.dataset.depth = String(depth);
+        row.setAttribute('role', 'listitem');
         row.innerHTML = `<span class="admin-stat-icon" data-tone="cyan"><i data-lucide="${safeIconName(folder.icon)}" class="w-4 h-4"></i></span>`;
 
         const text = document.createElement('div');
@@ -792,20 +821,226 @@ window.renderAdminFolders = function() {
         title.textContent = folder.name || 'תיקייה ללא שם';
         const meta = document.createElement('p');
         meta.className = 'admin-row-meta';
-        meta.textContent = `${count} פריטים${folder.syncedFromDrive ? ' · מסונכרן מ־Drive' : ''}${folder.eventDate ? ` · ${folder.eventDate}` : ''}`;
+        const nested = total - own;
+        meta.textContent = `${own} פריטים${nested ? ` · ועוד ${nested} בתת־התיקיות` : ''}${folder.syncedFromDrive ? ' · מסונכרן מ־Drive' : ''}${folder.eventDate ? ` · ${folder.eventDate}` : ''}${folder.manualOrder ? ' · סדר ידני' : ''}`;
         text.append(title, meta);
+        row.append(text);
+
+        const controls = document.createElement('div');
+        controls.className = 'admin-folder-controls';
+        const name = folder.name || 'התיקייה';
+        if (canEdit) {
+            const position = siblings.indexOf(folderId);
+            const moveButton = (step, icon, label) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'admin-folder-icon-button';
+                button.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i>`;
+                button.setAttribute('aria-label', `${label}: ${name}`);
+                button.title = label;
+                button.disabled = position + step < 0 || position + step >= siblings.length;
+                button.onclick = () => moveFolderAmongSiblings(folderId, siblings, step);
+                return button;
+            };
+            controls.append(moveButton(-1, 'arrow-up', 'הזזה למעלה בסדר'), moveButton(1, 'arrow-down', 'הזזה למטה בסדר'));
+
+            // "העבר אל": רק הורים חוקיים (בלי מעגל, עד שלוש רמות).
+            const select = document.createElement('select');
+            select.setAttribute('aria-label', `העברת ${name} אל תיקייה אחרת`);
+            const top = document.createElement('option');
+            top.value = '';
+            top.textContent = 'רמה עליונה';
+            select.append(top);
+            for (const choice of parentChoices(tree, folderId)) {
+                const option = document.createElement('option');
+                option.value = choice.id;
+                option.textContent = `${'  '.repeat(choice.depth - 1)}${choice.depth > 1 ? '↳ ' : ''}${choice.folder?.name || 'תיקייה ללא שם'}`;
+                select.append(option);
+            }
+            select.value = tree.parentOf(folderId);
+            select.onchange = () => moveFolderUnder(folderId, select.value, () => { select.value = tree.parentOf(folderId); });
+            controls.append(select);
+
+            const manual = document.createElement('label');
+            manual.className = 'admin-folder-manual';
+            const manualToggle = document.createElement('input');
+            manualToggle.type = 'checkbox';
+            manualToggle.checked = folder.manualOrder === true;
+            manualToggle.onchange = () => setFolderManualOrder(folderId, manualToggle.checked, () => { manualToggle.checked = !manualToggle.checked; });
+            manual.append(manualToggle, document.createTextNode('סדר ידני כברירת מחדל'));
+            controls.append(manual);
+
+            if (depth < FOLDER_MAX_DEPTH) {
+                const child = document.createElement('button');
+                child.type = 'button';
+                child.className = 'btn-secondary-dark px-3 py-1.5 text-[11px]';
+                child.textContent = 'תת־תיקייה חדשה';
+                child.setAttribute('aria-label', `יצירת תת־תיקייה בתוך ${name}`);
+                child.onclick = () => startSubfolder(folderId);
+                controls.append(child);
+            }
+            row.draggable = true;
+        }
 
         const open = document.createElement('button');
         open.type = 'button';
         open.className = 'btn-secondary-dark px-3 py-1.5 text-[11px]';
         open.textContent = 'פתיחה בגלריה';
         open.onclick = () => window.location.assign(`./index.html#folder-${encodeURIComponent(folderId)}`);
-
-        row.append(text, open);
+        controls.append(open);
+        row.append(controls);
         list.appendChild(row);
-    });
+        for (const childId of tree.childrenOf(folderId)) renderRow(childId, depth + 1, tree.childrenOf(folderId));
+    };
+    list.setAttribute('role', 'list');
+    for (const rootId of tree.roots) renderRow(rootId, 1, tree.roots);
+    installAdminFolderDrag(list);
     scheduleIconRefresh(list);
 };
+
+// הסדר הידני של תיקיות אחיות: מחושב ב-manual-order.js, ונשלחות רק התיקיות
+// שהדירוג שלהן השתנה, בבקשה אחת (POST /order, טרנזקציה בשרת).
+async function saveFolderSiblingOrder(orderedIds) {
+    const tree = buildFolderTree(window.state.folders || []);
+    const records = orderedIds.map(id => tree.get(id)).filter(Boolean);
+    const changes = rankChanges(records, { idOf: folder => safeRecordId(folder.id), fallback: compareFolders });
+    if (!changes.length) return;
+    for (const chunk of chunkOrderChanges(changes)) {
+        await r2Request('/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ collection: 'folders', items: chunk })
+        });
+    }
+    const byId = new Map(changes.map(change => [change.id, change.order]));
+    window.state.folders = (window.state.folders || []).map(folder => {
+        const id = safeRecordId(folder.id);
+        if (!byId.has(id)) return folder;
+        const next = { ...folder };
+        if (byId.get(id) === null) delete next.order;
+        else next.order = byId.get(id);
+        return next;
+    });
+    window.renderFolders?.();
+    window.renderAdminFolders();
+}
+
+async function moveFolderAmongSiblings(folderId, siblings, step) {
+    const from = siblings.indexOf(folderId);
+    if (from < 0 || from + step < 0 || from + step >= siblings.length) return;
+    try {
+        await saveFolderSiblingOrder(moveItem(siblings, from, from + step));
+        window.showNotification('סדר התיקיות נשמר.', true);
+        // הפוקוס חוזר לאותו כפתור בשורה שזזה, כדי שאפשר להמשיך להזיז במקלדת.
+        const row = document.querySelector(`#adminFolderList [data-folder-id="${folderId}"]`);
+        row?.querySelectorAll('.admin-folder-icon-button')[step < 0 ? 0 : 1]?.focus();
+    } catch (error) {
+        console.error('Folder order save failed:', error);
+        window.showNotification(error.message || 'שמירת סדר התיקיות נכשלה.', false);
+    }
+}
+
+function moveFolderUnder(folderId, parentId, revert) {
+    const tree = buildFolderTree(window.state.folders || []);
+    const folder = tree.get(folderId);
+    const target = safeRecordId(parentId);
+    const check = validateFolderMove(tree, folderId, target);
+    if (!folder || !check.ok) {
+        window.showNotification(check.message || 'לא ניתן להעביר את התיקייה לשם.', false);
+        revert();
+        return;
+    }
+    const targetName = target ? (tree.get(target)?.name || 'התיקייה') : 'הרמה העליונה';
+    showConfirm('העברת תיקייה', `להעביר את "${folder.name || 'התיקייה'}" אל "${targetName}"? התמונות שבתוכה נשארות בה.`, async () => {
+        try {
+            await window.saveFolderToCloud({ ...folder, parentId: target || null });
+            window.renderAdminFolders();
+            window.showNotification('התיקייה הועברה.', true);
+        } catch (error) {
+            console.error('Folder move failed:', error);
+            revert();
+            window.showNotification(error.message || 'העברת התיקייה נכשלה.', false);
+            throw error;
+        }
+    });
+    // ביטול בחלון האישור (showConfirm אינו מודיע עליו) מחזיר את הרשימה למצב
+    // האמיתי: כשהחלון נסגר, העץ מצויר שוב מ-state.folders.
+    const confirmModal = document.getElementById('confirmModal');
+    if (confirmModal && typeof MutationObserver === 'function') {
+        const observer = new MutationObserver(() => {
+            if (!confirmModal.classList.contains('hidden')) return;
+            observer.disconnect();
+            window.setTimeout(() => window.renderAdminFolders(), 0);
+        });
+        observer.observe(confirmModal, { attributes: true, attributeFilter: ['class'] });
+    }
+}
+
+async function setFolderManualOrder(folderId, enabled, revert) {
+    const folder = buildFolderTree(window.state.folders || []).get(folderId);
+    if (!folder) return;
+    try {
+        await window.saveFolderToCloud({ ...folder, manualOrder: enabled });
+        window.renderAdminFolders();
+        window.showNotification(enabled ? 'התיקייה תיפתח בסדר הידני.' : 'התיקייה תיפתח בסדר הרגיל.', true);
+    } catch (error) {
+        revert();
+        window.showNotification(error.message || 'שמירת ההגדרה נכשלה.', false);
+    }
+}
+
+// "תת־תיקייה חדשה": הטופס שמעל הרשימה, עם ההורה כבר בחור.
+function startSubfolder(parentId) {
+    window.populateFolderSelects?.();
+    const select = document.getElementById('emptyFolderParent');
+    if (select) select.value = parentId;
+    const name = document.getElementById('emptyFolderName');
+    name?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    name?.focus({ preventScroll: true });
+}
+
+// גרירה בין תיקיות אחיות (אותו הורה). הכפתורים שבשורה עושים אותו דבר במקלדת.
+function installAdminFolderDrag(list) {
+    if (list.__folderDrag) return;
+    list.__folderDrag = true;
+    let dragged = '';
+    list.addEventListener('dragstart', event => {
+        dragged = event.target.closest?.('.admin-folder-row')?.dataset.folderId || '';
+        try { event.dataTransfer.setData('text/plain', dragged); } catch { /* בלי נתונים — dragged שמור */ }
+    });
+    list.addEventListener('dragover', event => {
+        const row = event.target.closest?.('.admin-folder-row');
+        if (!row || !dragged) return;
+        event.preventDefault();
+        list.querySelectorAll('.is-drop-target').forEach(node => node !== row && node.classList.remove('is-drop-target'));
+        row.classList.add('is-drop-target');
+    });
+    list.addEventListener('dragend', () => {
+        dragged = '';
+        list.querySelectorAll('.is-drop-target').forEach(node => node.classList.remove('is-drop-target'));
+    });
+    list.addEventListener('drop', async event => {
+        const row = event.target.closest?.('.admin-folder-row');
+        const targetId = row?.dataset.folderId || '';
+        list.querySelectorAll('.is-drop-target').forEach(node => node.classList.remove('is-drop-target'));
+        if (!row || !dragged || dragged === targetId) return;
+        event.preventDefault();
+        const tree = buildFolderTree(window.state.folders || []);
+        if (tree.parentOf(dragged) !== tree.parentOf(targetId)) {
+            window.showNotification('גרירה מסדרת תיקיות באותה רמה. כדי להעביר לתיקייה אחרת השתמש ב"העבר אל".', false);
+            return;
+        }
+        const siblings = tree.parentOf(dragged) ? tree.childrenOf(tree.parentOf(dragged)) : tree.roots;
+        const from = siblings.indexOf(dragged);
+        const to = siblings.indexOf(targetId);
+        try {
+            await saveFolderSiblingOrder(moveItem(siblings, from, to));
+            window.showNotification('סדר התיקיות נשמר.', true);
+        } catch (error) {
+            window.showNotification(error.message || 'שמירת סדר התיקיות נכשלה.', false);
+        }
+    });
+}
 
 // ==========================================================================
 // 6. משתמשים — סינון וייצוא
@@ -1048,6 +1283,38 @@ window.previewBackupFile = async function(input) {
     }
 };
 
+// סדר שחזור התיקיות: כל תיקייה אחרי ההורה שלה. הורה שאינו בגיבוי ואינו
+// בגלריה — התיקייה חוזרת כעליונה. מעגל (נתונים פגומים) נשבר באותה דרך.
+function orderFoldersForRestore(folders) {
+    const list = (Array.isArray(folders) ? folders : []).filter(folder => folder && typeof folder === 'object');
+    const inBackup = new Set(list.map(folder => safeRecordId(folder.id)));
+    const existing = new Set((window.state.folders || []).map(folder => safeRecordId(folder.id)));
+    const placed = new Set();
+    const ordered = [];
+    let pending = list;
+    while (pending.length) {
+        const next = [];
+        for (const folder of pending) {
+            const parent = safeRecordId(folder.parentId);
+            if (!parent || placed.has(parent) || (!inBackup.has(parent) && existing.has(parent))) {
+                ordered.push(folder);
+                placed.add(safeRecordId(folder.id));
+            } else if (!inBackup.has(parent)) {
+                ordered.push({ ...folder, parentId: null });
+                placed.add(safeRecordId(folder.id));
+            } else {
+                next.push(folder);
+            }
+        }
+        if (next.length === pending.length) {
+            for (const folder of next) ordered.push({ ...folder, parentId: null });
+            break;
+        }
+        pending = next;
+    }
+    return ordered;
+}
+
 window.restoreGalleryBackup = function(confirmed = false) {
     if (!checkSuperAdminPermission() || !selectedBackupPayload) return;
     if (!confirmed) {
@@ -1058,8 +1325,16 @@ window.restoreGalleryBackup = function(confirmed = false) {
         const status = document.getElementById('backupRestoreStatus');
         const { doc, setDoc } = window.firestoreModules;
         const base = ['artifacts', window.appId, 'public', 'data'];
+        // תיקיות: ההורים לפני הילדים (ה-Worker דוחה הורה שעוד לא קיים), ובלי
+        // תמונת השער — היא נקבעת בסבב שני, אחרי שהתמונות עצמן שוחזרו.
+        const backupFolders = orderFoldersForRestore(selectedBackupPayload.folders || []);
+        const covers = backupFolders.filter(folder => safeRecordId(folder?.coverImageId));
         const collections = [
-            ['folders', selectedBackupPayload.folders || [], 'id', false],
+            ['folders', backupFolders.map(folder => {
+                if (!folder || typeof folder !== 'object' || folder.coverImageId === undefined) return folder;
+                const { coverImageId, ...rest } = folder;
+                return rest;
+            }), 'id', false],
             ['images', selectedBackupPayload.images || [], 'id', false],
             ['pendingImages', selectedBackupPayload.pendingImages || [], 'id', false],
             ['userProfiles', selectedBackupPayload.userProfiles || [], 'uid', true],
@@ -1073,6 +1348,16 @@ window.restoreGalleryBackup = function(confirmed = false) {
                 await setDoc(doc(window.db, ...base, collectionName, id), record, merge ? { merge: true } : undefined);
                 restored++;
                 if (status) status.textContent = `משחזר נתונים… ${restored} פריטים הושלמו`;
+            }
+        }
+        for (const folder of covers) {
+            const id = safeRecordId(folder.id);
+            if (!id || id === 'all') continue;
+            try {
+                await setDoc(doc(window.db, ...base, 'folders', id), { coverImageId: folder.coverImageId }, { merge: true });
+            } catch (error) {
+                // תמונה שאינה בגיבוי: התיקייה נשארת עם הסמל, כמו היום.
+                console.warn('Folder cover restore skipped:', id, error);
             }
         }
         if (status) status.textContent = `השחזור הושלם בהצלחה: ${restored} רשומות.`;

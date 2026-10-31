@@ -4,6 +4,9 @@
 // מודול הניהול אינו מיובא כאן. הוא נטען רק מ-admin-app.js שבדף הניהול,
 // ולכן מבקר בגלריה אינו מוריד אותו — זו הסיבה לקיומו של admin.html.
 
+// קישור הזמנה לאירוע (#invite/<אסימון>) נקרא ונמחק מהכתובת לפני כל דבר
+// אחר — לפני שמודול אחר מספיק לקרוא את ה-hash (ראו invite-link.js).
+import { hasPendingInvite, redeemPendingInvite, takeInviteFolder } from './invite-link.js';
 import { initSession } from './session-auth.js';
 import { initGallery } from './gallery.js';
 // טעינת התמונות לפי תיקייה. נרשם על window ומופעל רק בדף הגלריה, אחרי
@@ -45,7 +48,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v72';
+const SITE_VERSION = 'v73';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -96,10 +99,35 @@ const ensurePeopleModule = defineLazyModule(() => import('./people.js'), [
     'openPeopleDirectory', 'filterPeopleDirectory', 'handlePeopleRoute', 'closePeopleAlbum',
     'openFindMe', 'findMeFromProfile', 'findMeFromSelfie', 'findMeWithSaved', 'forgetFindMe'
 ]);
+// "ההעלאות שלי" (my-uploads.js) — נטען בלחיצה על הכפתור, או אחרי כניסה של
+// צופה מאושר, לבדיקה אם העלאות שלו אושרו מאז הביקור הקודם.
+const ensureMyUploadsModule = defineLazyModule(() => import('./my-uploads.js'), ['openMyUploads', 'filterMyUploads']);
+// תיוג ידני של אדם בתצוגה המלאה (manual-tags.js) — כלי מנהלים בלבד, נטען רק
+// בלחיצה על "תיוג אדם", ולכן אינו נשמר מראש ב-Service Worker.
+defineLazyModule(() => import('./manual-tags.js'), ['openManualTagger']);
 // אלבום להדפסה (print-album-ui.js) — נטען רק בלחיצה על "אלבום להדפסה" בעמוד
 // האירוע או על "אלבום PDF" בסרגל הבחירה המרובה.
 defineLazyModule(() => import('./print-album-ui.js'), ['openFolderPrintAlbum', 'openSelectionPrintAlbum']);
 window.ensurePeopleModule = ensurePeopleModule;
+window.ensureMyUploadsModule = ensureMyUploadsModule;
+
+// אחרי כל טעינה של הפרופיל (session-auth.js): הזמנה שממתינה למימוש נשלחת
+// עכשיו, צופה שאושר מהזמנה מגיע לתיקיית האירוע, וצופה מאושר שומע אם העלאות
+// שלו אושרו מאז הביקור הקודם. בדף הניהול אין לאלה מקום.
+window.afterProfileReady = function(profile) {
+    if (PAGE_MODE !== 'gallery') return;
+    if (hasPendingInvite()) redeemPendingInvite();
+    if (profile?.status !== 'approved') return;
+    const inviteFolderId = takeInviteFolder();
+    if (inviteFolderId) window.setTimeout(() => window.setActiveFolder?.(inviteFolderId), 300);
+    if (window.state?.userRole === 'viewer') {
+        window.setTimeout(() => {
+            ensureMyUploadsModule()
+                .then(() => window.checkUploadApprovals?.())
+                .catch(error => console.warn('My uploads module failed to load:', error));
+        }, 2500);
+    }
+};
 window.ensureCaptureDatesModule = ensureCaptureDatesModule;
 window.ensureFaceSearchModule = ensureFaceSearchModule;
 window.ensureFaceIndexModule = ensureFaceIndexModule;
@@ -976,7 +1004,7 @@ window.readUploadCaptureFields = readUploadCaptureFields;
 // uploadOptions: { signal, onProgress, resumeKey } מתור ההעלאה — ביטול,
 // התקדמות, והמפתח שלפיו העלאה בחלקים ממשיכה מהמקום שנעצרה.
 async function prepareMediaRecordForCloud(record, mediaId, uploadOptions = {}) {
-    const { sourceFile, thumbnailDataUrl, _isDuplicate, _resumeKey, _resumeFrom, ...cleanRecord } = record;
+    const { sourceFile, thumbnailDataUrl, _isDuplicate, _resumeKey, _resumeFrom, duplicateLookup, duplicateOf, ...cleanRecord } = record;
     let preparedRecord = cleanRecord;
     const mediaOptions = {
         signal: uploadOptions.signal,
@@ -1288,6 +1316,10 @@ window.moveFolderToTrash = async function(id) {
     const folderId = safeRecordId(id);
     const folder = (window.state.folders || []).find(item => safeRecordId(item.id) === folderId);
     if (!folder) throw new Error('התיקייה לא נמצאה.');
+    // אין מחיקה מדורגת של תת־תיקיות. הבדיקה כאן, לפני שהתמונות עוברות לסל —
+    // ה-Worker היה דוחה רק את מחיקת התיקייה עצמה, אחרי שהתמונות כבר הועברו.
+    const childCount = (window.state.folders || []).filter(item => safeRecordId(item.parentId) === folderId).length;
+    if (childCount) throw new Error(`אי אפשר למחוק תיקייה שיש בה תת־תיקיות (${childCount}). העבר או מחק קודם את תת־התיקיות.`);
     // כל התמונות של התיקייה נמשכות מהשרת: בדף הגלריה הזיכרון מחזיק רק את
     // התיקייה הפעילה, ותיקייה שנמחקת חייבת לקחת איתה את כל הפריטים שלה.
     // הסינון חוזר גם כאן, למקרה של Worker ישן שעדיין מתעלם מהסינון בשרת.
@@ -1337,7 +1369,13 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
     const { doc, setDoc, deleteDoc } = window.firestoreModules;
     // קובצי התצוגות המקדימות נמחקו יחד עם הרשומה (כמו טביעות הפנים), ולכן
     // הרשומה חוזרת בלעדיהם ונאספת שוב בריצת "תצוגות מקדימות" הבאה.
-    const restoredRecord = ['image', 'pendingImage'].includes(item.originalType) ? withoutMediaVariants(item.record) : item.record;
+    let restoredRecord = ['image', 'pendingImage'].includes(item.originalType) ? withoutMediaVariants(item.record) : item.record;
+    // תת־תיקייה שההורה שלה כבר אינו קיים חוזרת כתיקייה עליונה (ה-Worker אינו
+    // מקבל הורה שאינו קיים).
+    if (item.originalType === 'folder' && restoredRecord?.parentId
+        && !(window.state.folders || []).some(folder => safeRecordId(folder.id) === safeRecordId(restoredRecord.parentId))) {
+        restoredRecord = { ...restoredRecord, parentId: null };
+    }
     await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', collectionName, safeRecordId(item.originalId)), restoredRecord);
     if (item.originalType === 'folder' && Array.isArray(item.relatedTrashIds)) {
         for (const childTrashId of item.relatedTrashIds) {
@@ -1363,7 +1401,7 @@ window.restoreTrashItem = async function(trashId, confirmed = false) {
         window.renderFolders();
     } else if (item.originalType === 'folder' && item.record) {
         if (!(window.state.folders || []).some(f => safeRecordId(f.id) === safeRecordId(item.originalId))) {
-            window.state.folders = [...(window.state.folders || []), item.record];
+            window.state.folders = [...(window.state.folders || []), restoredRecord];
         }
         // Restore related images
         if (Array.isArray(item.relatedTrashIds)) {

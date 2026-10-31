@@ -110,7 +110,7 @@ test.before(() => {
 });
 test.after(() => { globalThis.fetch = originalFetch; });
 
-test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (9): טבלת התצוגות, אינדקס תאריך הצילום וטבלאות ההעלאה בחלקים נוצרים, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
+test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (11): טבלת התצוגות, אינדקס תאריך הצילום וטבלאות ההעלאה בחלקים נוצרים, גרסאות הנתונים נשמרות, ושכבת הנתונים מתיישנת אחרי צירוף תצוגות", async () => {
   const d1 = productionDatabaseAtVersion4();
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: new R2() };
 
@@ -128,7 +128,7 @@ test("מסד ייצור בגרסה 4 עולה לגרסה הנוכחית (9): ט�
     assert.ok(tables.includes(name), `${name} חסר אחרי המיגרציה`);
   }
   // 5 — התצוגות; 6 — אינדקס המיון לפי תאריך הצילום; 7 — ההעלאה בחלקים ו-Stream.
-  assert.equal(meta(d1, "gallery"), 9);
+  assert.equal(meta(d1, "gallery"), 11);
   // המיגרציה אינה נוגעת בגרסאות הנתונים של שכבת הנתונים.
   assert.equal(meta(d1, "data_version:images"), 1000);
   assert.equal(meta(d1, "data_version:userProfiles"), 2000);
@@ -156,9 +156,9 @@ test("Worker ישן שכתב גרסה נמוכה יותר אינו מוריד א
   // הסכימה כבר הוכנה בתהליך הזה, ולכן בודקים את ההוראה עצמה מול מסד שבו
   // הגרסה הרשומה גבוהה מזו של הקוד (כמו אחרי פריסה של ענף חדש יותר).
   const d1 = productionDatabaseAtVersion4();
-  d1.database.prepare("UPDATE gallery_schema_meta SET schema_version = 9 WHERE schema_key = 'gallery'").run();
+  d1.database.prepare("UPDATE gallery_schema_meta SET schema_version = 12 WHERE schema_key = 'gallery'").run();
   const source = readFileSync(new URL("./cloudflare-worker.js", import.meta.url), "utf8");
   const upsert = source.match(/INSERT INTO gallery_schema_meta \(schema_key, schema_version, updated_at\)\s+VALUES \('gallery', \?, \?\)[\s\S]*?updated_at = excluded\.updated_at/)[0];
   d1.database.prepare(upsert).run(5, Date.now());
-  assert.equal(meta(d1, "gallery"), 9);
+  assert.equal(meta(d1, "gallery"), 12);
 });

@@ -459,6 +459,14 @@ window.renderPendingUsers = function() {
 
         card.appendChild(header);
 
+        // הגיע מקישור הזמנה לאירוע: השרת לבדו כותב את השדה (POST /invites/redeem).
+        if (profile.inviteFolderName) {
+            const flag = document.createElement('span');
+            flag.className = 'chip is-cyan invite-flag';
+            flag.textContent = `הגיע מהזמנה לאירוע ${profile.inviteFolderName}`;
+            identity.appendChild(flag);
+        }
+
         // Show submitted details if available
         if (profile.requestDetails) {
             const detailsBox = document.createElement('div');
@@ -750,10 +758,26 @@ async function approveSelectedPending(confirmed = false) {
     );
 }
 
+// סיבת הדחייה (רשות) נרשמת קודם בשרת (POST /pending/reject): המעלה רואה
+// אותה ב"ההעלאות שלי", ורק הוא. Worker ישן (404) — הדחייה ממשיכה בלי סיבה;
+// גם כשל אחר אינו עוצר את הדחייה עצמה, והפריט נרשם כנדחה כשהוא נמחק מהתור.
+async function recordRejectReason(imageId, reason) {
+    try {
+        await window.r2Request('/pending/reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageId: window.safeRecordId(imageId), reason: String(reason || '').slice(0, 300) })
+        });
+    } catch (error) {
+        if (error?.status !== 404) console.warn('Recording the rejection reason failed:', error?.code || error);
+    }
+}
+
 // דחיית פריט ממתין אחד: מנהל־על מעביר לסל המחזור (וממנו אפשר לשחזר),
 // ומנהל דרגה 3 שולח בקשת מחיקה — בדיוק כמו "בקש מחיקה" שבמסך. מחזיר
 // 'trash' או 'request', כדי שהמצב המהיר ידע מה לכתוב.
-async function rejectPendingRecord(imageId) {
+async function rejectPendingRecord(imageId, { reason = '' } = {}) {
+    await recordRejectReason(imageId, reason);
     if (window.state.isSuperAdmin) {
         await window.movePendingImageToTrash(imageId);
         return 'trash';
@@ -767,10 +791,15 @@ function rejectSelectedPending() {
     if (!window.checkAdminPermission()) return;
     const checkboxes = document.querySelectorAll('input[name="pendingImgCheck"]:checked');
     if (checkboxes.length === 0) return;
+    // הסיבה (רשות) חלה על כל הפריטים שנבחרו, ומתרוקנת אחרי הדחייה.
+    const reasonField = document.getElementById('pendingRejectReason');
+    const reason = String(reasonField?.value || '').trim();
+    const clearReason = () => { if (reasonField) reasonField.value = ''; };
     if (!window.state.isSuperAdmin) {
         window.showConfirm('שליחת בקשת מחיקה', 'לשלוח למנהל־העל בקשת מחיקה עבור התמונות שנבחרו?', async () => {
             try {
-                await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value)));
+                await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value, { reason })));
+                clearReason();
                 window.showNotification('בקשות המחיקה נשלחו למנהל־העל.');
             } catch (error) {
                 console.error('requestContentDeletion failed:', error);
@@ -781,7 +810,8 @@ function rejectSelectedPending() {
     }
     window.showConfirm('דחיית תמונות', 'להעביר את התמונות הממתינות לסל המחזור?', async () => {
         try {
-            await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value)));
+            await Promise.all(Array.from(checkboxes, cb => rejectPendingRecord(cb.value, { reason })));
+            clearReason();
             window.showNotification('התמונות הועברו לסל המחזור.');
         } catch (error) {
             console.error('movePendingImageToTrash failed:', error);
@@ -803,9 +833,9 @@ window.approvePendingImage = async function(imageId, targetFolderId = 'auto') {
     await window.logActivity('approved_images', 'image', id, img.title || 'תמונה');
 };
 
-window.rejectPendingImage = async function(imageId) {
+window.rejectPendingImage = async function(imageId, options = {}) {
     if (!window.checkAdminPermission()) throw new Error('אין הרשאה לדחות תוכן.');
-    return rejectPendingRecord(imageId);
+    return rejectPendingRecord(imageId, options);
 };
 
 let pendingSwipeModulePromise = null;

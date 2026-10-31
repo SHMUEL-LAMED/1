@@ -403,15 +403,32 @@ async function cleanupEmptyGalleryFolders() {
     const foldersById = new Map(folders.map(folder => [String(folder.id), folder]));
     const usedFolderIds = new Set();
 
+    // תיקייה שיש בה פריטים משאירה גם את כל ההורים שלה: גם במבנה של Drive
+    // (parentFolderId) וגם בתיקיות המקוננות של הגלריה (parentId).
     const markFolderAndParents = folderId => {
-      let currentId = String(folderId || "").trim();
+      const queue = [String(folderId || "").trim()];
       const visited = new Set();
-      while (currentId && foldersById.has(currentId) && !visited.has(currentId)) {
+      while (queue.length) {
+        const currentId = queue.shift();
+        if (!currentId || !foldersById.has(currentId) || visited.has(currentId)) continue;
         visited.add(currentId);
         usedFolderIds.add(currentId);
         const currentFolder = foldersById.get(currentId);
-        currentId = String(currentFolder?.parentFolderId || "").trim();
+        queue.push(String(currentFolder?.parentFolderId || "").trim(), String(currentFolder?.parentId || "").trim());
       }
+    };
+    // עומק בעץ התיקיות המקוננות: הילדים נמחקים לפני ההורה, כי ה-Worker אינו
+    // מוחק תיקייה שעוד יש בה תת־תיקיות.
+    const nestedDepth = folder => {
+      let depth = 0;
+      let current = String(folder?.parentId || "").trim();
+      const seen = new Set();
+      while (current && foldersById.has(current) && !seen.has(current)) {
+        seen.add(current);
+        depth += 1;
+        current = String(foldersById.get(current)?.parentId || "").trim();
+      }
+      return depth;
     };
 
     for (const counts of [imageCounts.counts, pendingCounts.counts]) {
@@ -423,6 +440,9 @@ async function cleanupEmptyGalleryFolders() {
     const emptyFolders = folders
       .filter(folder => !usedFolderIds.has(String(folder.id)))
       .sort((a, b) => {
+        const nestedA = nestedDepth(a);
+        const nestedB = nestedDepth(b);
+        if (nestedA !== nestedB) return nestedB - nestedA;
         const depthA = Number(a?.driveDepth) || 0;
         const depthB = Number(b?.driveDepth) || 0;
         if (depthA !== depthB) return depthB - depthA;

@@ -21,6 +21,18 @@
             } catch (error) {
                 document.documentElement.dataset.theme = 'dark';
             }
+            // קישור הזמנה לאירוע (#invite/<אסימון>): נשמר ללשונית ונמחק מהכתובת לפני
+            // שכל סקריפט אחר נטען — כך הוא אינו נשאר בהיסטוריה ואינו נקרא בידי אחרים.
+            // המימוש עצמו ב-invite-link.js, אחרי ההתחברות.
+            try {
+                const invite = location.hash.match(/^#invite\/([A-Za-z0-9_-]{43})$/);
+                if (invite) {
+                    sessionStorage.setItem('simchas_pending_invite', invite[1]);
+                    history.replaceState(null, document.title, location.pathname + location.search);
+                }
+            } catch (error) {
+                // אחסון חסום: invite-link.js קורא את הכתובת בעצמו.
+            }
         })();
     </script>
 
@@ -195,6 +207,10 @@
                 <h1>📸 גלריית מסיבת סוף השנה</h1>
             </div>
 
+            <!-- התיקייה הפתוחה: פירורי לחם ("כל הארכיון › שנה › אירוע") ותת־התיקיות שלה,
+                 לפני התמונות שלה (gallery-folders.js). מוסתר בכל הארכיון ובתוצאות חיפוש. -->
+            <div id="folderContext" class="folder-context" hidden></div>
+
             <!-- סרגל הכלים, בשלוש שכבות: (1) חיפוש, "סינון" ו"תצוגה" (מיון, גודל ופריסה);
                  (2) הכלים — חיפוש AI ואנשים, מצגת ופריט אקראי — ומונה הפריטים;
                  (3) שבבי המסננים הפעילים, כל אחד עם ×, ו"נקה הכל". כל הבוררים של הסינון
@@ -236,7 +252,13 @@
                             <option value="oldest">הישן ביותר</option>
                             <option value="name">לפי שם</option>
                             <option value="random">אקראי</option>
+                            <!-- רק בתוך תיקייה (gallery.js, syncManualSortOption). -->
+                            <option value="manual" hidden disabled>סדר ידני</option>
                         </select>
+                        <!-- מצב "סדר ידני" למנהל: גרירה וכפתורי הזזה (manual-order-ui.js). -->
+                        <button type="button" id="galleryArrangeButton" onclick="toggleGalleryArrangeMode()" class="hidden toolbar-icon-button" aria-pressed="false" title="סידור ידני של התמונות בתיקייה" aria-label="סדר ידני">
+                            <i data-lucide="arrow-down-up" class="w-4 h-4"></i>
+                        </button>
                         <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
                              אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
                         <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden toolbar-icon-button" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
@@ -504,29 +526,16 @@
                     <label class="block"><span class="field-label">שם האירוע</span><input id="eventEditName" required maxlength="80"></label>
                     <label class="block"><span class="field-label">תאריך האירוע</span><input id="eventEditDate" type="date"></label>
                     <label class="block sm:col-span-2"><span class="field-label">תיאור</span><textarea id="eventEditDescription" maxlength="600" rows="4"></textarea></label>
+                    <!-- תמונת השער של האירוע (gallery.js, renderEventCoverPicker). -->
+                    <fieldset class="sm:col-span-2 event-cover-picker">
+                        <legend class="field-label">תמונת שער</legend>
+                        <div id="eventEditCoverList" class="event-cover-list"></div>
+                    </fieldset>
                     <div class="sm:col-span-2 flex justify-end gap-2">
                         <button type="button" onclick="toggleEventEdit(false)" class="btn-secondary-dark px-4 py-2 text-xs">ביטול</button>
                         <button type="submit" class="btn-primary-gold px-5 py-2 text-xs">שמור פרטים</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- קבצים כפולים -->
-    <div id="duplicateMediaModal" class="fixed inset-0 z-[140] hidden p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="duplicateMediaTitle">
-        <div class="modal-card modal-animate-popup max-w-lg">
-            <div class="modal-head">
-                <h3 id="duplicateMediaTitle"><i data-lucide="copy-check" class="w-5 h-5"></i> נמצאו קבצים כפולים</h3>
-            </div>
-            <div class="modal-body">
-                <p id="duplicateMediaMessage"></p>
-                <div id="duplicateMediaList" class="admin-list max-h-36 overflow-y-auto"></div>
-            </div>
-            <div class="modal-foot">
-                <button type="button" onclick="resolveDuplicateUpload('cancel')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" onclick="resolveDuplicateUpload('upload')" class="btn-secondary-dark">העלה בכל זאת</button>
-                <button type="button" onclick="resolveDuplicateUpload('skip')" class="btn-primary-gold">דלג על הכפולים</button>
             </div>
         </div>
     </div>
@@ -582,6 +591,8 @@
                     <h4 id="userUploadAccessTitle" class="font-bold mb-1.5">העלאת תמונות וסרטונים</h4>
                     <p id="userUploadAccessText" class="field-hint mb-4">בחר תמונות או סרטונים להעלאה בהתאם לדרגת ההרשאה שלך.</p>
                     <button type="button" onclick="openModal('userUploadModal')" class="btn-primary-gold w-full py-2.5 text-xs"><i data-lucide="arrow-up-circle" class="w-4 h-4"></i> העלה מדיה</button>
+                    <!-- ההעלאות של המשתמש עצמו והמצב שלהן (my-uploads.js). -->
+                    <button type="button" onclick="openMyUploads()" class="btn-secondary-dark w-full mt-2 py-2 text-xs" aria-haspopup="dialog"><i data-lucide="list-checks" class="w-4 h-4"></i> ההעלאות שלי</button>
                 </div>
             </div>
 
@@ -678,6 +689,17 @@
                 <button type="button" id="lightboxDownload" title="הורדת קובץ (D)" aria-label="הורדת קובץ המדיה" aria-keyshortcuts="D" class="btn-secondary-dark w-11 h-11 rounded-full">
                     <i data-lucide="download" class="w-5 h-5"></i>
                 </button>
+                <!-- תמונה שסובבה או נחתכה יורדת ערוכה; הכפתור הזה מוריד את הקובץ כפי שהועלה. -->
+                <button type="button" id="lightboxDownloadOriginal" title="הורדת הקובץ המקורי, בלי הסיבוב והחיתוך" aria-label="הורדת הקובץ המקורי בלי העריכה" class="btn-secondary-dark lightbox-tool h-11 rounded-full" hidden>
+                    <i data-lucide="file-image" class="w-5 h-5"></i><span class="lightbox-tool-text">מקור</span>
+                </button>
+                <!-- כלי מנהל (gallery.js, syncLightboxAdminTools): סיבוב וחיתוך, ותמונת השער של התיקייה. -->
+                <button type="button" id="lightboxEditMedia" title="סיבוב וחיתוך" aria-label="עריכת התמונה: סיבוב וחיתוך" aria-haspopup="dialog" class="btn-secondary-dark lightbox-tool h-11 rounded-full" hidden>
+                    <i data-lucide="crop" class="w-5 h-5"></i><span class="lightbox-tool-text">עריכה</span>
+                </button>
+                <button type="button" id="lightboxSetCover" title="קבע כתמונת שער של התיקייה" aria-label="תמונת השער של התיקייה" aria-pressed="false" class="btn-secondary-dark lightbox-tool h-11 rounded-full" hidden>
+                    <i data-lucide="image-up" class="w-5 h-5"></i><span class="lightbox-tool-text">קבע כתמונת שער</span>
+                </button>
                 <button type="button" onclick="closeLightbox()" class="btn-secondary-dark w-11 h-11 rounded-full" aria-label="סגירת התצוגה המלאה">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
@@ -729,6 +751,10 @@
             </div>
             <button type="button" id="lightboxEditDescription" class="lightbox-edit" title="עריכת כיתוב ותגיות" aria-label="עריכת הכיתוב והתגיות של הפריט" hidden>
                 <i data-lucide="pencil" class="w-4 h-4"></i><span>עריכה</span>
+            </button>
+            <!-- תיוג ידני של אדם שזיהוי הפנים פספס (manual-tags.js) — מנהלים בלבד. -->
+            <button type="button" id="lightboxTagPerson" onclick="openLightboxTagger()" class="lightbox-edit" title="תיוג אדם בתמונה" aria-label="תיוג אדם בתמונה" aria-haspopup="dialog" hidden>
+                <i data-lucide="user-round-plus" class="w-4 h-4"></i><span>תיוג אדם</span>
             </button>
         </div>
         <div class="text-center text-sm py-2"><span id="lightboxCounter">1 מתוך 10</span></div>
@@ -921,6 +947,64 @@
             </div>
             <div class="modal-foot">
                 <button type="button" onclick="closeModal('findMeModal')" class="btn-secondary-dark">סגירה</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ההעלאות שלי: ממתין לאישור / אושר / נדחה, רק של המשתמש עצמו (my-uploads.js) -->
+    <div id="myUploadsModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="myUploadsTitle" aria-describedby="myUploadsSummary">
+        <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3 id="myUploadsTitle"><i data-lucide="list-checks" class="w-5 h-5"></i> ההעלאות שלי</h3>
+                <button type="button" onclick="closeModal('myUploadsModal')" class="modal-close" aria-label="סגירת חלון ההעלאות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body overflow-y-auto">
+                <p id="myUploadsSummary" class="my-uploads-summary"></p>
+                <div id="myUploadsFilters" class="my-uploads-filters" role="group" aria-label="סינון לפי מצב">
+                    <button type="button" data-filter="" aria-pressed="true" onclick="filterMyUploads('')">הכול</button>
+                    <button type="button" data-filter="pending" aria-pressed="false" onclick="filterMyUploads('pending')">ממתין לאישור</button>
+                    <button type="button" data-filter="approved" aria-pressed="false" onclick="filterMyUploads('approved')">אושר</button>
+                    <button type="button" data-filter="rejected" aria-pressed="false" onclick="filterMyUploads('rejected')">נדחה</button>
+                </div>
+                <p id="myUploadsStatus" class="field-hint" role="status" aria-live="polite"></p>
+                <ul id="myUploadsList" class="my-uploads-list" aria-label="ההעלאות שלי"></ul>
+                <p id="myUploadsRetention" class="field-hint"></p>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('myUploadsModal')" class="btn-secondary-dark">סגירה</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- תיוג ידני של אדם בתמונה (manual-tags.js) — מנהלים בלבד -->
+    <div id="manualTagModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="manualTagTitle" aria-describedby="manualTagHint">
+        <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
+            <div class="modal-head">
+                <h3 id="manualTagTitle"><i data-lucide="user-round-plus" class="w-5 h-5"></i> תיוג אדם בתמונה</h3>
+                <button type="button" onclick="closeModal('manualTagModal')" class="modal-close" aria-label="סגירת חלון התיוג"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body overflow-y-auto">
+                <p id="manualTagHint" class="field-hint">אפשר לגרור על התמונה כדי לסמן את הפנים (רשות). בלי סימון — התיוג על כל התמונה.</p>
+                <div class="manual-tag-stage-wrap">
+                    <div class="manual-tag-stage">
+                        <img id="manualTagImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" draggable="false">
+                        <span id="manualTagBox" class="manual-tag-box" aria-hidden="true" hidden></span>
+                    </div>
+                </div>
+                <button type="button" id="manualTagClearBox" class="btn-secondary-dark manual-tag-clear" hidden>נקה סימון</button>
+                <label class="people-search">
+                    <i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i>
+                    <span class="sr-only">חיפוש אדם לפי שם</span>
+                    <input id="manualTagSearch" type="search" autocomplete="off" placeholder="חיפוש אדם לפי שם…">
+                </label>
+                <ul id="manualTagPeople" class="manual-tag-people" aria-label="אנשים מאושרים"></ul>
+                <h4 id="manualTagExistingTitle" class="manual-tag-heading" hidden>מתויגים ידנית בתמונה</h4>
+                <ul id="manualTagExisting" class="manual-tag-existing-list" aria-labelledby="manualTagExistingTitle"></ul>
+                <p id="manualTagStatus" class="field-hint" role="status" aria-live="polite"></p>
+            </div>
+            <div class="modal-foot">
+                <button type="button" onclick="closeModal('manualTagModal')" class="btn-secondary-dark">סגירה</button>
+                <button type="button" id="manualTagSave" class="btn-primary-gold">תייג</button>
             </div>
         </div>
     </div>

@@ -283,7 +283,7 @@ test("מצב מהיר: מה שהמדריך אומר על ההחלקה, המקש�
   const reject = adminJs.slice(adminJs.indexOf("async function rejectPendingRecord"), adminJs.indexOf("function rejectSelectedPending"));
   assert.match(reject, /isSuperAdmin\) \{\s*await window\.movePendingImageToTrash/);
   assert.match(reject, /requestContentDeletion\('pendingImage'/);
-  assert.match(read("pending-swipe.js"), /window\.rejectPendingImage\(id\)/);
+  assert.match(read("pending-swipe.js"), /window\.rejectPendingImage\(id, \{ reason: meta\.reason \|\| '' \}\)/);
   assert.ok(text.includes("אצל מנהל־על") && text.includes("לסל המחזור") && text.includes("בקשת מחיקה"));
 });
 
@@ -326,9 +326,9 @@ test('פסקת ההורדה ב"החדש בגלריה" אומרת שהמיקום 
   assert.match(prepare, /mimeType\.startsWith\('video\/'\)\) return blob/);
   assert.match(prepare, /mimeType !== 'image\/jpeg' && !\(await sniffJpeg\(blob\)\)\) return blob/);
   assert.match(prepare, /isAdmin: Boolean\(window\.state\?\.isAdminLoggedIn\)/);
-  // ההורדה הבודדת וה-ZIP עוברות שתיהן דרכו.
+  // ההורדה הבודדת וה-ZIP עוברות שתיהן דרכו — גם אחרי הכנת הגרסה הערוכה של תמונה.
   const gallery = read("gallery.js");
-  assert.equal(gallery.match(/prepareGalleryDownload\(await fetchGalleryMediaBlob\(item\), item\)/g)?.length, 2);
+  assert.equal(gallery.match(/prepareGalleryDownload\(await editedDownloadBlob\(await fetchGalleryMediaBlob\(item\), item(?:, options)?\), item\)/g)?.length, 2);
 
   const features = findGuideSection("features");
   // מה שאחרי הכותרת "הורדה כ־ZIP", עד סוף הסעיף.

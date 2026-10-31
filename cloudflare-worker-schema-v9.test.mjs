@@ -1,7 +1,8 @@
-// המעבר מגרסת סכימה 8 ל-9 על מסד ייצור קיים: שתי טבלאות חדשות בלבד —
-// usage_daily (מוני שימוש) ו-admin_user_notes (הערות פנימיות על משתמש) —
-// נוצרות בבקשה הראשונה, הגרסה עולה ל-9, ושום טבלה, עמודה או רשומה קיימת
-// אינה משתנה. Worker ישן (גרסה 8) שיפרס שוב אינו מוריד את הגרסה.
+// המעבר מגרסת סכימה 8 (הייצור לפני ניהול המשתמשים) לגרסה הנוכחית, 11, על מסד
+// ייצור קיים: טבלאות 9 — usage_daily (מוני שימוש) ו-admin_user_notes (הערות
+// פנימיות על משתמש) — וגם טבלאות 11 נוצרות בבקשה הראשונה, הגרסה עולה ל-11, ושום
+// טבלה, עמודה או רשומה קיימת אינה משתנה. Worker ישן (גרסה 8 או 9) שיפרס שוב אינו
+// מוריד את הגרסה. המעבר מגרסה 9: cloudflare-worker-schema-v9-to-v11.test.mjs.
 // קובץ נפרד, כי ה-Worker זוכר בזיכרון שהסכימה כבר הוכנה.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -43,13 +44,13 @@ const ACCOUNTS = {
   "super-token": { sub: "google-super", email: "super@example.com", name: "Super" }
 };
 
-// מסד כפי שהוא בייצור בגרסה 8: כל הטבלאות של היום, בלי שתי החדשות.
+// מסד כפי שהוא בייצור בגרסה 8: כל הטבלאות של היום, בלי אלה של 9 ו-11.
 function databaseAtVersion8() {
   const d1 = new D1();
   const db = d1.database;
   db.exec(readFileSync(new URL("./cloudflare-d1-schema.sql", import.meta.url), "utf8"));
-  db.exec("DROP TABLE usage_daily");
-  db.exec("DROP TABLE admin_user_notes");
+  for (const table of ["usage_daily", "admin_user_notes", "upload_rejections", "face_manual_tags", "invite_links"]) db.exec(`DROP TABLE ${table}`);
+  db.exec("DROP INDEX idx_gallery_documents_content_hash");
   db.exec("CREATE TABLE gallery_schema_meta (schema_key TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
   db.exec("CREATE TABLE IF NOT EXISTS user_email_index (normalized_email TEXT PRIMARY KEY, document_id TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const meta = db.prepare("INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES (?, ?, 1)");
@@ -90,7 +91,7 @@ async function call(env, path, method = "GET", body, token = "viewer-token") {
   return { status: response.status, text, payload: JSON.parse(text || "{}") };
 }
 
-test("מסד בגרסה 8 עולה ל-9: שתי הטבלאות החדשות נוצרות, וכל השאר נשאר בדיוק כפי שהיה", async () => {
+test("מסד בגרסה 8 עולה ל-11 (דרך 9): טבלאות 9 ו-11 נוצרות, וכל השאר נשאר בדיוק כפי שהיה", async () => {
   const d1 = databaseAtVersion8();
   const db = d1.database;
   const env = { GALLERY_DB: d1, GALLERY_BUCKET: { async list() { return { objects: [] }; } } };
@@ -102,8 +103,11 @@ test("מסד בגרסה 8 עולה ל-9: שתי הטבלאות החדשות נו
   assert.equal(first.status, 200, first.text);
 
   const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").all().map(row => row.name);
-  for (const name of ["usage_daily", "admin_user_notes", "idx_admin_user_notes_target"]) assert.ok(names.includes(name), `${name} חסר אחרי המיגרציה`);
-  assert.equal(meta("gallery"), 9);
+  for (const name of ["usage_daily", "admin_user_notes", "idx_admin_user_notes_target",
+    "upload_rejections", "face_manual_tags", "invite_links", "idx_gallery_documents_content_hash"]) {
+    assert.ok(names.includes(name), `${name} חסר אחרי המיגרציה`);
+  }
+  assert.equal(meta("gallery"), 11);
   assert.equal(meta("data_version:images"), 1000);
   assert.equal(meta("data_version:userProfiles"), 2000);
 
@@ -124,10 +128,12 @@ test("מסד בגרסה 8 עולה ל-9: שתי הטבלאות החדשות נו
   const note = await call(env, "/admin/user-notes", "POST", { uid: "google-viewer", body: "הערה ראשונה" }, "super-token");
   assert.equal(note.status, 200, note.text);
 
-  // Worker ישן (גרסה 8) אינו מוריד את הגרסה: הכתיבה היא MAX.
-  db.prepare(
-    `INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES ('gallery', 8, 2)
-     ON CONFLICT(schema_key) DO UPDATE SET schema_version = MAX(gallery_schema_meta.schema_version, excluded.schema_version)`
-  ).run();
-  assert.equal(meta("gallery"), 9);
+  // Worker ישן (גרסה 8 או 9) אינו מוריד את הגרסה: הכתיבה היא MAX.
+  for (const oldVersion of [8, 9]) {
+    db.prepare(
+      `INSERT INTO gallery_schema_meta (schema_key, schema_version, updated_at) VALUES ('gallery', ?, 2)
+       ON CONFLICT(schema_key) DO UPDATE SET schema_version = MAX(gallery_schema_meta.schema_version, excluded.schema_version)`
+    ).run(oldVersion);
+  }
+  assert.equal(meta("gallery"), 11);
 });

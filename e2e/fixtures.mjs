@@ -7,7 +7,7 @@
 // כך הבדיקה מתרגלת את קוד הדפדפן כולו — התחברות, שחזור, הרשאות, גלריה —
 // בלי להיות תלויה בשרת חי ובלי לגעת בנתונים אמיתיים.
 import { test as base, expect } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import zlib from 'node:zlib';
 // הכיתובים ותגיות הסצנה: אותם כללים בדיוק כמו בדפדפן וב-Worker.
 import { normalizeCaption, normalizeSceneTags, AI_CAPTION_VERSION } from '../scene-tags.js';
@@ -32,6 +32,8 @@ const DATA_PAGE_DEFAULT_LIMIT = 500;
 // שדות הסינון והקיבוץ שה-Worker מקבל (DATA_FILTER_FIELDS), ותקרת ?ids=.
 const DATA_FILTER_FIELDS = ['folderId', 'status', 'mediaType', 'uploadedBy'];
 const DATA_IDS_MAX = 200;
+// שדות ההזמנה בפרופיל: רק השרת כותב אותם (INVITE_PROFILE_FIELDS ב-Worker).
+const INVITE_PROFILE_FIELDS = ['inviteId', 'inviteFolderId', 'inviteFolderName', 'invitedAt', 'inviteAutoApproved'];
 
 // --- ETag וסמני דפדוף, כמו ב-Worker ---
 
@@ -335,6 +337,77 @@ function normalizeDescriptionFields(data, existing, canEdit) {
     return next;
 }
 
+// תיקיות מקוננות, שער, סדר ועריכה — אותם כללים של ה-Worker (normalizeFolderFields,
+// normalizeImageArrangeFields, checkFolderPlacement): שדה שחסר נשמר מהרשומה, רק
+// מנהל משנה order/edit, וההורה קיים, בלי מעגל ועד שלוש רמות.
+const FOLDER_MAX_DEPTH = 3;
+const RECORD_ID_PATTERN = /^[a-zA-Z0-9_-]{1,120}$/;
+const EDIT_REVISION_PATTERN = /^[a-z0-9]{1,24}$/;
+
+function keepOrSet(next, previous, field, canEdit, normalize) {
+    if (!canEdit || next[field] === undefined) {
+        if (previous?.[field] === undefined) delete next[field];
+        else next[field] = previous[field];
+        return;
+    }
+    const value = normalize(next[field]);
+    if (value === null) delete next[field];
+    else next[field] = value;
+}
+
+function normalizeOrderRank(value) {
+    if (value === null || value === '') return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1e15) {
+        throw apiError('מיקום בסדר הידני חייב להיות מספר.', 400, 'invalid_order');
+    }
+    return value;
+}
+
+function normalizeMediaEdit(value) {
+    if (value === null) return null;
+    const invalid = () => apiError('נתוני העריכה של התמונה אינם תקינים.', 400, 'invalid_media_edit');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
+    const rotate = value.rotate === undefined ? 0 : value.rotate;
+    if (![0, 90, 180, 270].includes(rotate)) throw invalid();
+    let crop = null;
+    if (value.crop) {
+        const parts = {};
+        for (const key of ['x', 'y', 'w', 'h']) {
+            const number = value.crop[key];
+            if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > 1) throw invalid();
+            parts[key] = Math.round(number * 1e6) / 1e6;
+        }
+        if (parts.w < 0.02 || parts.h < 0.02 || parts.x + parts.w > 1 + 1e-6 || parts.y + parts.h > 1 + 1e-6) throw invalid();
+        const full = parts.x <= 1e-6 && parts.y <= 1e-6 && parts.w >= 1 - 1e-6 && parts.h >= 1 - 1e-6;
+        crop = full ? null : parts;
+    }
+    if (typeof value.rev !== 'string' || !EDIT_REVISION_PATTERN.test(value.rev)) throw invalid();
+    if (rotate === 0 && !crop) return null;
+    return { rotate, crop, rev: value.rev };
+}
+
+function checkFolderPlacement(folders, folderId, parentId) {
+    if (!folders.has(parentId)) throw apiError('תיקיית האב אינה קיימת.', 400, 'folder_parent_not_found');
+    let depth = 0;
+    let current = parentId;
+    const seen = new Set();
+    while (current) {
+        if (current === folderId) throw apiError('אי אפשר להעביר תיקייה אל תוך עצמה או אל תוך תת־תיקייה שלה.', 400, 'folder_cycle');
+        if (seen.has(current)) throw apiError('מבנה התיקיות פגום (מעגל). פנה למנהל.', 409, 'folder_tree_corrupt');
+        if (!folders.has(current)) break;
+        seen.add(current);
+        depth += 1;
+        current = String(folders.get(current)?.parentId || '');
+    }
+    let height = 0;
+    let layer = [folderId];
+    while (layer.length && height <= FOLDER_MAX_DEPTH) {
+        height += 1;
+        layer = [...folders].filter(([, folder]) => layer.includes(String(folder?.parentId || ''))).map(([id]) => id);
+    }
+    if (depth + height > FOLDER_MAX_DEPTH) throw apiError(`אפשר לקנן תיקיות עד ${FOLDER_MAX_DEPTH} רמות בלבד.`, 400, 'folder_too_deep');
+}
+
 // התשובה המובנית של מודל ה-AI בזיוף: שם, כיתוב ותגיות (תוויות עבריות).
 export const FAKE_AI_DESCRIPTION = {
     title: 'בחורים רוקדים במעגל',
@@ -392,6 +465,13 @@ export class FakeWorker {
         // הערות פנימיות על משתמש (adminUserNotes ב-Worker): מזהה הערה → הערה.
         this.userNotes = new Map();
         this.userNotesCounter = 0;
+        // משתמשים (ראו "משתמשים" ב-Worker): תיעוד הדחייה (מזהה → { uploader, title,
+        // reason, rejectedAt }), התיוגים הידניים (מזהה תמונה → [{ personId, box }])
+        // וקישורי ההזמנה (מזהה → קישור, עם tokenHash — האסימון עצמו לא נשמר).
+        // usersSupported=false מדמה Worker ישן שאינו מכיר את הנתיבים (404).
+        this.users = { rejections: new Map(), tags: new Map(), invites: new Map(), supported: true };
+        // כתיבות POST /order שהגיעו, לבדיקה שנשלחו רק הרשומות שהשתנו.
+        this.orderWrites = [];
     }
 
     requireSuperAdminActor(request) {
@@ -622,8 +702,12 @@ export class FakeWorker {
                 if (nextData.placeholder === undefined && existing?.placeholder) nextData = { ...nextData, placeholder: existing.placeholder };
                 const placeholder = normalizePlaceholder(nextData.placeholder);
                 if (placeholder) nextData.placeholder = placeholder; else delete nextData.placeholder;
+                keepOrSet(nextData, existing, 'order', admin, normalizeOrderRank);
+                if (existing && nextData.order !== undefined && nextData.order === existing.order && String(nextData.folderId ?? '') !== String(existing.folderId ?? '')) delete nextData.order;
+                keepOrSet(nextData, existing, 'edit', admin, normalizeMediaEdit);
             }
             if (collectionName === 'userProfiles' && existing) this.assertSuperAdminRetained(actor, documentId, existing, nextData);
+            if (collectionName === 'folders') nextData = this.normalizeFolder(documentId, nextData, existing || {});
             // כמו ב-Worker: מי ששמר הגדרה נקבע לפי החשבון המאומת.
             if (collectionName === 'systemMeta' && Object.prototype.hasOwnProperty.call(nextData, 'updatedBy')) {
                 nextData.updatedBy = actor.uid;
@@ -637,21 +721,103 @@ export class FakeWorker {
                     status: existing ? (existing.status || 'pending') : 'pending',
                     role: existing ? (existing.role || 'viewer') : 'viewer'
                 };
+                for (const field of INVITE_PROFILE_FIELDS) {
+                    if (existing?.[field] !== undefined) nextData[field] = existing[field];
+                    else delete nextData[field];
+                }
             }
+            // צופה כותב רק רשומה ממתינה משלו, והמעלה הוא החשבון המאומת.
+            if (collectionName === 'pendingImages' && !['admin', 'super_admin'].includes(actor.role)) {
+                if (existing?.uploadedBy && existing.uploadedBy !== actor.uid) throw apiError('אין הרשאה לפעולה זו.', 403, 'permission_denied');
+                nextData = { ...nextData, uploadedBy: actor.uid, status: 'pending' };
+            }
+            if (collectionName === 'pendingImages' && !existing && ['admin', 'super_admin'].includes(actor.role)) this.users.rejections.delete(documentId);
             docs.set(documentId, nextData);
             return { success: true, id: documentId, data: structuredClone(nextData) };
         }
 
         if (method === 'DELETE' && documentId) {
+            if (collectionName === 'folders' && [...docs.values()].some(folder => String(folder?.parentId || '') === documentId)) {
+                throw apiError('אי אפשר למחוק תיקייה שיש בה תת־תיקיות. העבר או מחק קודם את תת־התיקיות.', 409, 'folder_has_children');
+            }
             if (collectionName === 'userProfiles' && docs.has(documentId)) this.assertSuperAdminRetained(actor, documentId, docs.get(documentId), {});
+            // פריט ממתין שנמחק לפני אישור — נדחה מבחינת המעלה (recordUploadRejection).
+            const removed = docs.get(documentId);
             docs.delete(documentId);
             if (collectionName === 'userProfiles') {
                 for (const [id, note] of this.userNotes) if (note.targetUid === documentId) this.userNotes.delete(id);
             }
+            if (collectionName === 'pendingImages') this.recordRejection(documentId, removed, null, actor.uid);
             return { success: true, id: documentId };
         }
 
         throw apiError('הפעולה אינה נתמכת.', 405, 'method_not_allowed');
+    }
+
+    normalizeFolder(documentId, data, existing) {
+        const next = { ...data };
+        const folders = this.collection('folders');
+        if (next.parentId === undefined) {
+            if (existing.parentId === undefined) delete next.parentId; else next.parentId = existing.parentId;
+        } else if (next.parentId === null || next.parentId === '') {
+            delete next.parentId;
+        } else {
+            if (typeof next.parentId !== 'string' || !RECORD_ID_PATTERN.test(next.parentId) || ['all', 'favorites'].includes(next.parentId)) {
+                throw apiError('תיקיית האב אינו תקין.', 400, 'invalid_folder_parent');
+            }
+            if (next.parentId === documentId) throw apiError('תיקייה אינה יכולה להיות תת־תיקייה של עצמה.', 400, 'folder_cycle');
+            if (next.parentId !== existing.parentId) checkFolderPlacement(folders, documentId, next.parentId);
+        }
+        if (next.coverImageId === undefined) {
+            if (existing.coverImageId === undefined) delete next.coverImageId; else next.coverImageId = existing.coverImageId;
+        } else if (next.coverImageId === null || next.coverImageId === '') {
+            delete next.coverImageId;
+        } else {
+            if (typeof next.coverImageId !== 'string' || !RECORD_ID_PATTERN.test(next.coverImageId)) throw apiError('תמונת השער אינו תקין.', 400, 'invalid_cover_image');
+            const inTrash = [...this.collection('trashItems').values()].some(item => item?.originalCollection === 'images' && item?.originalId === next.coverImageId);
+            if (next.coverImageId !== existing.coverImageId && !this.collection('images').has(next.coverImageId) && !inTrash) {
+                throw apiError('תמונת השער לא נמצאה בגלריה.', 400, 'cover_image_not_found');
+            }
+        }
+        keepOrSet(next, existing, 'order', true, normalizeOrderRank);
+        if (next.manualOrder === undefined) {
+            if (existing.manualOrder === undefined) delete next.manualOrder; else next.manualOrder = existing.manualOrder;
+        } else if (next.manualOrder === null || next.manualOrder === false) {
+            delete next.manualOrder;
+        } else if (next.manualOrder !== true) {
+            throw apiError('הגדרת הסדר הידני אינה תקינה.', 400, 'invalid_manual_order');
+        }
+        return next;
+    }
+
+    // POST /order — כמו saveManualOrder ב-Worker: מנהל בלבד, כל המזהים קיימים
+    // לפני שנכתב דבר, ורק השדה order משתנה.
+    handleOrder(request) {
+        const actor = this.actor(request);
+        let payload = {};
+        try { payload = JSON.parse(request.postData() || '{}'); } catch { payload = {}; }
+        const collectionName = payload?.collection;
+        if (!['images', 'folders'].includes(collectionName)) throw apiError('אפשר לסדר רק תמונות או תיקיות.', 400, 'invalid_order_collection');
+        assertDataPermission(actor, collectionName, 'PUT');
+        if (actor.status !== 'approved' || !['admin', 'super_admin'].includes(actor.role)) throw apiError('רק מנהל רשאי לשנות את הסדר הידני.', 403, 'permission_denied');
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        if (!items.length) throw apiError('לא נשלחו פריטים לסידור.', 400, 'order_items_missing');
+        if (items.length > 500) throw apiError('אפשר לסדר עד 500 פריטים בבקשה אחת.', 400, 'too_many_order_items');
+        const docs = this.collection(collectionName);
+        const updates = new Map();
+        for (const item of items) {
+            if (typeof item?.id !== 'string' || !RECORD_ID_PATTERN.test(item.id)) throw apiError('מזהה הפריט אינו תקין.', 400, 'invalid_order_id');
+            if (updates.has(item.id)) throw apiError('פריט הופיע פעמיים בסדר.', 400, 'duplicate_order_id');
+            updates.set(item.id, normalizeOrderRank(item.order));
+        }
+        if ([...updates.keys()].some(id => !docs.has(id))) throw apiError('חלק מהפריטים כבר אינם קיימים. רענן ונסה שוב.', 409, 'order_items_not_found');
+        this.orderWrites.push({ collection: collectionName, items: [...updates].map(([id, order]) => ({ id, order })) });
+        for (const [id, order] of updates) {
+            const next = { ...docs.get(id) };
+            if (order === null) delete next.order; else next.order = order;
+            docs.set(id, next);
+        }
+        return { success: true, collection: collectionName, updated: updates.size };
     }
 
     // --- מדיה: העלאה ותצוגות מקדימות (ראו uploadImage ו-attachMediaVariants ב-Worker) ---
@@ -702,16 +868,19 @@ export class FakeWorker {
         return parts;
     }
 
-    storeVariants(imageId, parts, { ownerUid, state }) {
+    storeVariants(imageId, parts, { ownerUid, state, editRevision = '' }) {
         const variants = {};
+        // כמו ב-Worker: תצוגות של תמונה ערוכה מקבלות ?v=<rev> ו-editRev.
+        const versioned = url => (editRevision ? `${url}?v=${editRevision}` : url);
         for (const part of parts) {
             const key = `variants/${imageId}/${part.name}.${part.extension}`;
             this.objects.set(key, { bytes: part.bytes, contentType: part.type, metadata: { imageId, variant: part.name, ownerUid, state } });
-            variants[part.name] = { key, url: `${API_ORIGIN}/media/${key}`, width: part.width, height: part.height, type: part.type };
+            variants[part.name] = { key, url: versioned(`${API_ORIGIN}/media/${key}`), width: part.width, height: part.height, type: part.type };
+            if (editRevision) variants[part.name].editRev = editRevision;
             const avifKey = `variants/${imageId}/${part.name}.avif`;
             if (part.avif) {
                 this.objects.set(avifKey, { bytes: part.avif, contentType: 'image/avif', metadata: { imageId, variant: part.name, ownerUid, state } });
-                variants[part.name].avif = { key: avifKey, url: `${API_ORIGIN}/media/${avifKey}`, type: 'image/avif' };
+                variants[part.name].avif = { key: avifKey, url: versioned(`${API_ORIGIN}/media/${avifKey}`), type: 'image/avif' };
             } else {
                 this.objects.delete(avifKey);
             }
@@ -719,7 +888,7 @@ export class FakeWorker {
         return variants;
     }
 
-    attachVariantsToRecords(imageId, variants) {
+    attachVariantsToRecords(imageId, variants, { editRevision = '' } = {}) {
         const updated = [];
         let merged = variants;
         for (const name of ['images', 'pendingImages']) {
@@ -727,7 +896,9 @@ export class FakeWorker {
             const record = docs.get(imageId);
             if (!record) continue;
             merged = { ...(record.variants || {}), ...variants };
-            docs.set(imageId, { ...record, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION });
+            const next = { ...record, variants: merged, variantsVersion: MEDIA_VARIANTS_VERSION };
+            if (editRevision) delete next.placeholder;
+            docs.set(imageId, next);
             updated.push(name);
         }
         return { variants: merged, updated };
@@ -886,14 +1057,19 @@ export class FakeWorker {
         if (!['admin', 'super_admin'].includes(actor.role) && ownerUid !== actor.uid) {
             throw apiError('רק מי שהעלה את הפריט, או מנהל, רשאי לצרף לו תצוגות.', 403, 'permission_denied');
         }
+        const editRevision = String(form.get('editRevision') || '');
+        if (editRevision) {
+            if (!['admin', 'super_admin'].includes(actor.role)) throw apiError('רק מנהל רשאי לצרף תצוגות של תמונה ערוכה.', 403, 'permission_denied');
+            if (!EDIT_REVISION_PATTERN.test(editRevision)) throw apiError('מזהה העריכה אינו תקין.', 400, 'invalid_edit_revision');
+        }
         const parts = await this.readVariantParts(form);
         // הרקע המטושטש: כאן ערך פסול מכשיל את הבקשה, ובקשה עם הרקע בלבד מותרת.
         const rawPlaceholder = form.get('placeholder');
         const placeholder = normalizePlaceholder(rawPlaceholder);
         if (rawPlaceholder !== null && rawPlaceholder !== '' && !placeholder) throw apiError('הרקע המטושטש אינו תקין.', 400, 'invalid_placeholder');
         if (!parts.length && !placeholder) throw apiError('לא צורפה אף תצוגה מקדימה.', 400, 'variant_missing');
-        const variants = parts.length ? this.storeVariants(imageId, parts, { ownerUid: ownerUid || actor.uid, state: active ? 'approved' : 'pending' }) : {};
-        const attached = parts.length ? this.attachVariantsToRecords(imageId, variants) : { variants: record.variants || {}, updated: [] };
+        const variants = parts.length ? this.storeVariants(imageId, parts, { ownerUid: ownerUid || actor.uid, state: active ? 'approved' : 'pending', editRevision }) : {};
+        const attached = parts.length ? this.attachVariantsToRecords(imageId, variants, { editRevision }) : { variants: record.variants || {}, updated: [] };
         if (placeholder) {
             for (const name of ['images', 'pendingImages']) {
                 const docs = this.collection(name);
@@ -1226,9 +1402,13 @@ export class FakeWorker {
             throw apiError('האדם לא נמצא.', 404, 'person_not_found');
         }
         const images = this.collection('images');
-        const ids = [...new Set(this.liveFaces(person).map(face => face.imageId))]
+        const detected = new Set(this.liveFaces(person).map(face => face.imageId));
+        const manual = [...this.users.tags.entries()]
+            .filter(([imageId, tags]) => images.has(imageId) && !detected.has(imageId) && tags.some(tag => tag.personId === personId))
+            .map(([imageId]) => imageId);
+        const ids = [...detected, ...manual]
             .sort((a, b) => (Number(images.get(b)?.takenAt ?? images.get(b)?.createdAt) || 0) - (Number(images.get(a)?.takenAt ?? images.get(a)?.createdAt) || 0));
-        return { success: true, version: 1, person: this.publicPerson(this.personSummary(person)), imageIds: ids };
+        return { success: true, version: 1, person: this.publicPerson(this.personSummary(person)), imageIds: ids, manualImageIds: ids.filter(id => manual.includes(id)) };
     }
 
     readGroups(request, url) {
@@ -1353,6 +1533,181 @@ export class FakeWorker {
         return { success: true, action: payload.action };
     }
 
+    // --- משתמשים: "ההעלאות שלי", כפילויות, תיוג ידני והזמנות ---
+
+    recordRejection(imageId, data, reason, actorUid) {
+        if (!data || data.status === 'approved' || !data.uploadedBy || this.collection('images').has(imageId)) return false;
+        const existing = this.users.rejections.get(imageId);
+        if (reason === null && existing) return true;
+        this.users.rejections.set(imageId, { uploader: data.uploadedBy, title: String(data.title || ''), reason: reason || '', rejectedBy: actorUid, rejectedAt: Date.now() });
+        return true;
+    }
+
+    myUploads(request) {
+        const actor = this.requireApprovedActor(request);
+        const items = new Map();
+        for (const [id, data] of this.collection('images')) {
+            if (data.uploadedBy !== actor.uid) continue;
+            const folder = this.collection('folders').get(String(data.folderId || ''));
+            items.set(id, {
+                id, title: String(data.title || ''), mediaType: data.mediaType === 'video' ? 'video' : 'image', status: 'approved',
+                uploadedAt: Number(data.createdAt) || 0, decidedAt: 0, folderId: String(data.folderId || ''), folderName: folder?.name || '',
+                thumbUrl: data.variants?.thumb?.url || data.url || ''
+            });
+        }
+        for (const [id, data] of this.collection('pendingImages')) {
+            if (data.uploadedBy !== actor.uid) continue;
+            if (items.has(id)) { if (data.status === 'approved') items.get(id).decidedAt = Number(data.approvedAt) || 0; continue; }
+            if (data.status === 'approved') continue;
+            const rejection = this.users.rejections.get(id);
+            items.set(id, {
+                id, title: String(data.title || ''), mediaType: data.mediaType === 'video' ? 'video' : 'image',
+                status: rejection ? 'rejected' : 'pending', uploadedAt: Number(data.createdAt) || 0,
+                decidedAt: rejection?.rejectedAt || 0, ...(rejection?.reason ? { reason: rejection.reason } : {})
+            });
+        }
+        for (const [id, rejection] of this.users.rejections) {
+            if (rejection.uploader !== actor.uid || items.has(id)) continue;
+            items.set(id, { id, title: rejection.title, mediaType: 'image', status: 'rejected', uploadedAt: 0, decidedAt: rejection.rejectedAt, ...(rejection.reason ? { reason: rejection.reason } : {}) });
+        }
+        const uploads = [...items.values()].sort((a, b) => Math.max(b.decidedAt, b.uploadedAt) - Math.max(a.decidedAt, a.uploadedAt));
+        const counts = { pending: 0, approved: 0, rejected: 0 };
+        for (const item of uploads) counts[item.status] += 1;
+        return { success: true, retentionDays: 60, counts, uploads };
+    }
+
+    rejectUpload(request) {
+        const actor = this.requireAdminActor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        const data = this.collection('pendingImages').get(String(payload.imageId || ''));
+        if (!data) throw apiError('הפריט הממתין לא נמצא.', 404, 'pending_not_found');
+        if (data.status === 'approved') throw apiError('הפריט כבר אושר.', 409, 'already_approved');
+        return { success: true, recorded: this.recordRejection(String(payload.imageId), data, String(payload.reason || '').trim().slice(0, 300), actor.uid) };
+    }
+
+    duplicates(request) {
+        const actor = this.requireApprovedActor(request);
+        const payload = JSON.parse(request.postData() || '{}');
+        if (!Array.isArray(payload.hashes) || payload.hashes.length > 100) throw apiError('יש לשלוח עד 100 טביעות.', 400, 'invalid_hashes');
+        const hashes = [...new Set(payload.hashes.map(value => String(value).toLowerCase()))];
+        if (hashes.some(hash => !/^(?:s1:)?[a-f0-9]{64}$/.test(hash))) throw apiError('טביעת התוכן אינה תקינה.', 400, 'invalid_hashes');
+        const admin = ['admin', 'super_admin'].includes(actor.role);
+        return {
+            success: true,
+            results: hashes.map(hash => {
+                const image = [...this.collection('images')].find(([, data]) => data.contentHash === hash);
+                if (image) return { hash, exists: true, imageId: image[0], state: 'approved' };
+                const pending = [...this.collection('pendingImages')].find(([, data]) => data.contentHash === hash && data.status !== 'approved');
+                if (!pending) return { hash, exists: false };
+                return admin || pending[1].uploadedBy === actor.uid ? { hash, exists: true, imageId: pending[0], state: 'pending' } : { hash, exists: true };
+            })
+        };
+    }
+
+    faceTags(request, url) {
+        this.requireAdminActor(request);
+        const view = imageId => (this.users.tags.get(imageId) || []).map(tag => ({
+            personId: tag.personId, name: this.people.persons.get(tag.personId)?.name || '', hidden: Boolean(this.people.persons.get(tag.personId)?.hidden), box: tag.box || null, createdAt: tag.createdAt
+        }));
+        if (request.method() === 'GET') {
+            const imageId = String(url.searchParams.get('imageId') || '');
+            return { success: true, imageId, tags: view(imageId) };
+        }
+        const payload = JSON.parse(request.postData() || '{}');
+        const imageId = String(payload.imageId || '');
+        const tags = this.users.tags.get(imageId) || [];
+        if (payload.action === 'add') {
+            const person = this.people.persons.get(String(payload.personId || ''));
+            if (!person || person.status !== 'approved' || !person.name) throw apiError('אפשר לתייג רק אדם מאושר עם שם.', 400, 'invalid_tag_person');
+            if (!this.collection('images').has(imageId)) throw apiError('התמונה לא נמצאה בגלריה.', 404, 'image_not_found');
+            const next = tags.filter(tag => tag.personId !== person.personId);
+            next.push({ personId: person.personId, box: payload.box || null, createdAt: Date.now() });
+            this.users.tags.set(imageId, next);
+        } else if (payload.action === 'remove') {
+            this.users.tags.set(imageId, tags.filter(tag => tag.personId !== payload.personId));
+        } else {
+            throw apiError('הפעולה המבוקשת אינה מוכרת.', 400, 'invalid_action');
+        }
+        return { success: true, imageId, tags: view(imageId) };
+    }
+
+    // קישור הזמנה מוכן לבדיקה: האסימון מוחזר לבדיקה, ובזיוף נשמר רק הגיבוב.
+    seedInvite({ token, folderId = '1', folderName, autoApprove = false, maxUses = 0, days = 7, createdBy = 'google-admin-e2e' } = {}) {
+        const now = Date.now();
+        const inviteId = `inv_${this.users.invites.size + 1}_e2e_seed`;
+        this.users.invites.set(inviteId, {
+            inviteId, tokenHash: createHash('sha256').update(token).digest('hex'), folderId,
+            folderName: folderName || this.collection('folders').get(folderId)?.name || 'אירוע',
+            autoApprove, maxUses, useCount: 0, createdBy, createdAt: now, expiresAt: now + days * DAY_MS, revokedAt: 0
+        });
+        return inviteId;
+    }
+
+    inviteView(invite, uid) {
+        const now = Date.now();
+        const status = invite.revokedAt ? 'revoked' : invite.expiresAt <= now ? 'expired' : invite.maxUses && invite.useCount >= invite.maxUses ? 'exhausted' : 'active';
+        const { tokenHash, createdBy, ...rest } = invite;
+        return { ...rest, status, mine: createdBy === uid };
+    }
+
+    invites(request, url) {
+        const method = request.method();
+        if (url.pathname === '/invites/redeem') {
+            const account = this.account(request);
+            const profiles = this.collection('userProfiles');
+            const profile = profiles.get(account.localId);
+            const { token } = JSON.parse(request.postData() || '{}');
+            const tokenHash = createHash('sha256').update(String(token || '')).digest('hex');
+            const invite = [...this.users.invites.values()].find(item => item.tokenHash === tokenHash);
+            if (!invite || !/^[A-Za-z0-9_-]{43}$/.test(String(token || ''))) throw apiError('קישור ההזמנה אינו תקף.', 404, 'invite_invalid');
+            const status = this.inviteView(invite).status;
+            if (status === 'revoked') throw apiError('קישור ההזמנה בוטל.', 410, 'invite_revoked');
+            if (status === 'expired') throw apiError('תוקף קישור ההזמנה פג.', 410, 'invite_expired');
+            if (!profile) throw apiError('פרופיל המשתמש עדיין לא נוצר.', 403, 'profile_missing');
+            if (profile.status === 'blocked') throw apiError('החשבון חסום.', 403, 'account_blocked');
+            const base = { success: true, folderId: invite.folderId, folderName: invite.folderName };
+            if (profile.status === 'approved') return { ...base, status: 'approved', autoApproved: false, alreadyApproved: true };
+            if (profile.inviteId === invite.inviteId) return { ...base, status: profile.status || 'pending', autoApproved: false };
+            if (status === 'exhausted') throw apiError('קישור ההזמנה כבר נוצל עד הסוף.', 410, 'invite_exhausted');
+            invite.useCount += 1;
+            const autoApprove = invite.autoApprove && (profile.status || 'pending') === 'pending';
+            profiles.set(account.localId, {
+                ...profile, inviteId: invite.inviteId, inviteFolderId: invite.folderId, inviteFolderName: invite.folderName, invitedAt: Date.now(),
+                inviteAutoApproved: autoApprove, ...(autoApprove ? { status: 'approved', role: 'viewer', approvedAt: Date.now() } : {})
+            });
+            return { ...base, status: autoApprove ? 'approved' : (profile.status || 'pending'), autoApproved: autoApprove };
+        }
+        const actor = this.requireAdminActor(request);
+        if (method === 'GET' && url.pathname === '/invites') {
+            return {
+                success: true, canAutoApprove: actor.role === 'super_admin', dayOptions: [1, 7, 30], maxUsesLimit: 1000,
+                invites: [...this.users.invites.values()].sort((a, b) => b.createdAt - a.createdAt).map(invite => this.inviteView(invite, actor.uid))
+            };
+        }
+        const payload = JSON.parse(request.postData() || '{}');
+        if (url.pathname === '/invites/revoke') {
+            const invite = this.users.invites.get(String(payload.inviteId || ''));
+            if (!invite) throw apiError('הקישור לא נמצא.', 404, 'invite_not_found');
+            if (invite.createdBy !== actor.uid && actor.role !== 'super_admin') throw apiError('אין הרשאה.', 403, 'permission_denied');
+            invite.revokedAt ||= Date.now();
+            return { success: true, invite: this.inviteView(invite, actor.uid) };
+        }
+        const folder = this.collection('folders').get(String(payload.folderId || ''));
+        if (!folder || payload.folderId === 'all') throw apiError('התיקייה לא נמצאה.', 404, 'folder_not_found');
+        if (![1, 7, 30].includes(Number(payload.days))) throw apiError('תוקף הקישור חייב להיות יום, שבוע או חודש.', 400, 'invalid_invite_days');
+        if (payload.autoApprove === true && actor.role !== 'super_admin') throw apiError('רק מנהל־על יכול ליצור קישור עם אישור אוטומטי.', 403, 'permission_denied');
+        const token = randomBytes(32).toString('base64url');
+        const now = Date.now();
+        const invite = {
+            inviteId: randomBytes(12).toString('base64url'), tokenHash: createHash('sha256').update(token).digest('hex'),
+            folderId: String(payload.folderId), folderName: folder.name, autoApprove: payload.autoApprove === true,
+            maxUses: Number(payload.maxUses) || 0, useCount: 0, createdBy: actor.uid, createdAt: now,
+            expiresAt: now + Number(payload.days) * DAY_MS, revokedAt: 0
+        };
+        this.users.invites.set(invite.inviteId, invite);
+        return { success: true, invite: this.inviteView(invite, actor.uid), token };
+    }
+
     faceMe(request) {
         const actor = this.requireApprovedActor(request);
         const method = request.method();
@@ -1454,6 +1809,7 @@ export class FakeWorker {
             if (method === 'POST' && url.pathname === '/upload/multipart/complete') return json(await this.handleMultipartComplete(request), 201);
             if (method === 'POST' && url.pathname === '/upload/multipart/abort') return json(this.handleMultipartAbort(request));
             if (method === 'POST' && url.pathname === '/media/variants') return json(await this.handleAttachVariants(request));
+            if (method === 'POST' && url.pathname === '/order') return json(this.handleOrder(request));
             if (method === 'POST' && url.pathname === '/approve') return json(this.handleApprove(request));
             if (method === 'POST' && url.pathname === '/auth/session') return json(this.establishSession(request));
             if (method === 'POST' && url.pathname === '/ai-title') return json(await this.handleAiTitle(request));
@@ -1469,6 +1825,17 @@ export class FakeWorker {
             }
             if (method === 'GET' && url.pathname === '/face-assets/face-api.js') {
                 return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'text/javascript; charset=utf-8' }, body: FACE_API_STUB });
+            }
+            if (!this.users.supported && (['/my-uploads', '/pending/reject', '/duplicates'].includes(url.pathname) || url.pathname.startsWith('/invites') || url.pathname === '/face/tags')) {
+                throw apiError('הנתיב המבוקש אינו קיים.', 404, 'request_failed');
+            }
+            if (method === 'GET' && url.pathname === '/my-uploads') return json(this.myUploads(request));
+            if (method === 'POST' && url.pathname === '/pending/reject') return json(this.rejectUpload(request));
+            if (method === 'POST' && url.pathname === '/duplicates') return json(this.duplicates(request));
+            if (['GET', 'POST'].includes(method) && url.pathname === '/face/tags') return json(this.faceTags(request, url));
+            if (url.pathname === '/invites' || url.pathname === '/invites/revoke' || url.pathname === '/invites/redeem') {
+                const payload = this.invites(request, url);
+                return json(payload, method === 'POST' && url.pathname === '/invites' ? 201 : 200);
             }
             if (method === 'GET' && url.pathname === '/face/persons') return json(this.listPersons(request));
             if (method === 'GET' && url.pathname.startsWith('/face/persons/')) {
