@@ -128,6 +128,8 @@ let lastAiBody = null;
 let embeddingCalls = [];
 let embeddingOutput = Array.from({ length: 256 }, (_, i) => i === 0 ? 1 : 0);
 let embeddingStatus = 200;
+let geminiCalls = [];
+let geminiStatus = 200;
 
 const ACCOUNTS = {
   "viewer-token": { sub: "google-viewer", email: "viewer@example.com", name: "Viewer" },
@@ -151,6 +153,13 @@ test.before(async () => {
         email_verified: "true",
         aud: "601586229891-giorl13mdpu7kfbeb6h2aj6qjpkphmmo.apps.googleusercontent.com"
       });
+    }
+    if (href.startsWith('https://generativelanguage.googleapis.com/v1beta/models/')) {
+      const body = JSON.parse(init.body);
+      geminiCalls.push({ url: href, body, key: init.headers['x-goog-api-key'] });
+      if (geminiStatus !== 200) return Response.json({error:{message:'provider echoed private key '+init.headers['x-goog-api-key']}}, {status:geminiStatus});
+      if (href.endsWith(':embedContent')) return Response.json({embedding:{values:embeddingOutput}});
+      return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(DEFAULT_AI_OUTPUT)}]}}]});
     }
     if (href === "https://api.openai.com/v1/embeddings") {
       embeddingCalls.push(JSON.parse(init.body));
@@ -178,6 +187,8 @@ test.after(() => { globalThis.fetch = originalFetch; });
 test.beforeEach(() => {
   aiCalls = 0; aiResponse = DEFAULT_AI_OUTPUT; aiStatus = 200; aiErrorCode = ""; onAiCall = null; lastAiBody = null;
   embeddingCalls = []; embeddingOutput = Array.from({ length: 256 }, (_, i) => i === 0 ? 1 : 0); embeddingStatus = 200;
+  geminiCalls = []; geminiStatus = 200;
+  database.database.exec("DELETE FROM auth_secrets WHERE secret_key = 'ai_provider_settings'");
   bucket.objects.clear();
   for (const table of ["gallery_documents", "request_rate_limits", "user_email_index", "face_people", "image_face_descriptors", "image_face_index_state", "media_variant_files"]) {
     database.database.exec(`DELETE FROM ${table}`);
@@ -650,4 +661,92 @@ test('exhausted credit is explained as missing balance rather than temporary loa
   const response = await titleCall();
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, 'openai_quota_exhausted');
+});
+
+const FAKE_GEMINI_KEY = 'AIza-test-not-a-real-key-1234567890';
+async function settingsCall(method = 'GET', body, token = 'super-token', path = '/admin/ai-settings') {
+  return worker.fetch(jsonRequest(path, method, body, token), environment);
+}
+async function saveGemini() {
+  const response = await settingsCall('PUT', {provider:'gemini',apiKey:FAKE_GEMINI_KEY});
+  assert.equal(response.status,200);
+  return response.json();
+}
+
+test('AI settings are super-admin-only, encrypted, and never return API keys', async () => {
+  for (const token of ['viewer-token','admin-token','']) {
+    assert.ok([401,403].includes((await settingsCall('GET', undefined, token)).status));
+    assert.ok([401,403].includes((await settingsCall('PUT',{provider:'gemini',apiKey:FAKE_GEMINI_KEY},token)).status));
+  }
+  const saved = await saveGemini();
+  assert.deepEqual(saved,{success:true,provider:'gemini',hasGeminiKey:true,hasOpenaiKey:true});
+  const raw = database.database.prepare("SELECT secret_value FROM auth_secrets WHERE secret_key = 'ai_provider_settings'").get().secret_value;
+  assert.equal(raw.includes(FAKE_GEMINI_KEY),false);
+  assert.ok(JSON.parse(raw).keys.gemini.data);
+  assert.equal(JSON.stringify(await (await settingsCall()).json()).includes(FAKE_GEMINI_KEY),false);
+  assert.equal((await (await worker.fetch(jsonRequest('/health','GET',undefined,''),{...environment,OPENAI_API_KEY:''})).json()).aiDescriptionsEnabled,true);
+});
+
+test('Gemini describes image bytes with structured JSON and no OpenAI calls', async () => {
+  await saveGemini(); await seedImage();
+  const response = await titleCall();
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).caption,DEFAULT_AI_OUTPUT.caption);
+  assert.equal(aiCalls,0); assert.equal(geminiCalls.length,1);
+  assert.ok(geminiCalls[0].url.endsWith('/gemini-2.5-flash:generateContent'));
+  assert.equal(geminiCalls[0].url.includes(FAKE_GEMINI_KEY),false);
+  assert.equal(geminiCalls[0].key,FAKE_GEMINI_KEY);
+  assert.equal(geminiCalls[0].body.contents[0].parts[1].inlineData.data,'AQID');
+  assert.equal(geminiCalls[0].body.generationConfig.responseMimeType,'application/json');
+  assert.deepEqual(geminiCalls[0].body.generationConfig.responseJsonSchema.required,['title','caption','tags']);
+});
+
+test('provider switch invalidates incompatible vectors and reuses saved captions for Gemini index', async () => {
+  await describedImage(); await indexCall();
+  await saveGemini();
+  const pending = await worker.fetch(jsonRequest('/ai-search/index/pending','POST',{imageIds:['photo1']}),environment);
+  assert.deepEqual((await pending.json()).pending,['photo1']);
+  const before = await (await searchCall()).json();
+  assert.equal(before.indexed,0); assert.equal(before.pending,1);
+  assert.equal((await indexCall()).status,200);
+  const search = await (await searchCall()).json();
+  assert.deepEqual(search.matches,['photo1']);
+  assert.equal(geminiCalls.length,2);
+  assert.equal(geminiCalls[0].body.taskType,'RETRIEVAL_DOCUMENT');
+  assert.equal(geminiCalls[1].body.taskType,'RETRIEVAL_QUERY');
+  assert.equal(geminiCalls[0].body.outputDimensionality,256);
+  assert.equal(aiCalls,0);
+  assert.equal(embeddingCalls.length,1,'Only the original OpenAI index used OpenAI');
+});
+
+test('blank key preserves a saved Gemini key across saves and key can be replaced', async () => {
+  await saveGemini();
+  assert.equal((await settingsCall('PUT',{provider:'gemini',apiKey:''})).status,200);
+  await describedImage(); await indexCall();
+  assert.equal(geminiCalls[0].key,FAKE_GEMINI_KEY);
+  const replacement = 'AIza-replacement-test-key-123456789';
+  assert.equal((await settingsCall('PUT',{provider:'gemini',apiKey:replacement})).status,200);
+  await searchCall();
+  assert.equal(geminiCalls.at(-1).key,replacement);
+});
+
+test('connection test checks both Gemini capabilities without saving the key', async () => {
+  const response = await settingsCall('POST',{provider:'gemini',apiKey:FAKE_GEMINI_KEY},'super-token','/admin/ai-settings/test');
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).available,true);
+  assert.equal(geminiCalls.length,2);
+  assert.equal((await (await settingsCall()).json()).provider,'openai');
+  assert.equal((await (await settingsCall()).json()).hasGeminiKey,false);
+});
+
+test('Gemini provider failures are sanitized; rejected input is not saved', async () => {
+  assert.equal((await settingsCall('PUT',{provider:'unknown',apiKey:FAKE_GEMINI_KEY})).status,400);
+  assert.equal((await settingsCall('PUT',{provider:'gemini',apiKey:'x'})).status,400);
+  assert.equal((await settingsCall('PUT',{provider:'gemini',apiKey:''})).status,400);
+  geminiStatus = 403;
+  const response = await settingsCall('POST',{provider:'gemini',apiKey:FAKE_GEMINI_KEY},'super-token','/admin/ai-settings/test');
+  assert.equal(response.status,503);
+  const text = await response.text();
+  assert.equal(text.includes(FAKE_GEMINI_KEY),false);
+  assert.ok(text.includes('gemini_invalid_key'));
 });

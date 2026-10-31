@@ -2117,7 +2117,7 @@ async function handleDataRequest(request, env, url, ctx) {
       await env.GALLERY_DB.prepare("DELETE FROM upload_rejections WHERE image_id = ?").bind(documentId).run();
     }
     await bumpDataVersion(env, collectionName);
-    if (collectionName === "images" && !existingRow && nextData.mediaType !== "video" && env.OPENAI_API_KEY && ctx?.waitUntil) {
+    if (collectionName === "images" && !existingRow && nextData.mediaType !== "video" && selectedAiKey(env) && ctx?.waitUntil) {
       // שם, כיתוב ותגיות לתמונה חדשה נוצרים ברקע, אחרי שהתשובה יצאה — רק כשמשימת
       // "titles" של העיבוד בענן פעילה. בלי מפתח AI אין קריאה כלל, וכישלון לעולם
       // אינו מכשיל את השמירה: התמונה תיאסף בריצת ההשלמה (בענן או בלוח הניהול).
@@ -4129,6 +4129,107 @@ function cleanAiCaption(value) {
   return caption;
 }
 
+const GEMINI_VISION_MODEL = 'gemini-2.5-flash';
+const GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001';
+const AI_SETTINGS_SECRET = 'ai_provider_settings';
+
+async function readAiSettings(env) {
+  await ensureDatabaseSchema(env);
+  const row = await env.GALLERY_DB.prepare('SELECT secret_value FROM auth_secrets WHERE secret_key = ?').bind(AI_SETTINGS_SECRET).first();
+  try { const value = JSON.parse(row?.secret_value || '{}'); return value && typeof value === 'object' ? value : {}; } catch { return {}; }
+}
+
+async function aiSettingsCipher(env) {
+  const secret = String(env.SESSION_SIGNING_SECRET || '') || await loadStoredSessionSecret(env);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`gallery-ai-credentials-v1:${secret}`));
+  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptAiKey(env, provider, value) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(provider) }, await aiSettingsCipher(env), new TextEncoder().encode(value));
+  return { iv: base64UrlEncode(iv), data: base64UrlEncode(new Uint8Array(data)) };
+}
+
+async function decryptAiKey(env, provider, value) {
+  if (!value?.iv || !value?.data) return '';
+  try {
+    const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: base64UrlDecodeToBytes(value.iv), additionalData: new TextEncoder().encode(provider) }, await aiSettingsCipher(env), base64UrlDecodeToBytes(value.data));
+    return new TextDecoder().decode(bytes);
+  } catch { throw apiError('לא ניתן לקרוא את מפתח ה־AI השמור. שמור אותו שוב בניהול.', 503, 'ai_key_unreadable'); }
+}
+
+async function withAiSettings(env) {
+  const saved = await readAiSettings(env);
+  const provider = saved.provider === 'gemini' ? 'gemini' : 'openai';
+  const key = await decryptAiKey(env, provider, saved.keys?.[provider]);
+  return { ...env, AI_PROVIDER: provider, ...(key ? { [provider === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY']: key } : {}) };
+}
+
+function selectedAiKey(env) { return env.AI_PROVIDER === 'gemini' ? env.GEMINI_API_KEY : env.OPENAI_API_KEY; }
+function selectedEmbeddingModel(env) { return env.AI_PROVIDER === 'gemini' ? GEMINI_EMBEDDING_MODEL : AI_SEARCH_EMBEDDING_MODEL; }
+
+function geminiFailure(status) {
+  if (status === 400 || status === 401 || status === 403) return apiError('מפתח Gemini אינו תקין או שאין לו הרשאה למודל. בדוק את המפתח וההרשאות ב־Google AI Studio.', 503, 'gemini_invalid_key');
+  if (status === 429) return apiError('מכסת Gemini התמלאה או שהשירות עמוס. בדוק את המכסה ב־Google AI Studio ונסה בהמשך.', 429, 'gemini_rate_limited');
+  if (status === 404) return apiError('מודל Gemini אינו זמין למפתח הזה.', 503, 'gemini_model_unavailable');
+  return apiError('שירות Gemini אינו זמין כרגע. נסה בהמשך.', 502, 'gemini_request_failed');
+}
+
+async function geminiRequest(env, model, operation, body) {
+  if (!env.GEMINI_API_KEY) throw apiError('מפתח Gemini אינו מוגדר. שמור מפתח במסך ה־AI בניהול.', 503, 'gemini_key_missing');
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:${operation}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+    signal: AbortSignal.timeout(30000), body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  // Never return/log the provider's raw message: it can echo request details.
+  if (!response.ok) throw geminiFailure(response.status);
+  return data;
+}
+
+async function geminiDescribe(env, mime, base64) {
+  const result = await geminiRequest(env, GEMINI_VISION_MODEL, 'generateContent', {
+    contents: [{ role: 'user', parts: [{ text: imageDescriptionPrompt() }, { inlineData: { mimeType: mime, data: base64 } }] }],
+    generationConfig: { responseMimeType: 'application/json', responseJsonSchema: imageDescriptionFormat().schema, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } }
+  });
+  try {
+    const text = (result.candidates?.[0]?.content?.parts || []).filter(part => !part.thought).map(part => part.text || '').join('');
+    return JSON.parse(text);
+  } catch { throw apiError('Gemini החזיר תיאור לא תקין.', 502, 'invalid_ai_response'); }
+}
+
+async function aiProviderSettings(request, env) {
+  await requireUser(request, env, ['super_admin']);
+  const saved = await readAiSettings(env);
+  const summary = value => ({ success: true, provider: value.provider === 'gemini' ? 'gemini' : 'openai',
+    hasGeminiKey: Boolean(value.keys?.gemini || env.GEMINI_API_KEY), hasOpenaiKey: Boolean(value.keys?.openai || env.OPENAI_API_KEY) });
+  if (request.method === 'GET') return json(request, summary(saved));
+  const payload = await request.json().catch(() => ({}));
+  const provider = payload.provider;
+  if (!['openai', 'gemini'].includes(provider)) throw apiError('בחר ספק AI נתמך.', 400, 'invalid_ai_provider');
+  const apiKey = String(payload.apiKey || '').trim();
+  if (apiKey && (apiKey.length < 20 || apiKey.length > 512 || !/^[A-Za-z0-9_\-\.]+$/.test(apiKey))) throw apiError('המפתח אינו בפורמט תקין.', 400, 'invalid_ai_key');
+  const existingKey = apiKey || await decryptAiKey(env, provider, saved.keys?.[provider]) || (provider === 'gemini' ? env.GEMINI_API_KEY : env.OPENAI_API_KEY);
+  if (!existingKey) throw apiError('יש להזין מפתח לספק שנבחר.', 400, 'ai_key_missing');
+  const candidate = { ...env, AI_PROVIDER: provider, [provider === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY']: existingKey };
+  if (request.method === 'POST') {
+    await consumeRateLimit(env, 'ai-provider-test:global', 12, 300000);
+    if (provider === 'gemini') await geminiRequest(candidate, GEMINI_VISION_MODEL, 'generateContent', { contents: [{ parts: [{ text: 'ענה רק במילה שלום' }] }], generationConfig: { maxOutputTokens: 32, thinkingConfig: { thinkingBudget: 0 } } });
+    else {
+      const response = await fetch(OPENAI_RESPONSES_URL, { method: 'POST', headers: { Authorization: `Bearer ${existingKey}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000), body: JSON.stringify({ model: OPENAI_VISION_MODEL, store: false, max_output_tokens: 32, input: 'ענה רק במילה שלום' }) });
+      if (!response.ok) throw aiDescriptionFailure(response.status, await response.json().catch(() => ({})));
+    }
+    await searchEmbedding(candidate, 'בדיקת חיבור לחיפוש', 'RETRIEVAL_QUERY');
+    return json(request, { success: true, available: true, provider });
+  }
+  const next = { provider, keys: { ...saved.keys }, updatedAt: Date.now() };
+  if (apiKey) next.keys[provider] = await encryptAiKey(env, provider, apiKey);
+  await env.GALLERY_DB.prepare(`INSERT INTO auth_secrets (secret_key, secret_value, created_at) VALUES (?, ?, ?)
+    ON CONFLICT(secret_key) DO UPDATE SET secret_value = excluded.secret_value`).bind(AI_SETTINGS_SECRET, JSON.stringify(next), Date.now()).run();
+  return json(request, summary(next));
+}
+
 function aiDescriptionFailure(status, payload) {
   const code = String(payload?.error?.code || "");
   if (status === 401) return apiError("מפתח ה־AI אינו תקין או בוטל. יש להחליף אותו ב־Cloudflare.", 503, "openai_invalid_key");
@@ -4142,7 +4243,7 @@ function aiDescriptionFailure(status, payload) {
 // נשמר פעם אחת (והשם המקורי לצדו); כיתוב ותגיות נשמרים פעם אחת לכל גרסה,
 // וכיתוב שמנהל ערך ידנית אינו נדרס לעולם.
 async function generateImageDescription(request, env, imageId) {
-  if (!env.OPENAI_API_KEY) throw apiError("מפתח ה־AI אינו מוגדר בשרת.", 503, "openai_key_missing");
+  if (!selectedAiKey(env)) throw apiError("מפתח ה־AI אינו מוגדר בשרת.", 503, "openai_key_missing");
   const row = await readGalleryDocumentRow(env, "images", imageId);
   if (!row) throw apiError("התמונה אינה קיימת בגלריה.", 404, "not_found");
   const record = parseDocumentData(row);
@@ -4174,6 +4275,9 @@ async function generateImageDescription(request, env, imageId) {
   const bytes = new Uint8Array(await object.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  let parsed;
+  if (env.AI_PROVIDER === 'gemini') parsed = await geminiDescribe(env, mime, btoa(binary));
+  else {
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
     headers: { "Authorization": `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -4197,11 +4301,11 @@ async function generateImageDescription(request, env, imageId) {
     failure.providerStatus = response.status;
     throw failure;
   }
-  let parsed;
   try {
     parsed = JSON.parse(extractOpenAIOutputText(result));
   } catch {
     throw apiError("מנוע ה־AI החזיר תשובה לא תקינה.", 502, "invalid_ai_response");
+  }
   }
   const title = cleanAiTitle(parsed?.title);
   if (needsTitle && (!title || !/[֐-׿]/.test(title))) throw apiError("מנוע ה־AI החזיר שם לא תקין.", 502, "invalid_ai_title");
@@ -4247,9 +4351,9 @@ const AI_SEARCH_INDEX_VERSION = 1;
 const AI_SEARCH_VECTOR_SIZE = 256;
 const AI_SEARCH_EMBEDDING_MODEL = 'text-embedding-3-small';
 
-function aiSearchSource(record) {
+function aiSearchSource(record, env) {
   return JSON.stringify({
-    version: AI_SEARCH_INDEX_VERSION, model: AI_SEARCH_EMBEDDING_MODEL,
+    version: AI_SEARCH_INDEX_VERSION, model: selectedEmbeddingModel(env),
     url: String(record.url || ''), modified: String(record.driveModifiedTime || ''),
     title: String(record.title || '').slice(0, 120), caption: String(record.caption || '').slice(0, 140),
     tags: normalizeSceneTags(record.sceneTags)
@@ -4265,7 +4369,13 @@ function normalizedSearchVector(value) {
   return value.map(n => n / norm);
 }
 
-async function searchEmbedding(env, text) {
+async function searchEmbedding(env, text, taskType = 'RETRIEVAL_DOCUMENT') {
+  if (env.AI_PROVIDER === 'gemini') {
+    const data = await geminiRequest(env, GEMINI_EMBEDDING_MODEL, 'embedContent', {
+      model: `models/${GEMINI_EMBEDDING_MODEL}`, content: { parts: [{ text }] }, outputDimensionality: AI_SEARCH_VECTOR_SIZE, taskType
+    });
+    return normalizedSearchVector(data.embedding?.values);
+  }
   if (!env.OPENAI_API_KEY) throw apiError('חיפוש ה־AI עדיין לא הוגדר בשרת.', 503, 'openai_key_missing');
   const response = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -4289,7 +4399,7 @@ async function indexAiSearchImage(request, env) {
   if (!row) throw apiError('התמונה אינה קיימת בגלריה.', 404, 'not_found');
   const record = parseDocumentData(row);
   if (!hasSearchDescription(record)) throw apiError('התמונה ממתינה לכיתוב לפני הכנת החיפוש.', 409, 'search_description_pending');
-  const source = aiSearchSource(record);
+  const source = aiSearchSource(record, env);
   const existing = parseDocumentData(await readGalleryDocumentRow(env, AI_SEARCH_INDEX_COLLECTION, imageId));
   if (existing.source === source && existing.version === AI_SEARCH_INDEX_VERSION) {
     try { normalizedSearchVector(existing.vector); return json(request, { success: true, skipped: true }); } catch {}
@@ -4299,7 +4409,7 @@ async function indexAiSearchImage(request, env) {
   const vector = await searchEmbedding(env, [record.title, record.caption, ...labels].filter(Boolean).join('. ').slice(0, 1000));
   // Recheck after the provider call: never publish an index for a changed or deleted image.
   const current = await readGalleryDocumentRow(env, 'images', imageId);
-  if (!current || aiSearchSource(parseDocumentData(current)) !== source) throw apiError('התמונה השתנתה בזמן הכנת החיפוש.', 409, 'document_write_conflict');
+  if (!current || aiSearchSource(parseDocumentData(current), env) !== source) throw apiError('התמונה השתנתה בזמן הכנת החיפוש.', 409, 'document_write_conflict');
   const now = Date.now();
   await env.GALLERY_DB.prepare(
     `INSERT INTO gallery_documents (collection_name, document_id, data_json, owner_uid, created_at, updated_at)
@@ -4324,7 +4434,7 @@ async function pendingAiSearchIndex(request, env) {
     const index = parseDocumentData({ data_json: row.index_json });
     let valid = false;
     try { normalizedSearchVector(index.vector); valid = true; } catch {}
-    return record.mediaType !== 'video' && (!valid || index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record));
+    return record.mediaType !== 'video' && (!valid || index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record, env));
   }).map(row => row.document_id);
   return json(request, { success: true, pending });
 }
@@ -4351,11 +4461,11 @@ async function aiImageSearch(request, env) {
       const record = parseDocumentData(row);
       if (record.mediaType === 'video') continue;
       const index = parseDocumentData({ data_json: row.index_json });
-      if (index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record)) { pending++; continue; }
+      if (index.version !== AI_SEARCH_INDEX_VERSION || index.source !== aiSearchSource(record, env)) { pending++; continue; }
       let vector;
       try { vector = normalizedSearchVector(index.vector); } catch { pending++; continue; }
       indexed++;
-      if (!queryVector) queryVector = await searchEmbedding(env, query); // Exactly one text-only AI call per search.
+      if (!queryVector) queryVector = await searchEmbedding(env, query, 'RETRIEVAL_QUERY'); // Exactly one text-only AI call per search.
       const score = vector.reduce((sum, n, i) => sum + n * queryVector[i], 0);
       if (score >= 0.3) best.push({ id: row.document_id, score, data: record });
     }
@@ -6674,6 +6784,12 @@ async function backgroundStatus(request, env) {
 
 async function backgroundAiCheck(request, env) {
   if (!backgroundActors.has(request)) throw apiError("פעולה זו מיועדת לתהליך הרקע.",403,"background_scope_denied");
+  if (env.AI_PROVIDER === 'gemini') {
+    try {
+      await geminiRequest(env, GEMINI_VISION_MODEL, 'generateContent', { contents: [{ parts: [{ text: 'ענה רק במילה שלום' }] }], generationConfig: { maxOutputTokens: 32, thinkingConfig: { thinkingBudget: 0 } } });
+      return json(request, { success: true, available: true, status: 200, providerCode: 'ok' });
+    } catch (error) { return json(request, { success: true, available: false, status: error.status || 503, providerCode: error.code || 'gemini_request_failed' }); }
+  }
   if (!env.OPENAI_API_KEY) return json(request,{success:true,available:false,status:503,providerCode:"openai_key_missing"});
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method:"POST", headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},
@@ -8696,6 +8812,11 @@ export default {
       }
       // Worker שחובר למסד של הסביבה האחרת אינו מגיש שום נתיב, כולל /health.
       await assertDatabaseEnvironment(env);
+      const aiPath = new URL(request.url).pathname;
+      if (aiPath.startsWith('/ai-') || aiPath === '/health' || aiPath === '/' || aiPath === '/background/ai-check' || (request.method === 'PUT' && /^\/data\/(images|pendingImages)\//.test(aiPath))) {
+        env = await withAiSettings(env);
+      }
+
 
       const url = new URL(request.url);
       if (request.method === "POST" && url.pathname === "/background/session") return await backgroundSession(request, env);
@@ -8718,6 +8839,8 @@ export default {
       if (request.method === "POST" && url.pathname === "/admin/users/batch") return await adminUsersBatch(request, env);
       if ((["GET", "POST"].includes(request.method) && url.pathname === "/admin/user-notes") ||
           (request.method === "DELETE" && url.pathname.startsWith("/admin/user-notes/"))) return await adminUserNotes(request, env, url);
+      if (url.pathname === '/admin/ai-settings' && ['GET', 'PUT'].includes(request.method)) return await aiProviderSettings(request, env);
+      if (url.pathname === '/admin/ai-settings/test' && request.method === 'POST') return await aiProviderSettings(request, env);
       if (url.pathname.startsWith("/data/")) {
         return await handleDataRequest(request, env, url, ctx);
       }
@@ -8735,7 +8858,7 @@ export default {
           version: "2026-10-08-data-layer-cursors-etag-cache",
           features: [
             "cloudflare-d1", "google-auth", "r2-media", "chat-attachments",
-            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles", "cloud-background-jobs", "indexed-ai-search",
+            "persistent-drive-oauth", "cloud-face-index", "media-variants", "capture-dates", "ai-image-titles", "cloud-background-jobs", "indexed-ai-search", "ai-provider-settings",
             "ai-image-captions", "scene-tags",
             "data-filters", "cursor-pagination", "etag-304", "edge-cache",
             "resumable-uploads", "face-people", "face-find-me",
@@ -8746,7 +8869,7 @@ export default {
           ],
           streamEnabled: Boolean(streamConfig(env)),
           // בלי מפתח AI אין שמות, כיתובים ותגיות אוטומטיים; מסך ההשלמה מודיע על כך.
-          aiDescriptionsEnabled: Boolean(env.OPENAI_API_KEY),
+          aiDescriptionsEnabled: Boolean(selectedAiKey(env)),
           faceModelVersion: FACE_MODEL_VERSION,
           databaseConnected: true,
           bucketConnected: true,
