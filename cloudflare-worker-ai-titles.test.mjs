@@ -644,3 +644,10 @@ test('damaged saved vector is queued again and repaired instead of skipped forev
   assert.equal((await (await indexCall()).json()).skipped, false);
   assert.equal(readDocument('aiSearchIndex', 'photo1').vector.length, 256);
 });
+
+test('exhausted credit is explained as missing balance rather than temporary load', async () => {
+  await seedImage(); aiStatus = 429; aiErrorCode = 'credit_balance_exhausted';
+  const response = await titleCall();
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'openai_quota_exhausted');
+});

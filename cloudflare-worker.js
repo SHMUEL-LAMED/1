@@ -4132,7 +4132,7 @@ function cleanAiCaption(value) {
 function aiDescriptionFailure(status, payload) {
   const code = String(payload?.error?.code || "");
   if (status === 401) return apiError("מפתח ה־AI אינו תקין או בוטל. יש להחליף אותו ב־Cloudflare.", 503, "openai_invalid_key");
-  if (status === 429 && code === "insufficient_quota") return apiError("לחשבון ה־AI אין כרגע יתרה זמינה. יש לבדוק חיוב ומכסה.", 503, "openai_quota_exhausted");
+  if (status === 429 && ["insufficient_quota", "credit_balance_exhausted"].includes(code)) return apiError("לחשבון ה־AI אין כרגע יתרה זמינה. יש לבדוק חיוב ומכסה.", 503, "openai_quota_exhausted");
   if (status === 429) return apiError("מנוע ה־AI עמוס כרגע. נסה שוב בעוד רגע.", 429, "openai_rate_limited");
   if (status === 403 || status === 404 || code === "model_not_found") return apiError("מודל ה־AI אינו זמין למפתח הזה.", 503, "openai_model_unavailable");
   return apiError("מנוע ה־AI לא הצליח לתאר את התמונה. נסה שוב בהמשך.", 502, "ai_title_failed");
