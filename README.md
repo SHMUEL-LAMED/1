@@ -1623,6 +1623,60 @@ npx playwright test e2e/admin.spec.mjs   # קובץ בודד
 (`role="dialog"`) יש `aria-modal` ותווית; אין `tabindex` חיובי; והפוקוס חוזר
 לכפתור שפתח כל אחד מהחלונות האלה כשהוא נסגר — ב־Escape ובכפתור הסגירה.
 
+### בדיקות חזותיות (צילומי מסך)
+
+`e2e/visual/*.visual.mjs` מצלמים את המסכים העיקריים ומשווים אותם לבסיס שנשמר
+במאגר תחת `e2e/visual/__screenshots__/`: דף הבית (תיקיות וכרטיסים), סרגל הכלים
+עם חלונית הסינון פתוחה (חלונית צפה במחשב, גיליון תחתון בטלפון), התצוגה המלאה,
+עמוד האירוע, סקירת לוח הניהול ואישור העלאות. הם רצים מהגדרות נפרדות,
+`playwright.visual.config.mjs`, בארבעה פרויקטים — מחשב 1440×900 וטלפון 390×844,
+כל אחד במצב בהיר ובמצב כהה. `npm run test:e2e` אינו מריץ אותם, ולהפך.
+
+כדי שהצילום יהיה זהה בכל ריצה (`e2e/visual/visual-fixtures.mjs`):
+
+- **שעון קבוע** — `page.clock.install` ב־14.9.2026 10:00 שעון ישראל, ולכן "עודכן
+  לפני…", התאריך העברי ו"היום" אינם זזים; הערך "עודכן" שבראש הדף גם מכוסה (mask).
+- **נתונים קבועים** — 12 תמונות בארבע תיקיות, שלושה פריטים ממתינים ופרופילים
+  בחותמות זמן קבועות, דרך הזיוף של ה־Worker מ־`e2e/fixtures.mjs`.
+- **תמונות קבועות** — קובצי PNG בצבע ובגודל שנגזרים מהמספר, נוצרים בזיכרון.
+- **בלי רשת** — Google Fonts נחסם תמיד (הטקסט בגופן החלופי של המערכת), ובמקום
+  lucide מה־CDN נטען תחליף מקומי שמצייר לכל אייקון ריבוע בגודל האייקון.
+- **בלי תנועה** — `reducedMotion: 'reduce'`, `animations: 'disabled'`, בלי סמן
+  הקלדה וסרגלי גלילה, ולפני כל צילום הדף מחכה לרשת, לתמונות ולשקט ב־DOM.
+- **מקום גלילה קבוע** לפני פתיחת חלון, כדי שהרקע המטושטש מאחוריו יהיה זהה.
+
+**הבסיס נוצר רק ב־GitHub Actions.** צילום תלוי בגרסת Chromium ובגופני המערכת,
+ולכן `.github/workflows/visual.yml` (workflow נפרד, שאינו חוסם את `checks.yml`)
+רץ על ubuntu-latest עם אותו `npx playwright install --with-deps chromium`:
+
+- כשאין עדיין בסיס במאגר, או בהפעלה ידנית עם `update: true`, הוא מייצר בסיס
+  חדש, מעלה אותו כ־artifact בשם `visual-baselines`, ואינו נכשל;
+- אחרת הוא משווה (`maxDiffPixelRatio: 0.01`), ובהבדל מעלה את התמונות הצפויות,
+  המתקבלות וההבדל כ־artifact בשם `visual-diffs` ונכשל.
+
+רענון הבסיס אחרי שינוי עיצוב מכוון:
+
+1. Actions → **Visual regression** → **Run workflow**, על הענף שלכם, עם `update` מסומן.
+2. מהריצה שהסתיימה מורידים את `visual-baselines` (ההוראות מופיעות גם בסיכום שלה).
+3. בענף:
+
+```bash
+rm -rf e2e/visual/__screenshots__ && mkdir -p e2e/visual/__screenshots__
+unzip visual-baselines.zip -d e2e/visual/__screenshots__
+git add e2e/visual/__screenshots__ && git commit -m "בדיקות חזותיות: בסיס חדש"
+```
+
+לא שומרים במאגר צילומים שנוצרו במחשב מקומי: הם לא יתאימו לדפדפן של CI.
+מקומית אפשר לבדוק יציבות מול תיקייה זמנית:
+
+```bash
+# VISUAL_CHROMIUM_PATH רק אם Chromium אינו זה ש-Playwright הוריד
+VISUAL_SNAPSHOT_DIR=/tmp/vis VISUAL_OUTPUT_DIR=/tmp/vis-out npm run test:visual:update
+VISUAL_SNAPSHOT_DIR=/tmp/vis VISUAL_OUTPUT_DIR=/tmp/vis-out VISUAL_STRICT=1 npm run test:visual
+```
+
+`VISUAL_STRICT=1` דורש התאמה של כל פיקסל (בלי הסף של CI).
+
 ### עדכוני תלויות (Dependabot)
 
 `.github/dependabot.yml` פותח פעם בשבוע (יום ראשון) PR מקובץ אחד לתלויות
