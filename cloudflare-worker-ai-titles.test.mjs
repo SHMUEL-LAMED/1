@@ -526,3 +526,37 @@ test("AI failure exposes only provider status and code for maintenance diagnosis
   assert.equal(body.providerStatus,404);
   assert.equal(JSON.stringify(body).includes("private provider details"),false);
 });
+
+async function searchCall() {
+  return worker.fetch(jsonRequest("/ai-search", "POST", {
+    query: "ריקודים באולם", images: [{ id: "photo1", url: `${API}/media/approved/google-admin/photo1.jpg` }]
+  }, "viewer-token"), environment);
+}
+
+test("AI search sends approved bytes inline and filters unknown result IDs", async () => {
+  await seedImage();
+  aiResponse = { matches: ["photo1", "outside", "photo1"] };
+  const response = await searchCall();
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).matches, ["photo1"]);
+  const image = lastAiBody.input[0].content.find(item => item.type === "input_image");
+  assert.equal(image.image_url, "data:image/jpeg;base64,AQID");
+});
+
+test("AI search prefers the stored preview of the same image", async () => {
+  await seedImage();
+  const record = readDocument("images", "photo1");
+  record.variants = { thumb: { key: "variants/photo1/thumb.webp" } };
+  putDocument("images", "photo1", record);
+  await bucket.put("variants/photo1/thumb.webp", new Uint8Array([4,5,6]), { httpMetadata: { contentType: "image/webp" } });
+  aiResponse = { matches: [] };
+  assert.equal((await searchCall()).status, 200);
+  assert.equal(lastAiBody.input[0].content.find(item => item.type === "input_image").image_url, "data:image/webp;base64,BAUG");
+});
+
+test("AI search rejects missing originals before contacting the provider", async () => {
+  await seedImage();
+  bucket.objects.clear();
+  assert.equal((await searchCall()).status, 400);
+  assert.equal(aiCalls, 0);
+});

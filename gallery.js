@@ -3889,6 +3889,22 @@ window.executeAiImageSearch = async function() {
         return;
     }
 
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    try {
+        const folderId = window.state.activeFolderId;
+        if (status) {
+            status.classList.remove('hidden');
+            status.textContent = 'טוען את התמונות לסריקה…';
+        }
+        while (window.state.imagesHasMore && typeof window.loadMoreImages === 'function') {
+            const page = await window.loadMoreImages();
+            if (page?.error) throw page.error;
+            if (window.state.activeFolderId !== folderId) throw new Error('התיקייה השתנתה. הפעל את החיפוש שוב.');
+            if (page?.done) break;
+            if (!page?.added) throw new Error('טעינת התמונות לא הושלמה. נסה שוב.');
+        }
+
     const candidates = (window.state.images || [])
         .filter(image => !window.isVideoRecord(image))
         .map(image => {
@@ -3903,8 +3919,7 @@ window.executeAiImageSearch = async function() {
                 date: String(image.date || '').slice(0, 20)
             } : null;
         })
-        .filter(Boolean)
-        .slice(0, 80);
+        .filter(Boolean);
 
     if (!candidates.length) {
         window.showNotification('לא נמצאו תמונות זמינות לסריקה.', false);
@@ -3917,7 +3932,6 @@ window.executeAiImageSearch = async function() {
         status.textContent = `מתחיל לסרוק ${candidates.length} תמונות…`;
     }
 
-    try {
         const matchedIds = new Set();
         // שומרים תאימות ל־Worker החי, שמקבל כרגע עד שמונה תמונות בבקשה.
         // לאחר פריסת גרסת ה־Worker החדשה אפשר להעלות את הקבוצה ל־20.
@@ -3945,6 +3959,7 @@ window.executeAiImageSearch = async function() {
                 failedBatches++;
                 lastBatchError = error;
                 console.warn(`AI image search batch ${batchNumber} of ${totalBatches} failed:`, error?.code || error?.message || error);
+                if ([401, 403, 503].includes(error?.status) || error?.code === 'ai_rate_limit_exceeded') throw error;
             }
 
             if (offset + batchSize < candidates.length) await aiSearchDelay(AI_SEARCH_BATCH_DELAY_MS);

@@ -3751,6 +3751,24 @@ async function aiImageTitle(request, env) {
   return json(request, { success: true, ...await generateImageDescription(request, env, imageId) });
 }
 
+// Read approved bytes in the Worker; the AI provider need not fetch the public URL.
+async function aiSearchImageData(env, image) {
+  const row = await readGalleryDocumentRow(env, "images", image.id);
+  const record = row ? parseDocumentData(row) : {};
+  const thumbKey = String(record.variants?.thumb?.key || "");
+  let object = thumbKey.startsWith(`variants/${image.id}/`)
+    ? await env.GALLERY_BUCKET.get(thumbKey) : null;
+  if (!object) object = await env.GALLERY_BUCKET.get(image.key);
+  if (!object) throw apiError("התמונה אינה זמינה לסריקה.", 400, "unapproved_image");
+  if (object.size > 8 * 1024 * 1024) throw apiError("התמונה גדולה מדי. צור תצוגה מקדימה ונסה שוב.", 400, "image_too_large");
+  const mime = object.httpMetadata?.contentType || "image/jpeg";
+  if (!ALLOWED_IMAGE_TYPES.has(mime)) throw apiError("פורמט התמונה אינו נתמך.", 400, "not_image");
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
 async function aiImageSearch(request, env) {
   const user = await requireUser(request, env, ["viewer", "uploader", "admin", "super_admin"]);
   if (!env.OPENAI_API_KEY) {
@@ -3784,17 +3802,17 @@ async function aiImageSearch(request, env) {
     text: `מצא אילו תמונות מתאימות לבקשת החיפוש הבאה בעברית: "${query}". החזר רק מזהים של תמונות שיש להן התאמה חזותית ברורה או סבירה. אל תחזיר תמונה רק בגלל שם הקובץ.`
   }];
 
-  images.forEach(image => {
+  for (const image of images) {
     content.push({
       type: "input_text",
       text: `IMAGE_ID=${image.id}; כותרת=${image.title}; תיקייה=${image.folder}; תאריך=${image.date || "לא ידוע"}`
     });
     content.push({
       type: "input_image",
-      image_url: image.url,
+      image_url: await aiSearchImageData(env, image),
       detail: "low"
     });
-  });
+  }
 
   const openAIResponse = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
@@ -3802,7 +3820,9 @@ async function aiImageSearch(request, env) {
       "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
       "Content-Type": "application/json"
     },
+    signal: AbortSignal.timeout(60000),
     body: JSON.stringify({
+      max_output_tokens: 2000,
       model: OPENAI_VISION_MODEL,
       store: false,
       input: [{ role: "user", content }],
