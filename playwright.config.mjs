@@ -13,6 +13,15 @@ const browserEnv = process.platform === 'linux' && !hasUtf8Locale
     ? { ...process.env, LC_ALL: 'C.UTF-8' }
     : undefined;
 
+// E2E_CHROMIUM_PATH (רשות): נתיב ל-Chromium קיים, לסביבה שבה אין להוריד
+// דפדפן (קונטיינר עם Chromium מותקן מראש). בלי המשתנה Playwright משתמש
+// בדפדפן שהוא התקין בעצמו, כמו ב-CI.
+const executablePath = process.env.E2E_CHROMIUM_PATH || undefined;
+const launchOptions = {
+    ...(browserEnv ? { env: browserEnv } : {}),
+    ...(executablePath ? { executablePath } : {})
+};
+
 export default defineConfig({
     testDir: 'e2e',
     testMatch: /.*\.spec\.mjs$/,
@@ -31,7 +40,7 @@ export default defineConfig({
         timezoneId: 'Asia/Jerusalem',
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
-        ...(browserEnv ? { launchOptions: { env: browserEnv } } : {})
+        ...(Object.keys(launchOptions).length ? { launchOptions } : {})
     },
     projects: [
         { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
