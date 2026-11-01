@@ -1,5 +1,8 @@
 name: Deploy Cloudflare Worker
-# פריסה לשני ה-Workers מאותו קובץ, לפי הענף:
+# פריסה לשני ה-Workers מאותו קוד, לפי הענף. קוד המקור מחולק ל-cloudflare-worker.js
+# ולמודולים בתיקייה worker/, ולפני ההעלאה הוא נארז (esbuild) לקובץ ESM יחיד
+# dist-worker/cloudflare-worker.js, שעולה כמודול הראשי היחיד cloudflare-worker.js.
+# יעדים לפי הענף:
 #   main    → simchas-gallery-api          (ייצור)
 #   staging → simchas-gallery-api-staging  (סביבת הניסוי)
 # בהפעלה ידנית היעד נבחר בשדה target; יעד production מותר מ-main בלבד, ויעד
@@ -12,6 +15,9 @@ on:
     branches: [main, staging]
     paths:
       - cloudflare-worker.js
+      - "worker/**"
+      - scripts/bundle-worker.mjs
+      - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
   pull_request:
@@ -19,6 +25,9 @@ on:
     types: [closed]
     paths:
       - cloudflare-worker.js
+      - "worker/**"
+      - scripts/bundle-worker.mjs
+      - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
   workflow_dispatch:
@@ -92,6 +101,17 @@ jobs:
         run: |
           npm run check:syntax
           npm test
+
+      - name: Bundle Worker
+        # ה-API מקבל כאן מודול אחד; אריזה מבטיחה שכל מודולי worker/ נכללים בו.
+        run: |
+          npm run build:worker
+          node --check dist-worker/cloudflare-worker.js
+          node --input-type=module -e '
+            const worker = (await import("./dist-worker/cloudflare-worker.js")).default;
+            if (typeof worker?.fetch !== "function") throw new Error("Bundled Worker has no default fetch handler.");
+            console.log("Bundled Worker exports a fetch handler.");
+          '
 
       - name: Validate Cloudflare token
         env:
@@ -198,7 +218,8 @@ jobs:
               modules: [{
                 name: "cloudflare-worker.js",
                 content_type: "application/javascript+module",
-                content_base64: readFileSync("cloudflare-worker.js").toString("base64")
+                // הקובץ הארוז (שלב Bundle Worker), לא קובץ המקור שמייבא את worker/.
+                content_base64: readFileSync("dist-worker/cloudflare-worker.js").toString("base64")
               }]
             })
           }, "Version upload", versionApiBase);

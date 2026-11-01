@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import worker from "./cloudflare-worker.js";
+import { importWorkerBundle } from "./scripts/bundle-worker.mjs";
 
 let failWrites = false;
 const ORIGIN = "https://shmuel-lamed.github.io";
@@ -279,7 +280,8 @@ test('replaced Drive media keeps a caption an admin edited by hand', async () =>
 
 test('cold Worker can serve health without writes when schema already matches', async () => {
   failWrites=true;
-  const fresh=(await import('./cloudflare-worker.js?cold-readonly')).default;
+  // ה-Worker מחולק למודולים, ולכן עותק קר אמיתי (מצב סכימה נקי) נטען מהקובץ הארוז.
+  const fresh=(await importWorkerBundle('cold-readonly')).default;
   const response=await fresh.fetch(jsonRequest('/health','GET',undefined,''),environment);
   assert.equal(response.status,200,await response.clone().text());
 });

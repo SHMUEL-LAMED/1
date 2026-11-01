@@ -83,7 +83,27 @@
 - `ai-titles-admin.js` — מסך "שמות, כיתובים ותגיות עם AI" בלוח הניהול: ריצת ההשלמה לתמונות הקיימות.
 - `cloudflare-client.js` — התחברות Google ישירה ושכבת הנתונים של D1.
 - `api-environment.js` — לאיזה Worker האתר פונה: הייצור, או סביבת הניסוי ב־`*.pages.dev` וב־`localhost` (ראה "סביבת ניסוי").
-- `cloudflare-worker.js` — API מאובטח, אימות Google, D1, R2, Drive, דוא״ל, חיפוש AI וחיפוש פנים.
+- `cloudflare-worker.js` — נקודת הכניסה של ה־Worker (API מאובטח, אימות Google, D1, R2, Drive, דוא״ל, חיפוש AI וחיפוש פנים): פריקת בקשות ה־proxy וניתוב הנתיבים בלבד. הלוגיקה מחולקת למודולי ES בתיקייה `worker/` (ראו "מבנה ה־Worker").
+- `worker/config.js` — הקבועים והמגבלות המשותפים (גדלים, קצבים, גרסאות, ובהם `FACE_MODEL_VERSION` וספי הקיבוץ של הפנים).
+- `worker/util.js` — סביבה ומקורות מורשים, CORS, JSON/ETag, שגיאות API, גיבוב, דוא״ל ומגבלות קצב.
+- `worker/auth.js` — אימות Google, אסימוני סשן, פרופילי משתמש ו־`establishGoogleSession`.
+- `worker/schema.js` — סכימת D1 וההגירות בין הגרסאות (`ensureDatabaseSchema`).
+- `worker/data.js` — API הנתונים: הרשאות האוספים, רשימות, דפדוף, מטמון הקצה ו־`handleDataRequest`.
+- `worker/chat.js` — הודעות הצ'אט והקבצים המצורפים.
+- `worker/media.js` — העלאה (רגילה ובחלקים), Stream, הגשה, אישור ומחיקה, גרסאות מוקטנות ותאריך הצילום.
+- `worker/drive.js` — חיבור Google Drive (OAuth ואסימוני גישה).
+- `worker/ai.js` — תגיות סצנה, תיאור תמונות וחיפוש חכם.
+- `worker/folders.js` — תיקיות מקוננות, סדר ידני ועריכת מדיה.
+- `worker/faces.js` — אינדקס הפנים, החיפוש, הקיבוץ והקבוצות.
+- `worker/people.js` — רשימת האנשים, אלבום אדם, "התמונות שלי", נכסי המודל ותיוג פנים ידני.
+- `worker/errors.js` — ניטור שגיאות הלקוח וה־Worker.
+- `worker/background.js` — משימות הרקע מ־GitHub Actions (OIDC).
+- `worker/maintenance.js` — גיבויי D1, ניקוי סל המחזור, התראות וקישורים שבורים.
+- `worker/stats.js` — סטטיסטיקת השימוש ותקציב האחסון.
+- `worker/users.js` — פעולות מרובות על משתמשים והערות מנהל.
+- `worker/uploads.js` — placeholder, גיבוב תוכן, "ההעלאות שלי", דחייה וכפילויות.
+- `worker/invites.js` — קישורי ההזמנה.
+- `scripts/bundle-worker.mjs` — אריזת ה־Worker לקובץ ESM יחיד לפריסה (`npm run build:worker`).
 - `cloudflare-d1-schema.sql` — מבנה מסד הנתונים.
 - `sw.js` ו־`manifest.webmanifest` — התקנה כאפליקציה ומטמון מגורסן.
 
@@ -133,7 +153,7 @@
 
 ### החלפת גרסת מודל
 
-`FACE_MODEL_VERSION` מוגדר גם ב־`cloudflare-worker.js` וגם ב־`face-search.js`
+`FACE_MODEL_VERSION` מוגדר גם ב־`worker/config.js` וגם ב־`face-search.js`
 וחייב להיות זהה בשניהם. שינוי הערך מחזיר את כל התמונות לתור האינדוקס באופן
 אוטומטי, והחיפוש משתמש רק בטביעות של הגרסה הנוכחית. כפתור **איפוס ואינדוקס
 מחדש** (מנהל־על) מוחק את כל הטביעות השמורות לפני סריקה נקייה.
@@ -198,8 +218,8 @@
 למה הערכים האלה: ממוצע של כמה טביעות קרוב לכל אחת מהן יותר משהן קרובות זו
 לזו, ולכן `0.5` מול מרכז שמרני ביחס לסף המקובל של `0.6` בין שני פרצופים במודל
 הזה. הפער (`FACE_CLUSTER_MARGIN`) מונע שיוך של פרצוף שנמצא "בין" שני אנשים,
-ותור הבדיקה תופס את המקרים הגבוליים. כל הערכים מוגדרים בראש
-`cloudflare-worker.js` (`FACE_CLUSTER_JOIN_DISTANCE`, `FACE_CLUSTER_REVIEW_DISTANCE`,
+ותור הבדיקה תופס את המקרים הגבוליים. כל הערכים מוגדרים ב־
+`worker/config.js` (`FACE_CLUSTER_JOIN_DISTANCE`, `FACE_CLUSTER_REVIEW_DISTANCE`,
 `FACE_CLUSTER_MARGIN`), ואפשר לכוונן אותם אם בגלריה האמיתית יש יותר מדי
 קבוצות כפולות (להגדיל מעט) או יותר מדי טעויות (להקטין).
 
@@ -916,7 +936,7 @@ ICU (ש־Intl נשען עליו, נכון ל־Node 22) טועה ביום בין 
 תיקייה עם הדירוג הישן מאבדת אותו ומצטרפת לסוף התיקייה החדשה; סנכרון Drive שהחליף את
 תוכן הקובץ מוחק את `edit` (החיתוך תיאר את הקובץ הקודם).
 
-### הבדיקות בשרת (`cloudflare-worker.js`)
+### הבדיקות בשרת (`worker/folders.js`)
 
 - **`parentId`** — מזהה תקין כמות שהוא (`[A-Za-z0-9_-]`, בלי "ניקוי" שקט), לא `all`
   ולא `favorites`, לא התיקייה עצמה, ההורה קיים (`folder_parent_not_found`), אין מעגל
@@ -1686,7 +1706,7 @@ node scripts/measure-first-load.mjs --root=/tmp/before,dist --viewport=phone --r
 2. פתח את המסד, עבור ל־**Console**, הדבק את תוכן `cloudflare-d1-schema.sql` והפעל אותו.
 3. פתח את ה־Worker הקיים `simchas-gallery-api`.
 4. תחת **Settings → Bindings** הוסף **D1 database binding** בשם המדויק `GALLERY_DB` ובחר את המסד שיצרת.
-5. החלף את קוד ה־Worker בתוכן `cloudflare-worker.js` ופרוס.
+5. החלף את קוד ה־Worker בתוכן הקובץ הארוז `dist-worker/cloudflare-worker.js` (`npm run build:worker`) ופרוס.
 
 יש להשאיר את חיבור R2 הקיים בשם `GALLERY_BUCKET`.
 
@@ -2056,8 +2076,27 @@ VISUAL_SNAPSHOT_DIR=/tmp/vis VISUAL_OUTPUT_DIR=/tmp/vis-out VISUAL_STRICT=1 npm 
 האתר מתפרסם אוטומטית מ־GitHub Pages לאחר עדכון ענף `main` (מקובצי המקור, או
 מתוצר הבנייה של Vite אחרי המעבר — ראו "בניית ייצור ב־Vite" להלן). גם ה־Worker נפרס
 אוטומטית באמצעות `.github/workflows/deploy-worker.yml` בכל שינוי של
-`cloudflare-worker.js`: ענף `main` אל Worker הייצור, וענף `staging` אל
+`cloudflare-worker.js`, של `worker/` או של סקריפט האריזה: ענף `main` אל Worker הייצור, וענף `staging` אל
 `simchas-gallery-api-staging` של סביבת הניסוי (ראה "סביבת ניסוי" להלן).
+
+### מבנה ה־Worker והאריזה
+
+קוד ה־Worker מחולק למודולי ES: `cloudflare-worker.js` הוא נקודת הכניסה (פריקת
+בקשות ה־proxy וטבלת הנתיבים ב־`fetch`), וכל תחום יושב במודול משלו בתיקייה
+`worker/` (רשימה מלאה ב"רכיבי המערכת"). הקבועים המשותפים נמצאים ב־`worker/config.js`,
+וכך אין תלות מעגלית בזמן הטעינה. נקודת הכניסה מייצאת מחדש את הפונקציות
+שהבדיקות מייבאות ממנה, ולכן הבדיקות ממשיכות לייבא מ־`cloudflare-worker.js`.
+
+ה־Action מעלה ל־Cloudflare מודול **אחד** (`main_module: cloudflare-worker.js`).
+לכן שלב **Bundle Worker** בפריסה מריץ `npm run build:worker`, שאורז בעזרת esbuild
+(שכבר מותקן כתלות של Vite) את נקודת הכניסה וכל `worker/` לקובץ ESM יחיד
+`dist-worker/cloudflare-worker.js` (לא מוקטן, כדי ששמות הפונקציות יישארו קריאים
+ביומנים), בודק שהוא נטען ומייצא `fetch`, וזה הקובץ שעולה בשם `cloudflare-worker.js`.
+התיקייה `dist-worker/` אינה נשמרת במאגר. `worker-bundle.test.mjs` בונה את הקובץ
+הארוז ומוודא שהוא עצמאי (בלי `import`), שמייצא את אותם ייצואים כמו המקור, ושרשימת
+היכולות ב־`/health` שלו זהה לזו של קוד המקור. מודול חדש ב־`worker/` צריך להתווסף
+גם ל־`check:syntax` ב־`package.json`.
+
 לפני ההפעלה הראשונה יש להגדיר ב־GitHub,
 תחת **Settings → Secrets and variables → Actions**, את הסודות הבאים לפי סביבת היעד:
 
@@ -2130,7 +2169,7 @@ Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצ
 בקובץ אינם מדויקים. הכשלון הנוכחי הוא למעשה מה שמונע את זה.
 
 הפריסה הנכונה כבר קיימת — `deploy-worker.yml`, שיורש את ה־Bindings מהגרסה הפעילה
-(`bindings_inherit=strict`), רץ רק על `main` ועל `staging`, ורק כששונה `cloudflare-worker.js`.
+(`bindings_inherit=strict`), רץ רק על `main` ועל `staging`, ורק כששונה קוד ה־Worker (`cloudflare-worker.js` או `worker/`).
 לכן הדרך לסגור את הבדיקה היא **לנתק את שילוב ה־Git**, בדשבורד של Cloudflare:
 **Workers & Pages → simchas-gallery-api → Settings → Build → Disconnect repository**.
 פעולה זו אינה נוגעת ב־Worker הפעיל, ב־Bindings או בפריסה דרך ה־Action.
@@ -2268,7 +2307,7 @@ Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצ
 - `staging` הוא ענף אינטגרציה, לא ענף פיתוח. לפני שינוי מסוכן דוחפים אליו
   את אותם commits — `git push origin <branch>:staging` — או פותחים את ה־PR
   מול `staging`. `checks.yml` רץ גם על דחיפות ל־`staging`, ו־`deploy-worker.yml`
-  פורס לניסוי כש־`cloudflare-worker.js` השתנה; אתר הניסוי מתעדכן מ־Pages
+  פורס לניסוי כשקוד ה־Worker (`cloudflare-worker.js` או `worker/`) השתנה; אתר הניסוי מתעדכן מ־Pages
   תוך דקה.
 - מנסים ב־`https://<project>.pages.dev`, ואז ממזגים ל־`main` כרגיל.
 - את `staging` מותר לאפס: `git push --force-with-lease origin main:staging`
@@ -2577,7 +2616,7 @@ Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצ
 ### הטקסונומיה (סוג הרגע)
 
 רשימה סגורה, זהה בדפדפן (`SCENE_TAGS` ב־`scene-tags.js`) וב־Worker (`SCENE_TAGS`
-ב־`cloudflare-worker.js`, עותק — ה־Worker נפרס כקובץ יחיד); `scene-tags.test.mjs`
+ב־`worker/config.js`, עותק — ה־Worker אינו מייבא קבצים מחוץ לקוד שלו); `scene-tags.test.mjs`
 נכשל אם השתיים נפרדות. ברשומה נשמר המזהה, והתווית העברית היא מה שמוצג, מה
 שהחיפוש מתאים ומה שהמודל רואה ובוחר ממנו (`enum` בסכמה).
 
