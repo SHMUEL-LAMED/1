@@ -5,3 +5,5 @@ playwright-report/
 .claude/worktrees/
 # תוצר הבנייה של Vite (npm run build); נפרס מ-Actions ואינו נשמר במאגר
 dist/
+# ה-Worker הארוז לפריסה (npm run build:worker); נבנה ב-Actions ואינו נשמר במאגר
+dist-worker/
