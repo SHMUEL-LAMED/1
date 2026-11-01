@@ -1599,7 +1599,7 @@ function renderHeroMosaic() {
     // התמונה הראשונה שהמבקר רואה ויורד בעדיפות גבוהה (first-load.js).
     mosaic.innerHTML = tiles.map((tile, index) => {
         const { loading, fetchPriority } = heroTileLoading(index);
-        return `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" onerror="this.parentElement.remove()"></span>`;
+        return `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" data-onerror="this.parentElement.remove()"></span>`;
     }).join('');
 }
 
@@ -1698,8 +1698,8 @@ window._doRenderFolders = function() {
         const canDeleteFolder = folderId !== 'all' && !isEditBlocked && (
             window.state.isSuperAdmin || (!folder.isDefault && !['1', '2', '3', '4'].includes(folderId))
         );
-        const delBtn = canDeleteFolder ? `<button type="button" onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
-        const eventBtn = folderId !== 'all' ? `<button type="button" onclick="openEventPage(event, '${folderId}')" data-event-folder="${folderId}" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
+        const delBtn = canDeleteFolder ? `<button type="button" data-onclick="handleDeleteFolder(event, '${folderId}')" class="folder-card-action folder-card-delete" aria-label="מחיקת התיקייה ${window.escapeHtml(folder.name)}" title="מחיקת תיקייה"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : '';
+        const eventBtn = folderId !== 'all' ? `<button type="button" data-onclick="openEventPage(event, '${folderId}')" data-event-folder="${folderId}" class="folder-card-action" aria-label="פתיחת עמוד האירוע ${window.escapeHtml(folder.name)}" title="עמוד האירוע"><i data-lucide="arrow-up-left" class="w-4 h-4"></i></button>` : '';
         // תיקייה עם תת־תיקיות: הפריטים שלה ועוד של כל הצאצאים, מהמונים שכבר
         // הגיעו מהשרת לכל תיקייה — בלי שאילתה נוספת.
         const count = folderId === 'all'
@@ -1722,7 +1722,7 @@ window._doRenderFolders = function() {
         const newBadge = isNewFolder ? '<span class="new-since-badge" title="נוספו פריטים מאז הביקור הקודם שלך">חדש</span>' : '';
         folderParts.push(`
             <article class="folder-row collection-card group ${isActive ? 'is-active' : ''}" ${nestingStyle} data-folder-depth="${depth}" data-folder-id="${folderId}">
-                <button type="button" onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
+                <button type="button" data-onclick="setActiveFolder('${folderId}')" class="folder-button collection-card-main" ${isActive ? 'aria-current="page"' : ''}>
                     <span class="collection-card-icon${coverHtml ? ' has-cover' : ''}" aria-hidden="true">${branchIcon}<i data-lucide="${folderIcon}" class="w-5 h-5"></i>${coverHtml}</span>
                     <span class="collection-card-content">
                         <strong class="collection-card-title">${folderLabel}</strong>
@@ -2094,17 +2094,17 @@ function buildGalleryCard(img, isEditBlocked) {
                 <button type="button" class="arrange-move" data-arrange-move="-1" data-media-id="${imageId}" aria-label="הזזת ${title} מקום אחד קודם"><i data-lucide="arrow-right" class="w-4 h-4"></i><span>קודם</span></button>
                 <button type="button" class="arrange-move" data-arrange-move="1" data-media-id="${imageId}" aria-label="הזזת ${title} מקום אחד אחר כך"><span>אחר כך</span><i data-lucide="arrow-left" class="w-4 h-4"></i></button>
             </div>` : '';
-    const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
+    const actionHtml = !isEditBlocked ? `<div class="gallery-actions mt-4 pt-3 border-t border-slate-200 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><button type="button" data-onclick="changeImageFolder('${imageId}')" class="text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"><i data-lucide="folder-sync" class="w-3.5 h-3.5"></i>העבר</button><button type="button" data-onclick="handleDeleteImage('${imageId}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg" aria-label="מחיקת ${title}"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>` : '';
     return `<article class="overflow-hidden flex flex-col group relative fade-up gallery-card ${isSelected ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-950' : ''}${arranging ? ' is-arranging' : ''}" data-media-id="${imageId}"${arranging ? ' draggable="true"' : ''} style="--card-index:0${mediaRatio ? `;--media-ratio:${mediaRatio}` : ''}">
-            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}${placeholderClass}"${placeholderStyle} onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}${isManualTag ? ' (תיוג ידני)' : ''}">
+            <button type="button" class="gallery-media${isVideo ? ' is-loaded' : ''}${placeholderClass}"${placeholderStyle} data-onclick="${window.state.bulkSelectionMode ? `toggleMediaSelection(event, '${imageId}')` : `openLightbox('${imageId}')`}" aria-label="${window.state.bulkSelectionMode ? 'בחירת' : 'פתיחת'} ${altText}${isNew ? ' (חדש)' : ''}${isManualTag ? ' (תיוג ידני)' : ''}">
                 ${mediaHtml}
                 ${isNew ? '<span class="gallery-new-badge" aria-hidden="true">חדש</span>' : ''}
                 ${isManualTag ? '<span class="gallery-manual-badge" aria-hidden="true"><i data-lucide="tag" class="w-3 h-3"></i> תיוג ידני</span>' : ''}
                 <span class="gallery-number">01</span>
                 <span class="gallery-view"><i data-lucide="maximize-2" class="w-3.5 h-3.5"></i> תצוגה מלאה</span>
             </button>
-            ${window.state.bulkSelectionMode ? `<button type="button" onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
-            <button type="button" onclick="toggleFavorite(event, '${imageId}')" class="gallery-fav${window.state.bulkSelectionMode ? ' is-stacked' : ''}${isFavorite ? ' is-favorite' : ''}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
+            ${window.state.bulkSelectionMode ? `<button type="button" data-onclick="toggleMediaSelection(event, '${imageId}')" class="absolute top-3 left-3 z-30 w-9 h-9 rounded-full flex items-center justify-center border ${isSelected ? 'bg-cyan-400 text-slate-950 border-cyan-300' : 'bg-black/70 text-white border-white/30'}" aria-label="${isSelected ? 'ביטול בחירה' : 'בחירת הפריט'}"><i data-lucide="${isSelected ? 'circle-check-big' : 'circle'}" class="w-5 h-5"></i></button>` : ''}
+            <button type="button" data-onclick="toggleFavorite(event, '${imageId}')" class="gallery-fav${window.state.bulkSelectionMode ? ' is-stacked' : ''}${isFavorite ? ' is-favorite' : ''}" aria-label="${isFavorite ? 'הסרה מהמועדפים' : 'הוספה למועדפים'}"><i data-lucide="heart" class="w-4 h-4 ${isFavorite ? 'fill-current' : ''}"></i></button>
             <div class="gallery-caption p-4 flex-1 flex flex-col justify-between relative z-10">
                 <span class="gallery-date-group" hidden></span>
                 ${arrangeHtml}
@@ -2137,7 +2137,7 @@ function buildCardDate(img) {
 function buildCardPicture(source, altText) {
     const attr = (name, value) => (value ? ` ${name}="${window.escapeHtml(value)}"` : '');
     const editAttr = source.editPending ? attr('data-media-edit', JSON.stringify(source.editPending)) : '';
-    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)}${editAttr} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" onload="window.handleCardImageLoad(this)" onerror="window.handleImageError(this)">`;
+    const image = `<img src="${window.escapeHtml(source.url)}"${attr('srcset', source.srcset)}${attr('sizes', source.sizes)}${attr('data-fallback-src', source.fallbackUrl)}${editAttr} loading="lazy" decoding="async" alt="${altText}" class="w-full h-full object-cover gallery-card-img" data-onload="window.handleCardImageLoad(this)" data-onerror="window.handleImageError(this)">`;
     if (!source.avifSrcset) return image;
     return `<picture class="media-picture"><source type="image/avif" srcset="${window.escapeHtml(source.avifSrcset)}"${attr('sizes', source.sizes)}>${image}</picture>`;
 }

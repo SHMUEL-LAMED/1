@@ -9,7 +9,7 @@ test('חיפוש AI משתמש באינדקס בפנייה אחת, בלי לשל
         await route.fulfill({ json: { success:true, mode:'indexed', indexed:2000, pending:0, matches:['img_e2e_2'], documents:[{id:'img_e2e_2',data:imageRecord(2)}] } });
     });
     await page.goto('/');
-    await page.locator('button[onclick="openAiImageSearchModal()"]').click();
+    await page.locator('button[data-onclick="openAiImageSearchModal()"]').click();
     await page.locator('#aiImageSearchQuery').fill('בחורים לומדים בחברותא');
     await page.locator('#aiImageSearchSubmitBtn').click();
     await expect(page.locator('#aiImageSearchModal')).toBeHidden();
@@ -22,7 +22,7 @@ test('אינדקס שטרם הוכן מציג את מספר הממתינות ב�
     await seedSession(page, {worker});
     await page.route('**/ai-search', route => route.fulfill({json:{success:true,mode:'indexed',indexed:0,pending:250,matches:[],documents:[]}}));
     await page.goto('/');
-    await page.locator('button[onclick="openAiImageSearchModal()"]').click();
+    await page.locator('button[data-onclick="openAiImageSearchModal()"]').click();
     await page.locator('#aiImageSearchQuery').fill('ריקודים באולם');
     await page.locator('#aiImageSearchSubmitBtn').click();
     await expect(page.locator('#aiImageSearchStatus')).toContainText('250 תמונות ממתינות');

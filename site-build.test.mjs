@@ -81,6 +81,7 @@ test("רשימת המעטפת של הבנייה: הגלריה בשמות מגו�
     "./assets/app-CSS1.css",
     "./assets/app-AAAA.js",
     "./assets/face-search-DDDD.js",
+    "./theme-boot.js",
     "./manifest.webmanifest",
     "./favicon-32.png",
     "./icon-192.png",

@@ -107,7 +107,7 @@ export function coverSource(record, { large = false } = {}) {
 export function folderCoverHtml(folder) {
     const url = coverSource(folderCoverRecord(folder));
     if (!url) return '';
-    return `<img class="collection-card-cover" src="${escape(url)}" alt="" loading="lazy" decoding="async" onerror="this.remove()">`;
+    return `<img class="collection-card-cover" src="${escape(url)}" alt="" loading="lazy" decoding="async" data-onerror="this.remove()">`;
 }
 
 // --- שבבי תת־התיקיות בכרטיס של תיקייה עליונה ---
@@ -120,10 +120,10 @@ export function subfolderChipsHtml(folderId) {
     const parentName = tree.get(folderId)?.name || '';
     const chips = children.slice(0, CHILD_CHIPS_LIMIT).map(id => {
         const child = tree.get(id);
-        return `<li><button type="button" class="collection-card-child" onclick="setActiveFolder('${id}')" aria-label="פתיחת תת־התיקייה ${escape(child?.name)} (${folderBadgeCount(id)} פריטים)">${escape(child?.name || 'תיקייה ללא שם')}</button></li>`;
+        return `<li><button type="button" class="collection-card-child" data-onclick="setActiveFolder('${id}')" aria-label="פתיחת תת־התיקייה ${escape(child?.name)} (${folderBadgeCount(id)} פריטים)">${escape(child?.name || 'תיקייה ללא שם')}</button></li>`;
     });
     const more = children.length - CHILD_CHIPS_LIMIT;
-    if (more > 0) chips.push(`<li><button type="button" class="collection-card-child is-more" onclick="setActiveFolder('${safeId(folderId)}')" aria-label="עוד ${more} תת־תיקיות ב${escape(parentName)}">+${more}</button></li>`);
+    if (more > 0) chips.push(`<li><button type="button" class="collection-card-child is-more" data-onclick="setActiveFolder('${safeId(folderId)}')" aria-label="עוד ${more} תת־תיקיות ב${escape(parentName)}">+${more}</button></li>`);
     return `<ul class="collection-card-children" aria-label="תת־תיקיות של ${escape(parentName)}">${chips.join('')}</ul>`;
 }
 
@@ -149,19 +149,19 @@ export function renderFolderContext() {
         children.map(id => [id, tree.get(id)?.name, folderBadgeCount(id, counts), safeId(tree.get(id)?.coverImageId), coverSource(folderCoverRecord(tree.get(id)))])]);
     if (container.dataset.contextKey === key && !container.hidden) return;
     container.dataset.contextKey = key;
-    const crumbs = [`<li><button type="button" class="folder-breadcrumb-link" onclick="setActiveFolder('all')">כל הארכיון</button></li>`];
+    const crumbs = [`<li><button type="button" class="folder-breadcrumb-link" data-onclick="setActiveFolder('all')">כל הארכיון</button></li>`];
     path.forEach((step, index) => {
         const name = escape(step.folder?.name || 'תיקייה ללא שם');
         crumbs.push(index === path.length - 1
             ? `<li><span class="folder-breadcrumb-current" aria-current="page">${name}</span></li>`
-            : `<li><button type="button" class="folder-breadcrumb-link" onclick="setActiveFolder('${step.id}')">${name}</button></li>`);
+            : `<li><button type="button" class="folder-breadcrumb-link" data-onclick="setActiveFolder('${step.id}')">${name}</button></li>`);
     });
     const subfolders = children.map(id => {
         const child = tree.get(id);
         const count = folderBadgeCount(id, counts);
         const cover = folderCoverHtml(child);
         const icon = cover || `<i data-lucide="${window.safeIconName(child?.icon)}" class="w-5 h-5" aria-hidden="true"></i>`;
-        return `<li><button type="button" class="subfolder-card" data-folder-id="${id}" onclick="setActiveFolder('${id}')">
+        return `<li><button type="button" class="subfolder-card" data-folder-id="${id}" data-onclick="setActiveFolder('${id}')">
             <span class="subfolder-card-media" aria-hidden="true">${icon}</span>
             <span class="subfolder-card-name">${escape(child?.name || 'תיקייה ללא שם')}</span>
             <span class="subfolder-card-count">${count} פריטים</span>

@@ -4,6 +4,10 @@
 // מודול הניהול אינו מיובא כאן. הוא נטען רק מ-admin-app.js שבדף הניהול,
 // ולכן מבקר בגלריה אינו מוריד אותו — זו הסיבה לקיומו של admin.html.
 
+// מאזינים מואצלים ל-data-on* (במקום onclick וכו', שמדיניות ה-CSP חוסמת).
+// מיובא ראשון כדי שמאזין ה-click שלו על document יירשם לפני כל השאר.
+import './inline-actions.js';
+
 // קישור הזמנה לאירוע (#invite/<אסימון>) נקרא ונמחק מהכתובת לפני כל דבר
 // אחר — לפני שמודול אחר מספיק לקרוא את ה-hash (ראו invite-link.js).
 import { hasPendingInvite, redeemPendingInvite, takeInviteFolder } from './invite-link.js';
@@ -48,7 +52,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v73';
+const SITE_VERSION = 'v74';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש

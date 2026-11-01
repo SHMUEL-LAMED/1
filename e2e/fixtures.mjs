@@ -2052,8 +2052,30 @@ export const test = base.extend({
         expect(errors.map(error => String(error?.stack || error)), 'הדף זרק שגיאות').toEqual([]);
     }, { auto: true }],
 
-    page: async ({ page, pageErrors }, use) => {
+    // כל הפרה של מדיניות ה-CSP (meta Content-Security-Policy ב-index.html
+    // וב-admin.html) מכשילה את הבדיקה: סקריפט או מאזין שנחסם, משאב ממקור שלא
+    // הותר. נאסף פעמיים — מאירוע securitypolicyviolation בדף ומהודעת השגיאה
+    // שהדפדפן כותב לקונסולה — כדי שגם הפרה במסגרת או לפני שהדף נטען תיתפס.
+    cspViolations: [async ({ context }, use) => {
+        const violations = [];
+        await context.exposeBinding('__e2eReportCspViolation', (_source, violation) => violations.push(violation));
+        await context.addInitScript(() => {
+            document.addEventListener('securitypolicyviolation', event => {
+                window.__e2eReportCspViolation?.(`${event.violatedDirective} ${event.blockedURI || ''} @ ${event.sourceFile || ''}:${event.lineNumber || 0} ${event.sample || ''}`.trim());
+            });
+        });
+        const watch = page => page.on('console', message => {
+            if (/Content[ -]Security[ -]Policy/i.test(message.text())) violations.push(message.text());
+        });
+        context.pages().forEach(watch);
+        context.on('page', watch);
+        await use(violations);
+        expect(violations, 'הפרות של מדיניות ה-CSP').toEqual([]);
+    }, { auto: true }],
+
+    page: async ({ page, pageErrors, cspViolations }, use) => {
         void pageErrors;
+        void cspViolations;
         await use(page);
     }
 });

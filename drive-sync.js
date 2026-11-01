@@ -808,7 +808,7 @@ function addDriveFolderRow(url = '', label = '', autoSync = true) {
 class="rounded border-white/20 text-amber-500 focus:ring-amber-500">
       אוטו
     </label>
-    <button type="button" onclick="removeDriveFolderRow(this)"
+    <button type="button" data-onclick="removeDriveFolderRow(this)"
       class="text-red-400 hover:bg-red-500/20 rounded px-1.5 py-0.5 text-xs transition-all flex-shrink-0">✕</button>
   `;
   list.appendChild(row);

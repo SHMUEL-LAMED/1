@@ -646,7 +646,7 @@ window.renderPendingImages = function() {
         const isVideo = window.isVideoRecord(img);
         const preview = isVideo
             ? '<span class="admin-stat-icon" data-tone="violet"><i data-lucide="video" class="w-4 h-4"></i></span>'
-            : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="" class="w-10 h-10 shrink-0 object-cover rounded-lg border border-white/10" onerror="window.handleImageError(this)">`;
+            : `<img src="${window.escapeHtml(imageUrl)}" loading="lazy" decoding="async" alt="" class="w-10 h-10 shrink-0 object-cover rounded-lg border border-white/10" data-onerror="window.handleImageError(this)">`;
         parts.push(`
             <label class="admin-row cursor-pointer">
                 <input type="checkbox" name="pendingImgCheck" value="${imageId}" checked>

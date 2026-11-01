@@ -110,7 +110,7 @@ test("המסך רשום ב-ADMIN_VIEWS, וכל מסך שהמדריך מפנה א
 });
 
 test('כל "?" ב-admin.html פותח סעיף קיים, ויש כמה כאלה', () => {
-  const targets = [...adminHtml.matchAll(/onclick="openAdminGuide\('([\w-]+)'\)" data-guide-target="([\w-]+)"/g)];
+  const targets = [...adminHtml.matchAll(/data-onclick="openAdminGuide\('([\w-]+)'\)" data-guide-target="([\w-]+)"/g)];
   assert.ok(targets.length >= 5, `נמצאו רק ${targets.length} קישורי "?"`);
   for (const [, onclickTarget, dataTarget] of targets) {
     assert.equal(onclickTarget, dataTarget);

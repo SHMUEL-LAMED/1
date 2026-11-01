@@ -136,7 +136,7 @@ function mediaMarkup(record, title) {
     }
     const source = pickLightboxSource(record, safeImageUrl);
     const attr = (name, value) => (value ? ` ${name}="${escapeHtml(value)}"` : '');
-    return `<img src="${escapeHtml(source.url)}"${attr('srcset', source.srcset)}${source.srcset ? attr('sizes', CARD_IMAGE_SIZES) : ''}${attr('data-fallback-src', source.fallbackUrl)} alt="${safeTitle}" decoding="async" draggable="false" onerror="window.handleImageError(this)">`;
+    return `<img src="${escapeHtml(source.url)}"${attr('srcset', source.srcset)}${source.srcset ? attr('sizes', CARD_IMAGE_SIZES) : ''}${attr('data-fallback-src', source.fallbackUrl)} alt="${safeTitle}" decoding="async" draggable="false" data-onerror="window.handleImageError(this)">`;
 }
 
 function cardMarkup(record) {
@@ -174,7 +174,7 @@ function renderNext(id) {
     if (!record) { next.replaceChildren(); next.hidden = true; return; }
     next.hidden = false;
     const url = isVideoRecord(record) ? pickPosterSource(record, safeImageUrl) : pickLightboxSource(record, safeImageUrl).url;
-    next.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" decoding="async" draggable="false" onerror="this.remove()">` : '';
+    next.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" decoding="async" draggable="false" data-onerror="this.remove()">` : '';
 }
 
 // מיקום הכרטיס בזמן גרירה: הזזה, הטיה קלה, ועוצמת החותמת (0–1).

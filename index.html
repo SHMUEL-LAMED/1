@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content-Security-Policy: ראו README.md ("מדיניות אבטחת תוכן"). GitHub Pages
+         אינו מאפשר כותרות, ולכן המדיניות כאן ב-meta — ובלי frame-ancestors
+         ו-report-uri, שאינם נתמכים ב-meta. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://simchas-gallery-api.0534169095.workers.dev https://simchas-gallery-api-staging.0534169095.workers.dev https://accounts.google.com/gsi/client https://unpkg.com/lucide@1.31.0/ https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/ https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://simchas-gallery-api.0534169095.workers.dev https://simchas-gallery-api-staging.0534169095.workers.dev https://*.googleusercontent.com https://drive.google.com https://videodelivery.net https://*.cloudflarestream.com; media-src 'self' data: blob: https://simchas-gallery-api.0534169095.workers.dev https://simchas-gallery-api-staging.0534169095.workers.dev https://videodelivery.net https://*.cloudflarestream.com; connect-src 'self' data: blob: https://simchas-gallery-api.0534169095.workers.dev https://simchas-gallery-api-staging.0534169095.workers.dev https://accounts.google.com https://www.googleapis.com https://content.googleapis.com https://*.googleusercontent.com https://cdn.jsdelivr.net https://videodelivery.net https://*.cloudflarestream.com; frame-src 'self' blob: https://accounts.google.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="theme-color" content="#05070d">
     <meta name="description" content="גלריית שמחת התורה — הארכיון הדיגיטלי של תמונות וסרטוני הישיבה, מסודר לפי אירועים.">
@@ -12,29 +16,7 @@
     <title>ארכיון הרגעים | גלריית שמחת התורה</title>
 
     <!-- מצב התצוגה נקבע לפני הציור הראשון, כדי שלא תהיה הבזקה של המצב השני. -->
-    <script>
-        (() => {
-            try {
-                const savedTheme = localStorage.getItem('simchat-color-theme');
-                const systemTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-                document.documentElement.dataset.theme = savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : systemTheme;
-            } catch (error) {
-                document.documentElement.dataset.theme = 'dark';
-            }
-            // קישור הזמנה לאירוע (#invite/<אסימון>): נשמר ללשונית ונמחק מהכתובת לפני
-            // שכל סקריפט אחר נטען — כך הוא אינו נשאר בהיסטוריה ואינו נקרא בידי אחרים.
-            // המימוש עצמו ב-invite-link.js, אחרי ההתחברות.
-            try {
-                const invite = location.hash.match(/^#invite\/([A-Za-z0-9_-]{43})$/);
-                if (invite) {
-                    sessionStorage.setItem('simchas_pending_invite', invite[1]);
-                    history.replaceState(null, document.title, location.pathname + location.search);
-                }
-            } catch (error) {
-                // אחסון חסום: invite-link.js קורא את הכתובת בעצמו.
-            }
-        })();
-    </script>
+    <script src="./theme-boot.js"></script>
 
     <!-- חיבור מראש ל-Worker של הייצור: הנתונים (fetch, crossorigin) והתמונות
          (<img>, בלי) יוצאים בשני מאגרי חיבורים נפרדים. סביבת הניסוי מקבלת את
@@ -87,17 +69,17 @@
             </div>
 
             <div class="header-actions">
-                <button type="button" onclick="toggleAdminDrawer()" class="icon-button settings-trigger" title="פתיחת אזור אישי והגדרות" aria-label="פתיחת אזור אישי והגדרות" aria-controls="adminDrawer" aria-expanded="false">
+                <button type="button" data-onclick="toggleAdminDrawer()" class="icon-button settings-trigger" title="פתיחת אזור אישי והגדרות" aria-label="פתיחת אזור אישי והגדרות" aria-controls="adminDrawer" aria-expanded="false">
                     <i data-lucide="settings" class="w-5 h-5"></i>
                 </button>
-                <button id="themeToggleButton" type="button" onclick="toggleSiteTheme()" class="theme-toggle" aria-label="מעבר למצב בהיר" title="מעבר בין מצב בהיר לכהה">
+                <button id="themeToggleButton" type="button" data-onclick="toggleSiteTheme()" class="theme-toggle" aria-label="מעבר למצב בהיר" title="מעבר בין מצב בהיר לכהה">
                     <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4"></i>
                     <span id="themeToggleText">בהיר</span>
                 </button>
                 <div id="headerConnectionStatus" class="header-status" role="status">נדרשת התחברות</div>
                 <div class="floating-profile-container">
                     <span id="floatingWidgetBadge" class="hidden flex">0</span>
-                    <button id="floatingProfileButton" type="button" onclick="openFloatingProfile(event)" class="floating-profile-btn" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
+                    <button id="floatingProfileButton" type="button" data-onclick="openFloatingProfile(event)" class="floating-profile-btn" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
                         <img id="floatingUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="פרופיל" class="w-full h-full rounded-full object-cover hidden">
                         <span id="floatingUserFallback" class="flex items-center justify-center"><i data-lucide="user-round" class="w-5 h-5"></i></span>
                     </button>
@@ -119,7 +101,7 @@
                         <p class="entry-lede">תמונות וסרטונים מאירועי הישיבה, מסודרים לפי אירוע ותאריך.</p>
                     </div>
                 </div>
-                <button type="button" class="entry-door" onclick="enterArchive()">
+                <button type="button" class="entry-door" data-onclick="enterArchive()">
                     <span>כניסה לארכיון</span>
                     <i data-lucide="arrow-left" class="w-4 h-4"></i>
                 </button>
@@ -162,7 +144,7 @@
              כפתור צף שפותח את אותה רשימה. לפני הגלריה ב-DOM, כדי ש-Tab יגיע אליו לפני
              הכרטיסים. -->
         <nav id="galleryTimeline" class="gallery-timeline" aria-label="ציר הזמן לפי חודשים עבריים" data-open="false" hidden>
-            <button type="button" id="galleryTimelineToggle" class="gallery-timeline-toggle" onclick="toggleGalleryTimeline()" aria-expanded="false" aria-controls="galleryTimelinePanel" aria-label="קפיצה לתאריך" title="קפיצה לתאריך">
+            <button type="button" id="galleryTimelineToggle" class="gallery-timeline-toggle" data-onclick="toggleGalleryTimeline()" aria-expanded="false" aria-controls="galleryTimelinePanel" aria-label="קפיצה לתאריך" title="קפיצה לתאריך">
                 <i data-lucide="calendar-days" class="w-4 h-4"></i>
                 <span id="galleryTimelineCurrent" class="gallery-timeline-current"></span>
             </button>
@@ -182,7 +164,7 @@
                 <h2 id="galleryAccessGateTitle">התחבר כדי לצפות בגלריה</h2>
                 <p id="galleryAccessGateText">התחבר באמצעות Google. לאחר מכן תישלח למנהל בקשה לאישור החשבון.</p>
 
-                <button type="button" onclick="signInWithGoogleAccount()" class="gate-login" data-gate-only="signed-out">
+                <button type="button" data-onclick="signInWithGoogleAccount()" class="gate-login" data-gate-only="signed-out">
                     <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
                     <span>כניסה באמצעות Google</span>
                 </button>
@@ -193,7 +175,7 @@
                     <li><span>3</span> הגלריה נפתחת</li>
                 </ol>
 
-                <button type="button" onclick="window.location.reload()" class="gate-secondary" data-gate-only="pending">
+                <button type="button" data-onclick="window.location.reload()" class="gate-secondary" data-gate-only="pending">
                     <i data-lucide="refresh-cw" class="w-4 h-4"></i> בדוק אם החשבון אושר
                 </button>
 
@@ -226,7 +208,7 @@
                         <label class="admin-menu-search">
                             <i data-lucide="search" class="w-4 h-4"></i>
                             <span class="sr-only">חיפוש בגלריה</span>
-                            <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תיאור, תאריך או תיקייה…" oninput="handleSearch(this.value)"
+                            <input id="searchInput" type="search" autocomplete="off" placeholder="חיפוש לפי שם, תיאור, תאריך או תיקייה…" data-oninput="handleSearch(this.value)"
                                 role="combobox" aria-autocomplete="list" aria-haspopup="grid" aria-expanded="false" aria-controls="searchHistoryPopup"
                                 aria-describedby="searchHistoryHint">
                             <kbd aria-hidden="true" title="לחיצה על / מקפיצה לחיפוש">/</kbd>
@@ -236,7 +218,7 @@
                         <p id="searchHistoryStatus" class="sr-only" role="status" aria-live="polite"></p>
                     </div>
 
-                    <button type="button" id="galleryFilterToggle" class="toolbar-filter-toggle" onclick="toggleGalleryFilters()"
+                    <button type="button" id="galleryFilterToggle" class="toolbar-filter-toggle" data-onclick="toggleGalleryFilters()"
                         aria-expanded="false" aria-controls="galleryFilterPanel" aria-haspopup="dialog" title="סינון לפי תאריך, סוג מדיה, כיוון וסוג הרגע">
                         <i data-lucide="sliders-horizontal" class="w-4 h-4" aria-hidden="true"></i>
                         <span>סינון</span>
@@ -247,7 +229,7 @@
                          צופה בדפדפן (app.js, gallery-layout.js). "פסיפס" שומר על יחס כל תמונה. -->
                     <div class="toolbar-view" role="group" aria-label="תצוגה">
                         <span class="toolbar-group-label" aria-hidden="true">תצוגה</span>
-                        <select id="gallerySortSelect" onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="toolbar-select">
+                        <select id="gallerySortSelect" data-onchange="setGallerySort(this.value)" aria-label="מיון הגלריה" class="toolbar-select">
                             <option value="newest">החדש ביותר</option>
                             <option value="oldest">הישן ביותר</option>
                             <option value="name">לפי שם</option>
@@ -256,25 +238,25 @@
                             <option value="manual" hidden disabled>סדר ידני</option>
                         </select>
                         <!-- מצב "סדר ידני" למנהל: גרירה וכפתורי הזזה (manual-order-ui.js). -->
-                        <button type="button" id="galleryArrangeButton" onclick="toggleGalleryArrangeMode()" class="hidden toolbar-icon-button" aria-pressed="false" title="סידור ידני של התמונות בתיקייה" aria-label="סדר ידני">
+                        <button type="button" id="galleryArrangeButton" data-onclick="toggleGalleryArrangeMode()" class="hidden toolbar-icon-button" aria-pressed="false" title="סידור ידני של התמונות בתיקייה" aria-label="סדר ידני">
                             <i data-lucide="arrow-down-up" class="w-4 h-4"></i>
                         </button>
                         <!-- הסדר האקראי נשאר קבוע לאורך הביקור; הכפתור מוצג רק במיון
                              אקראי ומערבב מחדש (gallery.js, reshuffleGallery). -->
-                        <button type="button" id="galleryReshuffleButton" onclick="reshuffleGallery()" class="hidden toolbar-icon-button" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
+                        <button type="button" id="galleryReshuffleButton" data-onclick="reshuffleGallery()" class="hidden toolbar-icon-button" title="ערבוב מחדש של הסדר האקראי" aria-label="ערבב מחדש">
                             <i data-lucide="shuffle" class="w-4 h-4"></i>
                         </button>
                         <div class="density-toggle" role="group" aria-label="גודל הכרטיסים">
-                            <button type="button" data-density="compact" onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
-                            <button type="button" data-density="comfortable" onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
-                            <button type="button" data-density="large" onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
+                            <button type="button" data-density="compact" data-onclick="setGalleryDensity('compact')" aria-pressed="false" title="כרטיסים קטנים" aria-label="קטן"><i data-lucide="grid-3x3"></i></button>
+                            <button type="button" data-density="comfortable" data-onclick="setGalleryDensity('comfortable')" aria-pressed="true" title="כרטיסים בינוניים" aria-label="בינוני"><i data-lucide="layout-grid"></i></button>
+                            <button type="button" data-density="large" data-onclick="setGalleryDensity('large')" aria-pressed="false" title="כרטיסים גדולים" aria-label="גדול"><i data-lucide="rectangle-horizontal"></i></button>
                         </div>
                         <div class="density-toggle layout-toggle" role="group" aria-label="פריסת הגלריה">
-                            <button type="button" data-layout="grid" onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
-                            <button type="button" data-layout="masonry" onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
+                            <button type="button" data-layout="grid" data-onclick="setGalleryLayout('grid')" aria-pressed="true" title="רשת: משבצות אחידות" aria-label="רשת"><i data-lucide="grid-2x2"></i></button>
+                            <button type="button" data-layout="masonry" data-onclick="setGalleryLayout('masonry')" aria-pressed="false" title="פסיפס: כל תמונה ביחס שלה, בלי חיתוך" aria-label="פסיפס"><i data-lucide="layout-dashboard"></i></button>
                         </div>
                         <!-- חלון קיצורי המקלדת (גם "?" במקלדת, gallery-navigation-ui.js). בטלפון מוסתר. -->
-                        <button type="button" onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
+                        <button type="button" data-onclick="openShortcutsHelp()" class="shortcuts-help-button" title="קיצורי מקלדת (?)" aria-label="קיצורי מקלדת" aria-haspopup="dialog" aria-keyshortcuts="?"><i data-lucide="keyboard"></i></button>
                     </div>
                 </div>
 
@@ -282,32 +264,32 @@
                      מרובה. בטלפון השורה נגללת לרוחב בתוך עצמה בלבד. -->
                 <div class="toolbar-actions">
                     <div class="toolbar-cluster" role="group" aria-label="חיפוש חכם ואנשים">
-                        <button type="button" onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="tool-button is-accent">
+                        <button type="button" data-onclick="openFaceSearchModal()" title="חיפוש תמונות לפי פנים" class="tool-button is-accent">
                             <i data-lucide="scan-face" class="w-4 h-4"></i><span>חיפוש פנים ב־AI</span>
                         </button>
-                        <button type="button" onclick="openPeopleDirectory()" title="האנשים שזוהו בגלריה, עם כל התמונות של כל אחד" class="tool-button is-accent">
+                        <button type="button" data-onclick="openPeopleDirectory()" title="האנשים שזוהו בגלריה, עם כל התמונות של כל אחד" class="tool-button is-accent">
                             <i data-lucide="users-round" class="w-4 h-4"></i><span>אנשים</span>
                         </button>
-                        <button type="button" onclick="openFindMe()" title="מציאת התמונות שבהן אני מופיע" class="tool-button is-accent">
+                        <button type="button" data-onclick="openFindMe()" title="מציאת התמונות שבהן אני מופיע" class="tool-button is-accent">
                             <i data-lucide="user-round-search" class="w-4 h-4"></i><span>התמונות שלי</span>
                         </button>
-                        <button type="button" onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="tool-button is-accent">
+                        <button type="button" data-onclick="openAiImageSearchModal()" title="חיפוש חכם לפי תיאור התמונה" class="tool-button is-accent">
                             <i data-lucide="brain-circuit" class="w-4 h-4"></i><span>חיפוש AI</span>
                         </button>
                     </div>
                     <span class="toolbar-divider" aria-hidden="true"></span>
                     <div class="toolbar-cluster" role="group" aria-label="צפייה">
-                        <button type="button" onclick="startGallerySlideshow()" class="tool-button" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
+                        <button type="button" data-onclick="startGallerySlideshow()" class="tool-button" title="הפעל מצגת של התיקייה" aria-label="הפעל מצגת">
                             <i data-lucide="play" class="w-4 h-4"></i><span class="tool-button-text">מצגת</span>
                         </button>
                         <!-- מצגת במסך מלא לאולם, שמוסיפה לבד פריטים חדשים (big-screen.js). -->
-                        <button type="button" onclick="startBigScreen()" class="tool-button" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
+                        <button type="button" data-onclick="startBigScreen()" class="tool-button" title="מסך גדול: מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים" aria-label="מסך גדול">
                             <i data-lucide="tv" class="w-4 h-4"></i><span class="tool-button-text">מסך גדול</span>
                         </button>
-                        <button type="button" id="galleryRandomItemButton" onclick="openRandomGalleryItem()" class="tool-button" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
+                        <button type="button" id="galleryRandomItemButton" data-onclick="openRandomGalleryItem()" class="tool-button" title="פתיחת פריט אקראי מהתצוגה הנוכחית" aria-label="תמונה אקראית">
                             <i data-lucide="dices" class="w-4 h-4"></i><span class="tool-button-text">אקראי</span>
                         </button>
-                        <button type="button" data-admin-profile-launcher onclick="toggleBulkSelectionMode()" class="hidden tool-button" title="בחירה מרובה">
+                        <button type="button" data-admin-profile-launcher data-onclick="toggleBulkSelectionMode()" class="hidden tool-button" title="בחירה מרובה">
                             <i data-lucide="list-checks" class="w-4 h-4"></i><span class="tool-button-text">בחירה מרובה</span>
                         </button>
                     </div>
@@ -318,7 +300,7 @@
                      ב-gallery-filter-panel.js מתוך המצב של הגלריה, ומוסתר כשאין מסנן. -->
                 <div id="galleryActiveFilters" class="active-filters" role="group" aria-label="מסננים פעילים" hidden>
                     <ul id="galleryActiveFilterChips" class="active-filter-chips"></ul>
-                    <button type="button" id="galleryFilterClearAll" class="active-filters-clear" onclick="clearGalleryFilters()">נקה הכל</button>
+                    <button type="button" id="galleryFilterClearAll" class="active-filters-clear" data-onclick="clearGalleryFilters()">נקה הכל</button>
                 </div>
                 <p id="gallerySceneFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
                 <p id="galleryOrientationNote" class="gallery-filter-note" role="status" aria-live="polite" hidden></p>
@@ -326,12 +308,12 @@
 
                 <!-- חלונית הסינון. במסך רחב — חלונית צפה מתחת לסרגל (aria-modal="false");
                      בטלפון — גיליון תחתון עם רקע מעומעם ומלכודת פוקוס (aria-modal="true"). -->
-                <div id="galleryFilterBackdrop" class="filter-backdrop" onclick="closeGalleryFilters()" aria-hidden="true" hidden></div>
+                <div id="galleryFilterBackdrop" class="filter-backdrop" data-onclick="closeGalleryFilters()" aria-hidden="true" hidden></div>
                 <div id="galleryFilterPanel" class="filter-panel" role="dialog" aria-modal="false" aria-labelledby="galleryFilterTitle" hidden>
                     <div class="filter-panel-head">
                         <span class="filter-sheet-grip" aria-hidden="true"></span>
                         <h2 id="galleryFilterTitle" class="filter-panel-title"><i data-lucide="sliders-horizontal" class="w-4 h-4" aria-hidden="true"></i> סינון הגלריה</h2>
-                        <button type="button" class="filter-panel-close" onclick="closeGalleryFilters({ focus: true })" aria-label="סגירת חלונית הסינון"><i data-lucide="x" class="w-4 h-4"></i></button>
+                        <button type="button" class="filter-panel-close" data-onclick="closeGalleryFilters({ focus: true })" aria-label="סגירת חלונית הסינון"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
                     <div class="filter-panel-body">
                         <section class="filter-group" aria-labelledby="galleryFilterDateHeading">
@@ -341,13 +323,13 @@
                             <div class="filter-fields">
                                 <label class="filter-field">
                                     <span class="filter-field-label" aria-hidden="true">שנה</span>
-                                    <select id="galleryHebrewYearFilter" onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter">
+                                    <select id="galleryHebrewYearFilter" data-onchange="setGalleryHebrewYear(this.value)" aria-label="סינון לפי שנה עברית" class="gallery-date-filter">
                                         <option value="">כל השנים</option>
                                     </select>
                                 </label>
                                 <label class="filter-field">
                                     <span class="filter-field-label" aria-hidden="true">חודש</span>
-                                    <select id="galleryHebrewMonthFilter" onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter">
+                                    <select id="galleryHebrewMonthFilter" data-onchange="setGalleryHebrewMonth(this.value)" aria-label="סינון לפי חודש עברי" class="gallery-date-filter">
                                         <option value="">כל החודשים</option>
                                     </select>
                                 </label>
@@ -356,7 +338,7 @@
                                  הכפתור פותח את הגבולות כאן, בתוך החלונית, ומציג את הטווח כשהוא פעיל
                                  (gallery.js, renderDateRangeControl). מצטרף לשנה ולחודש ולשאר הסינונים. -->
                             <div class="date-range">
-                                <button type="button" id="galleryDateRangeToggle" onclick="toggleGalleryDateRange()" class="date-range-toggle" data-active="false"
+                                <button type="button" id="galleryDateRangeToggle" data-onclick="toggleGalleryDateRange()" class="date-range-toggle" data-active="false"
                                     aria-expanded="false" aria-controls="galleryDateRangePanel" title="סינון לפי טווח תאריכים עבריים">
                                     <i data-lucide="calendar-range" class="w-4 h-4" aria-hidden="true"></i><span class="sr-only">סינון לפי </span><span id="galleryDateRangeLabel">טווח תאריכים</span>
                                 </button>
@@ -364,25 +346,25 @@
                                     <p id="galleryDateRangeHeading" class="date-range-heading">טווח תאריכים</p>
                                     <div class="date-range-row" role="group" aria-label="תחילת הטווח">
                                         <span class="date-range-edge" aria-hidden="true">מ־</span>
-                                        <select id="galleryDateRangeFromMonth" onchange="setGalleryDateRange()" aria-label="מחודש" disabled>
+                                        <select id="galleryDateRangeFromMonth" data-onchange="setGalleryDateRange()" aria-label="מחודש" disabled>
                                             <option value="">מתחילת השנה</option>
                                         </select>
-                                        <select id="galleryDateRangeFromYear" onchange="setGalleryDateRange()" aria-label="משנה">
+                                        <select id="galleryDateRangeFromYear" data-onchange="setGalleryDateRange()" aria-label="משנה">
                                             <option value="">בלי גבול</option>
                                         </select>
                                     </div>
                                     <div class="date-range-row" role="group" aria-label="סוף הטווח">
                                         <span class="date-range-edge" aria-hidden="true">עד</span>
-                                        <select id="galleryDateRangeToMonth" onchange="setGalleryDateRange()" aria-label="עד חודש" disabled>
+                                        <select id="galleryDateRangeToMonth" data-onchange="setGalleryDateRange()" aria-label="עד חודש" disabled>
                                             <option value="">עד סוף השנה</option>
                                         </select>
-                                        <select id="galleryDateRangeToYear" onchange="setGalleryDateRange()" aria-label="עד שנה">
+                                        <select id="galleryDateRangeToYear" data-onchange="setGalleryDateRange()" aria-label="עד שנה">
                                             <option value="">בלי גבול</option>
                                         </select>
                                     </div>
                                     <div class="date-range-actions">
-                                        <button type="button" id="galleryDateRangeClear" onclick="clearGalleryDateRange()" class="btn-ghost px-3 text-xs" disabled>נקה טווח</button>
-                                        <button type="button" onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 text-xs">סגור</button>
+                                        <button type="button" id="galleryDateRangeClear" data-onclick="clearGalleryDateRange()" class="btn-ghost px-3 text-xs" disabled>נקה טווח</button>
+                                        <button type="button" data-onclick="closeGalleryDateRange()" class="btn-secondary-dark px-3 text-xs">סגור</button>
                                     </div>
                                 </div>
                             </div>
@@ -393,7 +375,7 @@
                             <div class="filter-fields">
                                 <label class="filter-field">
                                     <span class="filter-field-label" aria-hidden="true">סוג מדיה</span>
-                                    <select id="galleryMediaTypeFilter" onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter">
+                                    <select id="galleryMediaTypeFilter" data-onchange="setGalleryMediaType(this.value)" aria-label="סינון לפי סוג המדיה" class="gallery-date-filter">
                                         <option value="">תמונות וסרטונים</option>
                                         <option value="image">תמונות בלבד</option>
                                         <option value="video">סרטונים בלבד</option>
@@ -403,7 +385,7 @@
                                      והמספר שלהם מוצג ב-#galleryOrientationNote. -->
                                 <label class="filter-field">
                                     <span class="filter-field-label" aria-hidden="true">כיוון</span>
-                                    <select id="galleryOrientationFilter" onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter">
+                                    <select id="galleryOrientationFilter" data-onchange="setGalleryOrientation(this.value)" aria-label="סינון לפי כיוון" class="gallery-date-filter">
                                         <option value="">כל הכיוונים</option>
                                         <option value="portrait">לאורך</option>
                                         <option value="landscape">לרוחב</option>
@@ -415,7 +397,7 @@
                                      שלהם מוצג ב-#galleryVideoLengthNote. -->
                                 <label class="filter-field filter-field-video-length">
                                     <span class="filter-field-label" aria-hidden="true">אורך הסרטון</span>
-                                    <select id="galleryVideoLengthFilter" onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter" hidden>
+                                    <select id="galleryVideoLengthFilter" data-onchange="setGalleryVideoLength(this.value)" aria-label="סינון סרטונים לפי אורך" class="gallery-date-filter" hidden>
                                         <option value="">אורך: הכל</option>
                                         <option value="short">קצרים (עד דקה)</option>
                                         <option value="medium">בינוניים (1–5 דקות)</option>
@@ -433,8 +415,8 @@
                         </section>
                     </div>
                     <div class="filter-panel-foot">
-                        <button type="button" id="galleryFilterPanelClear" class="btn-ghost" onclick="clearGalleryFilters()">נקה הכל</button>
-                        <button type="button" id="galleryFilterDone" class="btn-primary-gold" onclick="closeGalleryFilters({ focus: true })"><span id="galleryFilterDoneLabel">הצגת הפריטים</span></button>
+                        <button type="button" id="galleryFilterPanelClear" class="btn-ghost" data-onclick="clearGalleryFilters()">נקה הכל</button>
+                        <button type="button" id="galleryFilterDone" class="btn-primary-gold" data-onclick="closeGalleryFilters({ focus: true })"><span id="galleryFilterDoneLabel">הצגת הפריטים</span></button>
                     </div>
                 </div>
             </div>
@@ -444,15 +426,15 @@
                     <span class="admin-stat-icon" data-tone="cyan"><i data-lucide="list-checks" class="w-4 h-4"></i></span>
                     <div>
                         <p class="text-xs font-extrabold"><span id="bulkSelectedCount">0</span> פריטים נבחרו</p>
-                        <button type="button" onclick="toggleSelectAllVisibleMedia()" class="text-[10px] font-bold underline">בחר את כל המוצגים</button>
+                        <button type="button" data-onclick="toggleSelectAllVisibleMedia()" class="text-[10px] font-bold underline">בחר את כל המוצגים</button>
                     </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" onclick="openBulkMoveDialog()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="folder-input" class="w-3.5 h-3.5"></i> העבר</button>
-                    <button type="button" onclick="downloadSelectedMedia(this)" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="download" class="w-3.5 h-3.5"></i> הורד</button>
-                    <button type="button" onclick="openSelectionPrintAlbum()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="book-image" class="w-3.5 h-3.5"></i> אלבום PDF</button>
-                    <button type="button" onclick="deleteSelectedMedia()" class="btn-danger-soft px-3 py-2 text-[11px]"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> מחק</button>
-                    <button type="button" onclick="toggleBulkSelectionMode(false)" class="btn-secondary-dark px-3 py-2 text-[11px]">סיום</button>
+                    <button type="button" data-onclick="openBulkMoveDialog()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="folder-input" class="w-3.5 h-3.5"></i> העבר</button>
+                    <button type="button" data-onclick="downloadSelectedMedia(this)" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="download" class="w-3.5 h-3.5"></i> הורד</button>
+                    <button type="button" data-onclick="openSelectionPrintAlbum()" class="btn-secondary-dark px-3 py-2 text-[11px]"><i data-lucide="book-image" class="w-3.5 h-3.5"></i> אלבום PDF</button>
+                    <button type="button" data-onclick="deleteSelectedMedia()" class="btn-danger-soft px-3 py-2 text-[11px]"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> מחק</button>
+                    <button type="button" data-onclick="toggleBulkSelectionMode(false)" class="btn-secondary-dark px-3 py-2 text-[11px]">סיום</button>
                 </div>
             </div>
 
@@ -468,8 +450,8 @@
                 <span id="gallerySentinel" class="gallery-sentinel" aria-hidden="true"></span>
                 <span id="galleryLoadMoreCount" class="text-[11px] text-slate-400"></span>
                 <span id="galleryLoadingStatus" class="gallery-loading hidden" role="status">טוען עוד...</span>
-                <button type="button" id="galleryRenderMoreBtn" onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
-                <button type="button" id="galleryFetchMoreBtn" onclick="window.fetchOlderImages()" class="btn-secondary-dark px-5 py-2.5 text-xs hidden">טען פריטים ישנים יותר</button>
+                <button type="button" id="galleryRenderMoreBtn" data-onclick="window.renderMoreImages(true)" class="btn-secondary-dark px-5 py-2.5 text-xs">הצג עוד פריטים</button>
+                <button type="button" id="galleryFetchMoreBtn" data-onclick="window.fetchOlderImages()" class="btn-secondary-dark px-5 py-2.5 text-xs hidden">טען פריטים ישנים יותר</button>
             </div>
 
             <div id="emptyState" class="gallery-empty hidden">
@@ -490,8 +472,8 @@
             <p id="newUpdatesBannerText" class="text-[11px] leading-tight text-slate-400">נוספו תמונות חדשות בשבוע האחרון.</p>
         </div>
         <div class="flex flex-col gap-2 w-full sm:w-auto">
-            <button type="button" onclick="showNewUpdates()" class="btn-primary-gold px-4 py-1.5 text-[11px]">צפה עכשיו</button>
-            <button type="button" onclick="dismissNewUpdates()" class="btn-secondary-dark px-4 py-1.5 text-[11px]">סגור</button>
+            <button type="button" data-onclick="showNewUpdates()" class="btn-primary-gold px-4 py-1.5 text-[11px]">צפה עכשיו</button>
+            <button type="button" data-onclick="dismissNewUpdates()" class="btn-secondary-dark px-4 py-1.5 text-[11px]">סגור</button>
         </div>
     </div>
 
@@ -501,7 +483,7 @@
             <div class="relative min-h-44 sm:min-h-64 overflow-hidden bg-slate-900">
                 <img id="eventPageCover" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" class="absolute inset-0 w-full h-full object-cover hidden">
                 <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent"></div>
-                <button type="button" onclick="closeModal('eventPageModal')" class="modal-close absolute top-4 left-4 z-10" aria-label="סגירת עמוד האירוע"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('eventPageModal')" class="modal-close absolute top-4 left-4 z-10" aria-label="סגירת עמוד האירוע"><i data-lucide="x" class="w-5 h-5"></i></button>
                 <div class="absolute inset-x-0 bottom-0 p-5 sm:p-8 z-10">
                     <p id="eventPageDate" class="text-xs font-bold text-amber-400 mb-1"></p>
                     <h3 id="eventPageTitle" class="text-2xl sm:text-4xl font-extrabold"></h3>
@@ -519,9 +501,9 @@
                     <button type="button" id="eventPrintAlbumBtn" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="book-image" class="w-4 h-4"></i> אלבום להדפסה</button>
                     <button type="button" id="eventBigScreenBtn" class="btn-secondary-dark w-full py-3 text-xs" title="מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים"><i data-lucide="tv" class="w-4 h-4"></i> מסך גדול</button>
                     <button type="button" id="eventFollowButton" class="btn-secondary-dark w-full py-3 text-xs"><i data-lucide="bell-plus" class="w-4 h-4"></i> עקוב אחר התיקייה</button>
-                    <button type="button" id="eventEditToggleBtn" data-admin-profile-launcher onclick="toggleEventEdit(true)" class="hidden btn-secondary-dark w-full py-3 text-xs"><i data-lucide="pencil" class="w-4 h-4"></i> עריכת פרטי האירוע</button>
+                    <button type="button" id="eventEditToggleBtn" data-admin-profile-launcher data-onclick="toggleEventEdit(true)" class="hidden btn-secondary-dark w-full py-3 text-xs"><i data-lucide="pencil" class="w-4 h-4"></i> עריכת פרטי האירוע</button>
                 </aside>
-                <form id="eventEditForm" onsubmit="saveEventDetails(event)" class="hidden lg:col-span-2 admin-panel p-5 grid sm:grid-cols-2 gap-4">
+                <form id="eventEditForm" data-onsubmit="saveEventDetails(event)" class="hidden lg:col-span-2 admin-panel p-5 grid sm:grid-cols-2 gap-4">
                     <input type="hidden" id="eventEditFolderId">
                     <label class="block"><span class="field-label">שם האירוע</span><input id="eventEditName" required maxlength="80"></label>
                     <label class="block"><span class="field-label">תאריך האירוע</span><input id="eventEditDate" type="date"></label>
@@ -532,7 +514,7 @@
                         <div id="eventEditCoverList" class="event-cover-list"></div>
                     </fieldset>
                     <div class="sm:col-span-2 flex justify-end gap-2">
-                        <button type="button" onclick="toggleEventEdit(false)" class="btn-secondary-dark px-4 py-2 text-xs">ביטול</button>
+                        <button type="button" data-onclick="toggleEventEdit(false)" class="btn-secondary-dark px-4 py-2 text-xs">ביטול</button>
                         <button type="submit" class="btn-primary-gold px-5 py-2 text-xs">שמור פרטים</button>
                     </div>
                 </form>
@@ -541,7 +523,7 @@
     </div>
 
     <!-- האזור האישי -->
-    <div id="drawerOverlay" class="fixed inset-0 z-40 hidden transition-all duration-300" onclick="toggleAdminDrawer()" aria-hidden="true"></div>
+    <div id="drawerOverlay" class="fixed inset-0 z-40 hidden transition-all duration-300" data-onclick="toggleAdminDrawer()" aria-hidden="true"></div>
     <div id="adminDrawer" class="fixed inset-y-0 left-0 w-80 sm:w-96 z-50 transform -translate-x-full transition-transform duration-300 ease-in-out flex flex-col" role="dialog" aria-modal="true" aria-label="אזור אישי והגדרות" inert>
         <div class="admin-drawer-header flex-shrink-0">
             <div class="admin-drawer-heading">
@@ -551,7 +533,7 @@
                     <h3>האזור האישי</h3>
                 </span>
             </div>
-            <button type="button" onclick="toggleAdminDrawer()" class="admin-drawer-close" aria-label="סגירת אזור ההגדרות"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <button type="button" data-onclick="toggleAdminDrawer()" class="admin-drawer-close" aria-label="סגירת אזור ההגדרות"><i data-lucide="x" class="w-5 h-5"></i></button>
         </div>
 
         <div class="admin-drawer-body flex-1 overflow-y-auto p-5 space-y-4">
@@ -563,7 +545,7 @@
             <div id="userActionArea" class="hidden space-y-4">
                 <div id="googleAuthArea" class="google-auth-card p-4 space-y-3">
                     <div id="googleSignedOutView">
-                        <button type="button" onclick="signInWithGoogleAccount()" class="btn-google-login w-full py-2.5 text-xs">
+                        <button type="button" data-onclick="signInWithGoogleAccount()" class="btn-google-login w-full py-2.5 text-xs">
                             <svg aria-hidden="true" class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
                             התחבר באמצעות Google
                         </button>
@@ -579,10 +561,10 @@
                             </div>
                         </div>
                         <p id="googleUserApprovalText" class="mt-3 field-hint rounded-xl p-2.5 bg-white/5 border border-white/10">בקשת ההצטרפות שלך ממתינה לאישור מנהל.</p>
-                        <button type="button" data-super-admin-messages-launcher onclick="openAdminMessagesPage()" class="hidden btn-primary-gold w-full mt-3 py-2.5 text-[11px]">
+                        <button type="button" data-super-admin-messages-launcher data-onclick="openAdminMessagesPage()" class="hidden btn-primary-gold w-full mt-3 py-2.5 text-[11px]">
                             <i data-lucide="messages-square" class="w-4 h-4"></i> מרכז שליחת הודעות
                         </button>
-                        <button type="button" onclick="signOutGoogleAccount()" class="btn-secondary-dark w-full mt-2 py-2 text-[11px]">התנתק מחשבון Google</button>
+                        <button type="button" data-onclick="signOutGoogleAccount()" class="btn-secondary-dark w-full mt-2 py-2 text-[11px]">התנתק מחשבון Google</button>
                     </div>
                 </div>
 
@@ -590,9 +572,9 @@
                     <div class="luxury-icon-circle w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"><i data-lucide="cloud-upload" class="w-6 h-6"></i></div>
                     <h4 id="userUploadAccessTitle" class="font-bold mb-1.5">העלאת תמונות וסרטונים</h4>
                     <p id="userUploadAccessText" class="field-hint mb-4">בחר תמונות או סרטונים להעלאה בהתאם לדרגת ההרשאה שלך.</p>
-                    <button type="button" onclick="openModal('userUploadModal')" class="btn-primary-gold w-full py-2.5 text-xs"><i data-lucide="arrow-up-circle" class="w-4 h-4"></i> העלה מדיה</button>
+                    <button type="button" data-onclick="openModal('userUploadModal')" class="btn-primary-gold w-full py-2.5 text-xs"><i data-lucide="arrow-up-circle" class="w-4 h-4"></i> העלה מדיה</button>
                     <!-- ההעלאות של המשתמש עצמו והמצב שלהן (my-uploads.js). -->
-                    <button type="button" onclick="openMyUploads()" class="btn-secondary-dark w-full mt-2 py-2 text-xs" aria-haspopup="dialog"><i data-lucide="list-checks" class="w-4 h-4"></i> ההעלאות שלי</button>
+                    <button type="button" data-onclick="openMyUploads()" class="btn-secondary-dark w-full mt-2 py-2 text-xs" aria-haspopup="dialog"><i data-lucide="list-checks" class="w-4 h-4"></i> ההעלאות שלי</button>
                 </div>
             </div>
 
@@ -612,13 +594,13 @@
 
     <!-- הודעת פופ-אפ -->
     <div id="popupAnnouncementModal" class="fixed inset-0 z-[300] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-label="הודעה">
-        <div class="fixed inset-0" onclick="window.closePopupAnnouncement()"></div>
+        <div class="fixed inset-0" data-onclick="window.closePopupAnnouncement()"></div>
         <div class="relative z-10 w-full max-w-lg max-h-full overflow-y-auto animate-fade-in">
-            <button type="button" onclick="window.closePopupAnnouncement()" class="modal-close absolute top-3 right-3 z-20" aria-label="סגור"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <button type="button" data-onclick="window.closePopupAnnouncement()" class="modal-close absolute top-3 right-3 z-20" aria-label="סגור"><i data-lucide="x" class="w-5 h-5"></i></button>
             <!-- אין כאן src ריק: src="" גורם לדפדפן לנסות טעינה כבר בפריסת הדף
                  ולהפעיל onerror לפני שהמודולים נטענו. -->
-            <img id="popupAnnouncementDisplayImg" alt="הודעה" class="w-full block rounded-2xl shadow-2xl" style="cursor:default" onclick="window.handlePopupAnnouncementClick()">
-            <button type="button" id="popupAnnouncementActionButton" class="hidden btn-primary-gold mt-3 w-full py-3 text-sm" onclick="window.handlePopupAnnouncementClick()"></button>
+            <img id="popupAnnouncementDisplayImg" alt="הודעה" class="w-full block rounded-2xl shadow-2xl" style="cursor:default" data-onclick="window.handlePopupAnnouncementClick()">
+            <button type="button" id="popupAnnouncementActionButton" class="hidden btn-primary-gold mt-3 w-full py-3 text-sm" data-onclick="window.handlePopupAnnouncementClick()"></button>
         </div>
     </div>
 
@@ -627,7 +609,7 @@
         <div class="modal-card modal-animate-popup max-w-md max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3><i data-lucide="cloud-upload" class="w-5 h-5"></i> העלאת תמונות וסרטונים</h3>
-                <button type="button" onclick="closeModal('userUploadModal')" class="modal-close" aria-label="סגירת חלון ההעלאה"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('userUploadModal')" class="modal-close" aria-label="סגירת חלון ההעלאה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p id="userUploadModeText" class="field-hint rounded-xl p-3 bg-white/5 border border-white/10">בחר תיקיית יעד ולאחר מכן תמונות, סרטוני MP4/WebM או תיקייה שלמה. גודל סרטון מרבי: 1GB. קובץ גדול עולה בחלקים וממשיך מאותה נקודה אחרי ניתוק.</p>
@@ -635,11 +617,11 @@
                     <select id="userTargetFolderSelect"></select>
                 </label>
                 <label class="block"><span class="field-label">1. תמונות או סרטונים בודדים:</span>
-                    <input type="file" id="userMultiFiles" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
+                    <input type="file" id="userMultiFiles" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" data-onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
                 </label>
                 <div class="or-divider">או</div>
                 <label class="block"><span class="field-label">2. העלאת תיקייה שלמה (מומלץ):</span>
-                    <input type="file" id="userFolderUpload" webkitdirectory directory multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
+                    <input type="file" id="userFolderUpload" webkitdirectory directory multiple accept="image/*,video/mp4,video/webm,.mp4,.webm" data-onchange="renderSelectedUploadQueue(['userMultiFiles','userFolderUpload'], 'userUploadQueue')">
                 </label>
                 <label id="userUploadOriginalToggle" class="hidden upload-original-toggle">
                     <input type="checkbox" id="userUploadSendOriginal">
@@ -657,10 +639,10 @@
                 </div>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('userUploadModal')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" id="userUploadPauseBtn" onclick="toggleUploadPause()" class="hidden btn-secondary-dark">השהה</button>
-                <button type="button" id="userUploadRetryBtn" onclick="retryFailedUploads()" class="hidden btn-secondary-dark">נסה שוב קבצים שנכשלו</button>
-                <button type="button" id="userUploadSubmitBtn" onclick="submitUserUpload()" class="btn-primary-gold">העלה לגלריה</button>
+                <button type="button" data-onclick="closeModal('userUploadModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="userUploadPauseBtn" data-onclick="toggleUploadPause()" class="hidden btn-secondary-dark">השהה</button>
+                <button type="button" id="userUploadRetryBtn" data-onclick="retryFailedUploads()" class="hidden btn-secondary-dark">נסה שוב קבצים שנכשלו</button>
+                <button type="button" id="userUploadSubmitBtn" data-onclick="submitUserUpload()" class="btn-primary-gold">העלה לגלריה</button>
             </div>
         </div>
     </div>
@@ -675,11 +657,11 @@
                 <p id="lightboxDetails" class="lightbox-sub text-xs">תאריך • קטגוריה</p>
             </div>
             <div class="lightbox-actions flex items-center gap-2">
-                <button type="button" id="slideshowToggle" onclick="toggleGallerySlideshow()" title="הפעל מצגת" aria-label="הפעל מצגת" aria-pressed="false" class="btn-secondary-dark slideshow-toggle h-11 rounded-full">
+                <button type="button" id="slideshowToggle" data-onclick="toggleGallerySlideshow()" title="הפעל מצגת" aria-label="הפעל מצגת" aria-pressed="false" class="btn-secondary-dark slideshow-toggle h-11 rounded-full">
                     <i data-lucide="play" class="w-5 h-5"></i><span class="slideshow-toggle-text">הפעל מצגת</span>
                 </button>
                 <!-- קישור ישיר לפריט המוצג (#media/<id>): חלון השיתוף של המערכת, או העתקה (gallery.js). -->
-                <button type="button" id="lightboxShare" onclick="shareLightboxItem()" title="שתף קישור לפריט" aria-label="שתף קישור לפריט הזה" class="btn-secondary-dark lightbox-share h-11 rounded-full">
+                <button type="button" id="lightboxShare" data-onclick="shareLightboxItem()" title="שתף קישור לפריט" aria-label="שתף קישור לפריט הזה" class="btn-secondary-dark lightbox-share h-11 rounded-full">
                     <i data-lucide="share-2" class="w-5 h-5"></i><span class="lightbox-share-text">שתף</span>
                 </button>
                 <!-- המועדף של הפריט הנוכחי; gallery.js מעדכן את aria-pressed בכל מעבר. -->
@@ -700,22 +682,22 @@
                 <button type="button" id="lightboxSetCover" title="קבע כתמונת שער של התיקייה" aria-label="תמונת השער של התיקייה" aria-pressed="false" class="btn-secondary-dark lightbox-tool h-11 rounded-full" hidden>
                     <i data-lucide="image-up" class="w-5 h-5"></i><span class="lightbox-tool-text">קבע כתמונת שער</span>
                 </button>
-                <button type="button" onclick="closeLightbox()" class="btn-secondary-dark w-11 h-11 rounded-full" aria-label="סגירת התצוגה המלאה">
+                <button type="button" data-onclick="closeLightbox()" class="btn-secondary-dark w-11 h-11 rounded-full" aria-label="סגירת התצוגה המלאה">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
         </div>
         <div class="flex-1 flex items-center justify-between relative max-h-[80vh]">
-            <button type="button" onclick="navigateLightbox(-1)" class="lightbox-nav w-12 h-12 rounded-full absolute right-3 z-10 grid place-items-center" aria-label="התמונה הקודמת">
+            <button type="button" data-onclick="navigateLightbox(-1)" class="lightbox-nav w-12 h-12 rounded-full absolute right-3 z-10 grid place-items-center" aria-label="התמונה הקודמת">
                 <i data-lucide="chevron-right" class="w-6 h-6"></i>
             </button>
             <div id="lightboxStage" class="lightbox-stage w-full h-full flex items-center justify-center p-4">
                 <!-- מסך גדול: פריט שנוסף בזמן ההצגה, עד שהסבב עובר הלאה (big-screen.js). -->
                 <span id="bigScreenNewBadge" class="big-screen-new" hidden>חדש</span>
-                <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
+                <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" data-onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
-            <button type="button" onclick="navigateLightbox(1)" class="lightbox-nav w-12 h-12 rounded-full absolute left-3 z-10 grid place-items-center" aria-label="התמונה הבאה">
+            <button type="button" data-onclick="navigateLightbox(1)" class="lightbox-nav w-12 h-12 rounded-full absolute left-3 z-10 grid place-items-center" aria-label="התמונה הבאה">
                 <i data-lucide="chevron-left" class="w-6 h-6"></i>
             </button>
         </div>
@@ -753,7 +735,7 @@
                 <i data-lucide="pencil" class="w-4 h-4"></i><span>עריכה</span>
             </button>
             <!-- תיוג ידני של אדם שזיהוי הפנים פספס (manual-tags.js) — מנהלים בלבד. -->
-            <button type="button" id="lightboxTagPerson" onclick="openLightboxTagger()" class="lightbox-edit" title="תיוג אדם בתמונה" aria-label="תיוג אדם בתמונה" aria-haspopup="dialog" hidden>
+            <button type="button" id="lightboxTagPerson" data-onclick="openLightboxTagger()" class="lightbox-edit" title="תיוג אדם בתמונה" aria-label="תיוג אדם בתמונה" aria-haspopup="dialog" hidden>
                 <i data-lucide="user-round-plus" class="w-4 h-4"></i><span>תיוג אדם</span>
             </button>
         </div>
@@ -779,8 +761,8 @@
                 <p id="confirmMessage">האם אתה בטוח שברצונך לבצע פעולה זו?</p>
             </div>
             <div class="modal-foot">
-                <button type="button" id="confirmCancelBtn" onclick="cancelConfirmAction()" class="btn-secondary-dark">ביטול</button>
-                <button type="button" id="confirmApproveBtn" onclick="approveConfirmAction()" class="btn-danger-soft">אישור</button>
+                <button type="button" id="confirmCancelBtn" data-onclick="cancelConfirmAction()" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="confirmApproveBtn" data-onclick="approveConfirmAction()" class="btn-danger-soft">אישור</button>
             </div>
         </div>
     </div>
@@ -790,14 +772,14 @@
         <div class="modal-card modal-animate-popup max-w-md">
             <div class="modal-head">
                 <h3><i data-lucide="folder-sync" class="w-5 h-5"></i> העברת תמונה לתיקייה</h3>
-                <button type="button" onclick="closeModal('moveFolderModal')" class="modal-close" aria-label="סגירת חלון העברת התמונה"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('moveFolderModal')" class="modal-close" aria-label="סגירת חלון העברת התמונה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body">
                 <p>בחר את תיקיית היעד עבור התמונה:</p>
                 <select id="moveFolderSelect"></select>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('moveFolderModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" data-onclick="closeModal('moveFolderModal')" class="btn-secondary-dark">ביטול</button>
                 <button type="button" id="moveFolderSubmitBtn" class="btn-primary-gold">העבר בענן</button>
             </div>
         </div>
@@ -808,7 +790,7 @@
         <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3 id="mediaDescriptionHeading"><i data-lucide="pencil" class="w-5 h-5"></i> כיתוב ותגיות</h3>
-                <button type="button" onclick="closeModal('mediaDescriptionModal')" class="modal-close" aria-label="סגירת חלון עריכת הכיתוב"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('mediaDescriptionModal')" class="modal-close" aria-label="סגירת חלון עריכת הכיתוב"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <form id="mediaDescriptionForm" class="modal-body overflow-y-auto" novalidate>
                 <p class="field-hint">הפריט: <strong id="mediaDescriptionSubject"></strong></p>
@@ -825,7 +807,7 @@
                 <p id="mediaDescriptionStatus" class="field-hint" role="status" aria-live="polite"></p>
             </form>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('mediaDescriptionModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" data-onclick="closeModal('mediaDescriptionModal')" class="btn-secondary-dark">ביטול</button>
                 <button type="submit" form="mediaDescriptionForm" id="mediaDescriptionSave" class="btn-primary-gold">שמירה</button>
             </div>
         </div>
@@ -836,7 +818,7 @@
         <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3><i data-lucide="brain-circuit" class="w-5 h-5"></i> חיפוש AI לפי תיאור</h3>
-                <button type="button" onclick="closeModal('aiImageSearchModal')" class="modal-close" aria-label="סגירת חלון חיפוש AI"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('aiImageSearchModal')" class="modal-close" aria-label="סגירת חלון חיפוש AI"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p>כתוב במילים חופשיות איזו תמונה אתה מחפש. החיפוש מתאים את התיאור לאינדקס שנשמר מראש, בלי לסרוק שוב את התמונות.</p>
@@ -845,15 +827,15 @@
                     <textarea id="aiImageSearchQuery" maxlength="240" rows="3" placeholder="לדוגמה: תמונה קבוצתית בטיול בחוץ"></textarea>
                 </label>
                 <div class="admin-filter-chips" role="group" aria-label="דוגמאות לחיפוש">
-                    <button type="button" onclick="setAiSearchExample('תמונה קבוצתית בטיול בחוץ')" class="admin-filter-chip">טיול קבוצתי</button>
-                    <button type="button" onclick="setAiSearchExample('אירוע חגיגי בתוך אולם')" class="admin-filter-chip">אירוע באולם</button>
-                    <button type="button" onclick="setAiSearchExample('תמונה של לימוד בבית המדרש')" class="admin-filter-chip">לימוד</button>
+                    <button type="button" data-onclick="setAiSearchExample('תמונה קבוצתית בטיול בחוץ')" class="admin-filter-chip">טיול קבוצתי</button>
+                    <button type="button" data-onclick="setAiSearchExample('אירוע חגיגי בתוך אולם')" class="admin-filter-chip">אירוע באולם</button>
+                    <button type="button" data-onclick="setAiSearchExample('תמונה של לימוד בבית המדרש')" class="admin-filter-chip">לימוד</button>
                 </div>
                 <div id="aiImageSearchStatus" class="hidden rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-xs" role="status" aria-live="polite"></div>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('aiImageSearchModal')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" id="aiImageSearchSubmitBtn" onclick="executeAiImageSearch()" class="btn-primary-gold"><i data-lucide="wand-sparkles" class="w-4 h-4"></i> חפש עם AI</button>
+                <button type="button" data-onclick="closeModal('aiImageSearchModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="aiImageSearchSubmitBtn" data-onclick="executeAiImageSearch()" class="btn-primary-gold"><i data-lucide="wand-sparkles" class="w-4 h-4"></i> חפש עם AI</button>
             </div>
         </div>
     </div>
@@ -863,19 +845,19 @@
         <div class="modal-card modal-animate-popup max-w-md max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3><i data-lucide="scan-face" class="w-5 h-5"></i> חיפוש תמונות לפי פרצוף</h3>
-                <button type="button" onclick="closeModal('faceSearchModal')" class="modal-close" aria-label="סגירת חלון חיפוש הפנים"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('faceSearchModal')" class="modal-close" aria-label="סגירת חלון חיפוש הפנים"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p>בחר תמונת פנים. הדפדפן מפיק ממנה טביעה בלבד, וההשוואה מול הגלריה מתבצעת בענן — כך החיפוש נמשך שניות ואינו מוריד שוב את התמונות.</p>
                 <p id="faceSearchIndexNotice" class="hidden rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold" role="status"></p>
                 <div class="drop-zone">
-                    <input type="file" id="faceSearchFileInput" accept="image/*" onchange="handleFaceSearchFileSelect(event)">
+                    <input type="file" id="faceSearchFileInput" accept="image/*" data-onchange="handleFaceSearchFileSelect(event)">
                     <span class="drop-zone-icon"><i data-lucide="user-round" class="w-6 h-6"></i></span>
                     <p class="text-xs font-bold" id="faceSearchFileLabel">בחר תמונת פנים מהמחשב...</p>
                     <p class="field-hint">תומך בפורמטים: PNG, JPG, JPEG</p>
                 </div>
                 <div class="or-divider">או</div>
-                <button type="button" onclick="openFaceCamera()" class="btn-secondary-dark w-full py-2.5 text-xs"><i data-lucide="camera" class="w-4 h-4"></i> צלם פרצוף מהמצלמה</button>
+                <button type="button" data-onclick="openFaceCamera()" class="btn-secondary-dark w-full py-2.5 text-xs"><i data-lucide="camera" class="w-4 h-4"></i> צלם פרצוף מהמצלמה</button>
                 <div id="faceSearchPreviewContainer" class="hidden flex flex-col items-center gap-2">
                     <p class="field-label">הפרצוף לחיפוש:</p>
                     <img id="faceSearchPreviewImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תמונת פנים שנבחרה לחיפוש" class="w-24 h-24 object-cover rounded-full border border-white/20">
@@ -889,8 +871,8 @@
                 </div>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('faceSearchModal')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" id="submitFaceSearchBtn" onclick="executeFaceSearch()" disabled class="btn-primary-gold">חפש פרצוף</button>
+                <button type="button" data-onclick="closeModal('faceSearchModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="submitFaceSearchBtn" data-onclick="executeFaceSearch()" disabled class="btn-primary-gold">חפש פרצוף</button>
             </div>
         </div>
     </div>
@@ -900,13 +882,13 @@
         <div class="modal-card modal-animate-popup max-w-2xl max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3 id="peopleDirectoryTitle"><i data-lucide="users-round" class="w-5 h-5"></i> אנשים בגלריה</h3>
-                <button type="button" onclick="closeModal('peopleDirectoryModal')" class="modal-close" aria-label="סגירת רשימת האנשים"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('peopleDirectoryModal')" class="modal-close" aria-label="סגירת רשימת האנשים"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <label class="people-search">
                     <i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i>
                     <span class="sr-only">חיפוש אדם לפי שם</span>
-                    <input id="peopleDirectorySearch" type="search" autocomplete="off" placeholder="חיפוש לפי שם…" oninput="filterPeopleDirectory(this.value)">
+                    <input id="peopleDirectorySearch" type="search" autocomplete="off" placeholder="חיפוש לפי שם…" data-oninput="filterPeopleDirectory(this.value)">
                 </label>
                 <p id="peopleDirectoryStatus" class="field-hint" role="status" aria-live="polite">טוען את רשימת האנשים…</p>
                 <ul id="peopleDirectoryList" class="people-grid" aria-label="האנשים בגלריה"></ul>
@@ -919,25 +901,25 @@
         <div class="modal-card modal-animate-popup max-w-md max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3 id="findMeTitle"><i data-lucide="user-round-search" class="w-5 h-5"></i> התמונות שלי</h3>
-                <button type="button" onclick="closeModal('findMeModal')" class="modal-close" aria-label="סגירת חלון התמונות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('findMeModal')" class="modal-close" aria-label="סגירת חלון התמונות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p id="findMePrivacyNote" class="find-me-privacy">הזיהוי נעשה בדפדפן שלך. לשרת נשלחת רק טביעה מספרית של הפנים — לא התמונה — לצורך ההשוואה, והיא אינה נשמרת, אלא אם סימנת „זכור אותי”. אפשר למחוק אותה בכל עת ב„שכח אותי”. סלפי שתבחר מעובד במכשיר בלבד ואינו מועלה.</p>
                 <div id="findMeSaved" class="find-me-saved" hidden>
                     <p class="text-xs font-bold">טביעת הפנים שלך שמורה, כדי שתוכל לחפש בלחיצה אחת.</p>
                     <div class="find-me-actions">
-                        <button type="button" id="findMeUseSavedBtn" onclick="findMeWithSaved()" class="btn-primary-gold">חפש עם הטביעה השמורה</button>
-                        <button type="button" id="findMeForgetBtn" onclick="forgetFindMe()" class="btn-danger-soft">שכח אותי</button>
+                        <button type="button" id="findMeUseSavedBtn" data-onclick="findMeWithSaved()" class="btn-primary-gold">חפש עם הטביעה השמורה</button>
+                        <button type="button" id="findMeForgetBtn" data-onclick="forgetFindMe()" class="btn-danger-soft">שכח אותי</button>
                     </div>
                 </div>
-                <button type="button" id="findMeProfileBtn" onclick="findMeFromProfile()" class="btn-primary-gold w-full"><i data-lucide="scan-face" class="w-4 h-4"></i> מצא אותי לפי תמונת הפרופיל ב־Google</button>
+                <button type="button" id="findMeProfileBtn" data-onclick="findMeFromProfile()" class="btn-primary-gold w-full"><i data-lucide="scan-face" class="w-4 h-4"></i> מצא אותי לפי תמונת הפרופיל ב־Google</button>
                 <label class="find-me-remember">
                     <input type="checkbox" id="findMeRemember">
                     <span>זכור אותי — לשמור את הטביעה (בלי התמונה) לחיפוש מהיר בפעם הבאה</span>
                 </label>
                 <div id="findMeSelfie" class="find-me-selfie" hidden>
                     <label id="findMeSelfieLabel" class="drop-zone" for="findMeSelfieInput" tabindex="-1">
-                        <input type="file" id="findMeSelfieInput" accept="image/*" capture="user" onchange="findMeFromSelfie(event)">
+                        <input type="file" id="findMeSelfieInput" accept="image/*" capture="user" data-onchange="findMeFromSelfie(event)">
                         <span class="drop-zone-icon"><i data-lucide="camera" class="w-6 h-6"></i></span>
                         <span class="text-xs font-bold">בחר או צלם סלפי</span>
                         <span class="field-hint">התמונה מעובדת במכשיר שלך בלבד ואינה מועלית.</span>
@@ -946,7 +928,7 @@
                 <p id="findMeStatus" class="find-me-status" role="status" aria-live="polite"></p>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('findMeModal')" class="btn-secondary-dark">סגירה</button>
+                <button type="button" data-onclick="closeModal('findMeModal')" class="btn-secondary-dark">סגירה</button>
             </div>
         </div>
     </div>
@@ -956,22 +938,22 @@
         <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3 id="myUploadsTitle"><i data-lucide="list-checks" class="w-5 h-5"></i> ההעלאות שלי</h3>
-                <button type="button" onclick="closeModal('myUploadsModal')" class="modal-close" aria-label="סגירת חלון ההעלאות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('myUploadsModal')" class="modal-close" aria-label="סגירת חלון ההעלאות שלי"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p id="myUploadsSummary" class="my-uploads-summary"></p>
                 <div id="myUploadsFilters" class="my-uploads-filters" role="group" aria-label="סינון לפי מצב">
-                    <button type="button" data-filter="" aria-pressed="true" onclick="filterMyUploads('')">הכול</button>
-                    <button type="button" data-filter="pending" aria-pressed="false" onclick="filterMyUploads('pending')">ממתין לאישור</button>
-                    <button type="button" data-filter="approved" aria-pressed="false" onclick="filterMyUploads('approved')">אושר</button>
-                    <button type="button" data-filter="rejected" aria-pressed="false" onclick="filterMyUploads('rejected')">נדחה</button>
+                    <button type="button" data-filter="" aria-pressed="true" data-onclick="filterMyUploads('')">הכול</button>
+                    <button type="button" data-filter="pending" aria-pressed="false" data-onclick="filterMyUploads('pending')">ממתין לאישור</button>
+                    <button type="button" data-filter="approved" aria-pressed="false" data-onclick="filterMyUploads('approved')">אושר</button>
+                    <button type="button" data-filter="rejected" aria-pressed="false" data-onclick="filterMyUploads('rejected')">נדחה</button>
                 </div>
                 <p id="myUploadsStatus" class="field-hint" role="status" aria-live="polite"></p>
                 <ul id="myUploadsList" class="my-uploads-list" aria-label="ההעלאות שלי"></ul>
                 <p id="myUploadsRetention" class="field-hint"></p>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('myUploadsModal')" class="btn-secondary-dark">סגירה</button>
+                <button type="button" data-onclick="closeModal('myUploadsModal')" class="btn-secondary-dark">סגירה</button>
             </div>
         </div>
     </div>
@@ -981,7 +963,7 @@
         <div class="modal-card modal-animate-popup max-w-lg max-h-[92vh] flex flex-col">
             <div class="modal-head">
                 <h3 id="manualTagTitle"><i data-lucide="user-round-plus" class="w-5 h-5"></i> תיוג אדם בתמונה</h3>
-                <button type="button" onclick="closeModal('manualTagModal')" class="modal-close" aria-label="סגירת חלון התיוג"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('manualTagModal')" class="modal-close" aria-label="סגירת חלון התיוג"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body overflow-y-auto">
                 <p id="manualTagHint" class="field-hint">אפשר לגרור על התמונה כדי לסמן את הפנים (רשות). בלי סימון — התיוג על כל התמונה.</p>
@@ -1003,7 +985,7 @@
                 <p id="manualTagStatus" class="field-hint" role="status" aria-live="polite"></p>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('manualTagModal')" class="btn-secondary-dark">סגירה</button>
+                <button type="button" data-onclick="closeModal('manualTagModal')" class="btn-secondary-dark">סגירה</button>
                 <button type="button" id="manualTagSave" class="btn-primary-gold">תייג</button>
             </div>
         </div>
@@ -1014,7 +996,7 @@
         <div class="modal-card modal-animate-popup max-w-md">
             <div class="modal-head">
                 <h3><i data-lucide="camera" class="w-5 h-5"></i> צלם פרצוף לחיפוש</h3>
-                <button type="button" onclick="closeFaceCamera()" class="modal-close" aria-label="סגירת המצלמה"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeFaceCamera()" class="modal-close" aria-label="סגירת המצלמה"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body">
                 <div class="relative rounded-2xl overflow-hidden aspect-[4/3] flex items-center justify-center bg-slate-900">
@@ -1023,8 +1005,8 @@
                 </div>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="flipFaceCamera()" class="btn-secondary-dark"><i data-lucide="refresh-cw" class="w-4 h-4"></i> הפוך מצלמה</button>
-                <button type="button" onclick="captureFacePhoto()" class="btn-primary-gold flex-1"><i data-lucide="scan-face" class="w-4 h-4"></i> צלם וחפש</button>
+                <button type="button" data-onclick="flipFaceCamera()" class="btn-secondary-dark"><i data-lucide="refresh-cw" class="w-4 h-4"></i> הפוך מצלמה</button>
+                <button type="button" data-onclick="captureFacePhoto()" class="btn-primary-gold flex-1"><i data-lucide="scan-face" class="w-4 h-4"></i> צלם וחפש</button>
             </div>
         </div>
     </div>
@@ -1039,7 +1021,7 @@
                     <h3 id="floatingProfileTitle" class="profile-panel-title">פרופיל, תמונות והודעות</h3>
                 </div>
             </div>
-            <button type="button" onclick="closeFloatingProfile(event)" class="profile-panel-close" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <button type="button" data-onclick="closeFloatingProfile(event)" class="profile-panel-close" aria-label="סגירת אזור הפרופיל וההתראות"><i data-lucide="x" class="w-5 h-5"></i></button>
         </div>
         <div class="profile-panel-body">
             <div id="floatingSignedOutView" class="profile-signed-out">
@@ -1048,7 +1030,7 @@
                     <h4 class="profile-signed-out-title">הגלריה האישית שלך מחכה</h4>
                     <p class="profile-signed-out-copy">התחבר באמצעות Google כדי לבקש גישה, לשמור תמונות מועדפות ולקבל עדכונים אישיים.</p>
                 </div>
-                <button type="button" onclick="signInWithGoogleAccount()" class="btn-google-login w-full py-3 text-xs">
+                <button type="button" data-onclick="signInWithGoogleAccount()" class="btn-google-login w-full py-3 text-xs">
                     <svg aria-hidden="true" class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
                     התחבר באמצעות Google
                 </button>
@@ -1066,17 +1048,17 @@
                 </section>
 
                 <div class="profile-actions-grid">
-                    <button type="button" data-admin-profile-launcher onclick="openManagementFromProfile()" class="hidden profile-action-card profile-action-admin">
+                    <button type="button" data-admin-profile-launcher data-onclick="openManagementFromProfile()" class="hidden profile-action-card profile-action-admin">
                         <i data-lucide="layout-dashboard" class="w-4 h-4"></i> פתח לוח ניהול
                     </button>
-                    <button type="button" onclick="openFavoritesFromProfile()" class="profile-action-card profile-action-favorites">
+                    <button type="button" data-onclick="openFavoritesFromProfile()" class="profile-action-card profile-action-favorites">
                         <i data-lucide="heart" class="w-4 h-4"></i> המועדפים שלי
                         <span id="profileFavoritesCount" class="profile-action-count">0</span>
                     </button>
-                    <button id="contactManagerButton" type="button" onclick="openUserConversation()" class="profile-action-card profile-action-message">
+                    <button id="contactManagerButton" type="button" data-onclick="openUserConversation()" class="profile-action-card profile-action-message">
                         <i data-lucide="message-circle-more" class="w-4 h-4"></i> פנייה למנהל
                     </button>
-                    <button type="button" data-super-admin-messages-launcher onclick="openAdminMessagesPage()" class="hidden profile-action-card profile-action-admin">
+                    <button type="button" data-super-admin-messages-launcher data-onclick="openAdminMessagesPage()" class="hidden profile-action-card profile-action-admin">
                         <i data-lucide="messages-square" class="w-4 h-4"></i> מרכז הודעות
                     </button>
                 </div>
@@ -1091,7 +1073,7 @@
                     </div>
                 </section>
 
-                <button type="button" onclick="signOutGoogleAccount()" class="profile-signout"><i data-lucide="log-out" class="w-4 h-4"></i><span>התנתקות מהחשבון</span></button>
+                <button type="button" data-onclick="signOutGoogleAccount()" class="profile-signout"><i data-lucide="log-out" class="w-4 h-4"></i><span>התנתקות מהחשבון</span></button>
             </div>
         </div>
     </div>
@@ -1108,10 +1090,10 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="conversationResolveButton" type="button" onclick="toggleConversationResolved()" class="hidden btn-secondary-dark px-3 h-10 text-[11px]" aria-label="שינוי מצב הפנייה">
+                    <button id="conversationResolveButton" type="button" data-onclick="toggleConversationResolved()" class="hidden btn-secondary-dark px-3 h-10 text-[11px]" aria-label="שינוי מצב הפנייה">
                         <i data-lucide="circle-check-big" class="w-4 h-4"></i><span>סמן כטופל</span>
                     </button>
-                    <button type="button" onclick="closeModal('conversationModal')" class="modal-close" aria-label="סגירת הצ׳אט"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    <button type="button" data-onclick="closeModal('conversationModal')" class="modal-close" aria-label="סגירת הצ׳אט"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
             </header>
             <div id="conversationMessages" class="conversation-stream flex-1 min-h-0" aria-live="polite">
@@ -1119,13 +1101,13 @@
             </div>
             <footer class="conversation-footer">
                 <div class="conversation-tools">
-                    <button id="conversationAttachmentButton" type="button" onclick="document.getElementById('conversationAttachmentInput').click()" class="conversation-tool-button" aria-label="צירוף תמונה או קובץ" title="צירוף קובץ">
+                    <button id="conversationAttachmentButton" type="button" data-onclick="document.getElementById('conversationAttachmentInput').click()" class="conversation-tool-button" aria-label="צירוף תמונה או קובץ" title="צירוף קובץ">
                         <i data-lucide="paperclip" class="w-4 h-4"></i><span>קובץ</span>
                     </button>
-                    <button id="conversationEmojiButton" type="button" onclick="toggleConversationEmojiPicker()" class="conversation-tool-button" aria-label="פתיחת דף האימוג׳ים" aria-controls="conversationEmojiPicker" aria-expanded="false" title="אימוג׳ים">
+                    <button id="conversationEmojiButton" type="button" data-onclick="toggleConversationEmojiPicker()" class="conversation-tool-button" aria-label="פתיחת דף האימוג׳ים" aria-controls="conversationEmojiPicker" aria-expanded="false" title="אימוג׳ים">
                         <i data-lucide="smile-plus" class="w-4 h-4"></i><span>אימוג׳ים</span>
                     </button>
-                    <button id="conversationStickerButton" type="button" onclick="toggleConversationStickerPicker()" class="conversation-tool-button conversation-sticker-tool" aria-label="פתיחת דף המדבקות" aria-controls="conversationStickerPicker" aria-expanded="false" title="מדבקות">
+                    <button id="conversationStickerButton" type="button" data-onclick="toggleConversationStickerPicker()" class="conversation-tool-button conversation-sticker-tool" aria-label="פתיחת דף המדבקות" aria-controls="conversationStickerPicker" aria-expanded="false" title="מדבקות">
                         <i data-lucide="sticker" class="w-4 h-4"></i><span>מדבקות</span>
                     </button>
                     <span class="conversation-private-note"><i data-lucide="lock-keyhole" class="w-3.5 h-3.5"></i> הקבצים נשמרים בשיחה הפרטית</span>
@@ -1133,7 +1115,7 @@
                 <div id="conversationEmojiPicker" class="conversation-emoji-picker hidden" aria-label="דף אימוג׳ים">
                     <div class="conversation-emoji-heading">
                         <div><strong>אימוג׳ים</strong><small>בחר אימוג׳י להוספה להודעה</small></div>
-                        <button type="button" onclick="toggleConversationEmojiPicker(false)" aria-label="סגירת דף האימוג׳ים"><i data-lucide="x" class="w-4 h-4"></i></button>
+                        <button type="button" data-onclick="toggleConversationEmojiPicker(false)" aria-label="סגירת דף האימוג׳ים"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
                     <div id="conversationEmojiTabs" class="conversation-emoji-tabs" role="tablist"></div>
                     <div id="conversationEmojiGrid" class="conversation-emoji-grid"></div>
@@ -1144,17 +1126,17 @@
                             <span class="conversation-sticker-picker-icon"><i data-lucide="sticker" class="w-5 h-5"></i></span>
                             <div><strong>מדבקות</strong><small>לחיצה שולחת את המדבקה מיד</small></div>
                         </div>
-                        <button type="button" onclick="toggleConversationStickerPicker(false)" aria-label="סגירת דף המדבקות"><i data-lucide="x" class="w-4 h-4"></i></button>
+                        <button type="button" data-onclick="toggleConversationStickerPicker(false)" aria-label="סגירת דף המדבקות"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
                     <div id="conversationStickerTabs" class="conversation-sticker-tabs" role="tablist"></div>
                     <div id="conversationStickerGrid" class="conversation-sticker-grid"></div>
                 </div>
-                <div class="conversation-composer" ondrop="handleConversationDrop(event)" ondragover="handleConversationDragOver(event)" ondragleave="handleConversationDragLeave(event)">
-                    <input id="conversationAttachmentInput" type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z" onchange="handleConversationAttachment(this)">
+                <div class="conversation-composer" data-ondrop="handleConversationDrop(event)" data-ondragover="handleConversationDragOver(event)" data-ondragleave="handleConversationDragLeave(event)">
+                    <input id="conversationAttachmentInput" type="file" class="hidden" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json,.zip,.rar,.7z" data-onchange="handleConversationAttachment(this)">
                     <div id="conversationAttachmentPreview" class="conversation-attachment-preview hidden"></div>
                     <div class="conversation-compose-row">
-                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתוב הודעה… אפשר גם לגרור לכאן קובץ" class="conversation-textarea" onkeydown="handleConversationKeydown(event)" oninput="updateConversationCharacterCount()"></textarea>
-                        <button id="conversationSendButton" type="button" onclick="sendConversationMessage()" class="conversation-send-button" aria-label="שליחת ההודעה">
+                        <textarea id="conversationInput" maxlength="1500" rows="2" placeholder="כתוב הודעה… אפשר גם לגרור לכאן קובץ" class="conversation-textarea" data-onkeydown="handleConversationKeydown(event)" data-oninput="updateConversationCharacterCount()"></textarea>
+                        <button id="conversationSendButton" type="button" data-onclick="sendConversationMessage()" class="conversation-send-button" aria-label="שליחת ההודעה">
                             <i data-lucide="send-horizontal" class="w-5 h-5"></i><span>שלח</span>
                         </button>
                     </div>
@@ -1168,7 +1150,7 @@
     </div>
 
     <!-- תצוגת קובץ מצורף -->
-    <div id="conversationAttachmentViewer" class="conversation-attachment-viewer hidden" role="dialog" aria-modal="true" aria-labelledby="conversationAttachmentViewerTitle" onclick="if(event.target === this) closeConversationAttachmentPreview()">
+    <div id="conversationAttachmentViewer" class="conversation-attachment-viewer hidden" role="dialog" aria-modal="true" aria-labelledby="conversationAttachmentViewerTitle" data-onclick="if(event.target === this) closeConversationAttachmentPreview()">
         <div class="conversation-viewer-window">
             <header class="conversation-viewer-header">
                 <div class="min-w-0">
@@ -1177,7 +1159,7 @@
                 </div>
                 <div class="conversation-viewer-actions">
                     <button id="conversationAttachmentViewerDownload" type="button" title="הורדת הקובץ" aria-label="הורדת הקובץ"><i data-lucide="download" class="w-5 h-5"></i></button>
-                    <button type="button" onclick="closeConversationAttachmentPreview()" title="סגירה" aria-label="סגירת התצוגה"><i data-lucide="x" class="w-5 h-5"></i></button>
+                    <button type="button" data-onclick="closeConversationAttachmentPreview()" title="סגירה" aria-label="סגירת התצוגה"><i data-lucide="x" class="w-5 h-5"></i></button>
                 </div>
             </header>
             <div id="conversationAttachmentViewerContent" class="conversation-viewer-content"></div>
@@ -1190,7 +1172,7 @@
         <div class="modal-card modal-animate-popup max-w-md">
             <div class="modal-head">
                 <h3 id="shortcutsHelpTitle"><i data-lucide="keyboard" class="w-5 h-5"></i> קיצורי מקלדת</h3>
-                <button type="button" onclick="closeModal('shortcutsHelpModal')" class="modal-close" aria-label="סגירת רשימת הקיצורים"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('shortcutsHelpModal')" class="modal-close" aria-label="סגירת רשימת הקיצורים"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div id="shortcutsHelpList" class="modal-body shortcuts-help"></div>
         </div>
@@ -1203,7 +1185,7 @@
         <div class="modal-card modal-animate-popup max-w-md">
             <div class="modal-head">
                 <h3 id="printAlbumHeading"><i data-lucide="book-image" class="w-5 h-5"></i> אלבום להדפסה</h3>
-                <button type="button" onclick="closeModal('printAlbumModal')" class="modal-close" aria-label="סגירת חלון האלבום"><i data-lucide="x" class="w-5 h-5"></i></button>
+                <button type="button" data-onclick="closeModal('printAlbumModal')" class="modal-close" aria-label="סגירת חלון האלבום"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="modal-body">
                 <p id="printAlbumSummary"></p>
@@ -1223,8 +1205,8 @@
                 </div>
             </div>
             <div class="modal-foot">
-                <button type="button" onclick="closeModal('printAlbumModal')" class="btn-secondary-dark">ביטול</button>
-                <button type="button" id="printAlbumStartBtn" onclick="startPrintAlbum()" class="btn-primary-gold"><i data-lucide="printer" class="w-4 h-4"></i> הכן והדפס</button>
+                <button type="button" data-onclick="closeModal('printAlbumModal')" class="btn-secondary-dark">ביטול</button>
+                <button type="button" id="printAlbumStartBtn" data-onclick="startPrintAlbum()" class="btn-primary-gold"><i data-lucide="printer" class="w-4 h-4"></i> הכן והדפס</button>
             </div>
         </div>
     </div>
@@ -1234,7 +1216,7 @@
     <div id="printAlbum" class="print-album"></div>
 
     <!-- חזרה לראש הדף -->
-    <button type="button" id="backToTop" class="back-to-top" onclick="scrollToPageTop()" aria-label="חזרה לראש הדף" title="חזרה למעלה">
+    <button type="button" id="backToTop" class="back-to-top" data-onclick="scrollToPageTop()" aria-label="חזרה לראש הדף" title="חזרה למעלה">
         <i data-lucide="arrow-up" class="w-5 h-5"></i>
     </button>
 

@@ -2561,6 +2561,33 @@ Pages הוא GitHub Actions; עד אז הוא מדלג (עם הודעה בריצ
   ל"אחסון ועלויות" (בלעדיהם אין אזהרה), ובמסך **תצוגות מקדימות** להפעיל **השלם רקע מטושטש**
   כמה פעמים, עד שאין פריטים חסרים.
 
+## מדיניות אבטחת תוכן (CSP)
+
+GitHub Pages אינו מאפשר כותרות HTTP, ולכן המדיניות כתובה ב-`<meta http-equiv="Content-Security-Policy">`
+בראש `index.html` ו-`admin.html` (אותה מדיניות בשני הדפים), ו-`admin-messages.html` מקבל מדיניות
+מינימלית משלו. ב-meta אין תמיכה ב-`frame-ancestors`, `report-uri`/`report-to` ו-`sandbox` — הגנה
+מהטמעה במסגרת זרה תדרוש כותרת אמיתית (למשל Cloudflare מול האתר).
+
+- **סקריפטים:** `script-src 'self'` ומקורות מפורשים בלבד — ה-Workers (ייצור וניסוי, `face-assets`),
+  `accounts.google.com/gsi/client`, `unpkg.com/lucide@1.31.0/`, `cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/`,
+  `cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/`. אין `'unsafe-inline'` ואין `'unsafe-eval'`.
+- **אין קוד בתוך ה-HTML:** הסקריפט המוקדם (מצב תצוגה ומחיקת `#invite/`) הוא `theme-boot.js`, סקריפט רגיל
+  וחוסם שמועתק ל-dist כמות שהוא; ההפניה ב-`admin-messages.html` היא `admin-messages-redirect.js`.
+  במקום `onclick="..."` וכו' הדפים והתבניות ב-JS כותבים `data-onclick="..."` (וכן `data-onchange`,
+  `data-oninput`, `data-onsubmit`, `data-onkeydown`, `data-onerror`, `data-onload`, `data-ondrop`,
+  `data-ondragover`, `data-ondragleave`). `inline-actions.js` (מיובא ראשון ב-`app.js`) מאזין ב-document
+  ומריץ אותם במפענח קטן — בלי `eval` — שמכיר רק קריאות לפונקציות גלובליות, גישה לשדות, ליטרלים, `if`, `;`.
+  גישה ל-`constructor`/`__proto__`/`prototype` חסומה. מאפיין `on*=` חדש ייחסם בדפדפן ויכשיל את בדיקות ה-e2e.
+- **סגנונות:** `style-src 'self' 'unsafe-inline'` + Google Fonts ו-`accounts.google.com/gsi/style`.
+  `'unsafe-inline'` נשאר בכוונה: מאפייני `style=""` רבים בדפים ובתבניות, וסיכון ההזרקה בסגנון נמוך.
+- **תמונות/מדיה/חיבורים:** ה-Workers, `data:`/`blob:`, `*.googleusercontent.com` (תמונות פרופיל ו-Drive),
+  `drive.google.com`, `videodelivery.net`/`*.cloudflarestream.com`; ב-connect-src גם Google APIs ו-jsdelivr
+  (מודלי זיהוי הפנים). `frame-src` ל-Google ול-`blob:` (תצוגת PDF בצ'אט), `worker-src 'self' blob:`,
+  `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`.
+- **מקור חדש** (CDN, דומיין מדיה, Worker אחר) חייב להיכנס למדיניות בשני הדפים, אחרת ייחסם.
+- **בדיקות:** `e2e/fixtures.mjs` אוסף אירועי `securitypolicyviolation` והודעות CSP בקונסולה; כל הפרה
+  מכשילה את הבדיקה — גם על קובצי המקור וגם על dist.
+
 ## אבטחה והרשאות
 
 - Google ID Token נבדק בשרת וגם מול מזהה הלקוח הנכון.

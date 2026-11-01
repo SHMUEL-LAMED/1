@@ -811,7 +811,7 @@ function renderOfficialGoogleButton(host, googleIdentity) {
 function findSiteGoogleButtons(root = document) {
   if (!root?.querySelectorAll) return [];
   return [...root.querySelectorAll(
-    'button[onclick*="signInWithGoogleAccount"], a[onclick*="signInWithGoogleAccount"]'
+    'button[data-onclick*="signInWithGoogleAccount"], a[data-onclick*="signInWithGoogleAccount"]'
   )];
 }
 
@@ -859,7 +859,7 @@ async function installOfficialGoogleButtons() {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (!(node instanceof Element)) continue;
-        if (node.matches?.('button[onclick*="signInWithGoogleAccount"], a[onclick*="signInWithGoogleAccount"]')) {
+        if (node.matches?.('button[data-onclick*="signInWithGoogleAccount"], a[data-onclick*="signInWithGoogleAccount"]')) {
           replaceSiteButtonWithOfficialButton(node, googleIdentity);
         }
         install(node);

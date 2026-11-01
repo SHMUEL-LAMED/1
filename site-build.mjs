@@ -25,11 +25,14 @@ export const STATIC_FILES = [
     'favicon-512.png',
     'icon-192.png',
     'icon-512.png',
-    'admin-messages.html'
+    'admin-messages.html',
+    'admin-messages-redirect.js',
+    'theme-boot.js'
 ];
 
 // קבצים סטטיים שנכנסים למעטפת ה-Service Worker לצד הקוד המאוגד.
 export const SHELL_STATIC_ASSETS = [
+    './theme-boot.js',
     './manifest.webmanifest',
     './favicon-32.png',
     './icon-192.png',
