@@ -1,0 +1,2847 @@
+/* ==========================================================================
+   admin.css — מעטפת לוח הניהול ומסכי הסקירה עד המשתמשים ("קטלוג")
+   נטען אחרי styles.css ולפני tailwind.generated.css. כל צבע מאסימון.
+   כלל ה-display: רכיב שמוסתר ב-.hidden מקבל display במחלקה אחת בלבד,
+   כדי שהמחלקה hidden (שנטענת אחרונה) תגבר.
+   ========================================================================== */
+
+/* --- 1. גוף הדף ------------------------------------------------------------ */
+html[data-page="admin"] body {
+  font-size: var(--t-body);
+}
+
+/* שער הגישה: המארח הרשמי של Google מחליף את הכפתור, ולכן נותנים לו רוחב
+   (ה-GIS מודד את רוחב המארח: 240–400). */
+#adminAccessGate > [data-official-google-button-host] {
+  max-inline-size: 400px;
+}
+
+/* --- 2. המעטפת: עמודת ניווט + תוכן -------------------------------------- */
+.admin-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  inline-size: 100%;
+  max-inline-size: var(--page-max);
+  margin-inline: auto;
+  padding-block: 24px 64px;
+  padding-inline: var(--gutter);
+  flex: 1 0 auto;
+}
+
+@media (min-width: 1101px) {
+  .admin-shell {
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    align-items: start;
+    gap: 40px;
+  }
+}
+
+/* --- 3. הסרגל הצדי -------------------------------------------------------- */
+.admin-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+
+@media (min-width: 1101px) {
+  .admin-sidebar {
+    position: sticky;
+    inset-block-start: calc(var(--header-h) + 8px);
+    max-block-size: calc(100vh - var(--header-h) - 28px);
+    padding-inline-end: 20px;
+    border-inline-end: 1px solid var(--line);
+  }
+}
+
+/* כרטיס הזהות */
+.admin-identity-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+  padding-block: 4px 12px;
+  border-block-end: 1px solid var(--line);
+}
+.admin-identity-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 40px;
+  block-size: 40px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--surface-inset);
+  color: var(--ink-3);
+  object-fit: cover;
+  overflow: hidden;
+}
+.admin-identity-avatar > :is(i, svg) { inline-size: 18px; block-size: 18px; }
+.admin-identity-name {
+  margin: 0;
+  color: var(--ink-1);
+  font: 600 var(--t-body)/var(--lh-body) var(--font-sans);
+}
+.admin-identity-mail {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+  direction: ltr;
+  text-align: end;
+  unicode-bidi: plaintext;
+}
+/* admin.js מאפס את className; הדרגה נקבעת לפי data-grade */
+.admin-grade-badge { flex: none; }
+.admin-grade-badge[data-grade="super"] {
+  background-color: var(--violet-tint);
+  color: var(--violet);
+}
+
+/* חיפוש בתפריט: הגלולה עצמה מוגדרת בבסיס; כאן המקש והניקוי */
+.admin-sidebar .admin-menu-search kbd {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-inline-size: 20px;
+  block-size: 20px;
+  padding-inline: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  color: var(--ink-3);
+  font: 600 var(--t-micro)/1 var(--font-mono);
+}
+.admin-sidebar .admin-menu-search button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  margin-inline-end: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.admin-sidebar .admin-menu-search button:hover { background-color: var(--surface-2); color: var(--ink-1); }
+/* כשאין מה לנקות, כפתור הניקוי מפנה מקום למקש הקיצור */
+.admin-sidebar .admin-menu-search:has(input:placeholder-shown) button { visibility: hidden; }
+.admin-sidebar .admin-menu-search:not(:has(input:placeholder-shown)) kbd { display: none; }
+
+/* תוצאות החיפוש — רשימה מורמת בתוך הזרימה של הסרגל */
+.admin-menu-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-raised);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-2);
+}
+.admin-menu-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 40px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: calc(var(--r-md) - 4px);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.admin-menu-result:hover,
+.admin-menu-result.is-active { background-color: var(--surface-2); color: var(--ink-1); }
+.admin-menu-result-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-inset);
+  color: var(--ink-3);
+}
+.admin-menu-result > span:last-child { display: flex; flex-direction: column; min-inline-size: 0; }
+.admin-menu-result strong { color: var(--ink-1); font: 600 var(--t-small)/var(--lh-small) var(--font-sans); }
+.admin-menu-result small { overflow: hidden; color: var(--ink-3); font-size: var(--t-micro); line-height: var(--lh-micro); text-overflow: ellipsis; white-space: nowrap; }
+.admin-menu-empty {
+  margin: 0;
+  padding: 8px 4px;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+}
+
+/* הניווט: קבוצות עם תווית, ושורה לכל מסך */
+.admin-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.admin-nav-label {
+  margin: 0;
+  padding: 16px 12px 6px;
+  color: var(--ink-3);
+  font: 600 var(--t-micro)/var(--lh-micro) var(--font-sans);
+  letter-spacing: 0;
+}
+.admin-nav-item {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-2);
+  font: 500 var(--t-small)/1.2 var(--font-sans);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.admin-nav-item > :is(i, svg) { flex: none; inline-size: 18px; block-size: 18px; color: var(--ink-3); }
+.admin-nav-item > span:not(.admin-nav-count) { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-nav-item:hover { background-color: var(--surface-2); color: var(--ink-1); }
+.admin-nav-item.is-active {
+  background-color: var(--accent-tint-1);
+  color: var(--ink-1);
+  font-weight: 600;
+}
+.admin-nav-item.is-active > :is(i, svg) { color: var(--accent-ink); }
+/* קו הפליז בצד ההתחלה (ימין ב-RTL) — בפסאודו־אלמנט, כדי להישאר לוגי */
+.admin-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  inline-size: 2px;
+  border-radius: 2px;
+  background-color: var(--accent);
+}
+
+/* מונה: גלולה ניטרלית; לבקשות שממתינות — גוון סכנה */
+.admin-nav-count {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 20px;
+  block-size: 20px;
+  padding-inline: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 700 var(--t-micro)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.admin-nav-count[data-empty="true"] { display: none; }
+.admin-nav-count[data-view-badge="pending"],
+.admin-nav-count[data-view-badge="deletions"],
+.admin-nav-count[data-view-badge="users"],
+.admin-attention-row .admin-nav-count {
+  background-color: var(--danger-tint);
+  color: var(--danger);
+}
+/* אין פעימה: מונה אינו מבקש תשומת לב בתנועה */
+.admin-nav-count.animate-pulse { animation: none; }
+
+/* יציאה ממצב ניהול */
+.admin-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  inline-size: 100%;
+  min-block-size: var(--control);
+  padding-inline: 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-2);
+  font: 600 var(--t-small)/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.admin-logout:hover { background-color: var(--danger-tint); color: var(--danger); }
+.admin-logout:active { transform: translateY(1px); }
+.admin-logout > :is(i, svg) { flex: none; inline-size: 16px; block-size: 16px; }
+
+/* --- 4. עד 1100px: הסרגל הופך לשורת זהות + פס לשוניות ------------------- */
+@media (max-width: 1100px) {
+  .admin-sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "identity logout"
+      "search   search"
+      "results  results"
+      "empty    empty"
+      "nav      nav";
+    gap: 10px 12px;
+    margin-block-end: 24px;
+  }
+  .admin-identity-card { grid-area: identity; padding-block: 0; border-block-end: 0; }
+  .admin-identity-avatar { inline-size: 32px; block-size: 32px; }
+  .admin-identity-mail { display: none; }
+  .admin-sidebar .admin-menu-search { grid-area: search; }
+  .admin-menu-results { grid-area: results; }
+  .admin-menu-empty { grid-area: empty; }
+  .admin-logout { grid-area: logout; inline-size: auto; }
+
+  .admin-nav {
+    grid-area: nav;
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-block-end: 1px solid var(--line);
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 8px;
+    scrollbar-width: none;
+  }
+  .admin-nav::-webkit-scrollbar { display: none; }
+  .admin-nav-label { display: none; }
+  .admin-nav-item {
+    min-block-size: 44px;
+    padding-inline: 14px;
+    border-radius: 0;
+    scroll-snap-align: start;
+  }
+  .admin-nav-item > :is(i, svg) { inline-size: 16px; block-size: 16px; }
+  .admin-nav-item > span:not(.admin-nav-count) { flex: none; overflow: visible; }
+  .admin-nav-item:hover { background: none; }
+  /* לשונית פעילה: קו תחתון בפליז, בלי גוון רקע */
+  .admin-nav-item.is-active {
+    background: none;
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .admin-nav-item.is-active::before { display: none; }
+}
+
+@media (max-width: 767px) {
+  .admin-sidebar {
+    grid-template-areas:
+      "search  logout"
+      "results results"
+      "empty   empty"
+      "nav     nav";
+    margin-block-end: 20px;
+  }
+  .admin-identity-card { display: none; }
+  .admin-logout { min-block-size: var(--control-touch); padding-inline: 12px; }
+  .admin-sidebar .admin-menu-search kbd { display: none; }
+  .admin-sidebar .admin-menu-search button { inline-size: 36px; block-size: 36px; }
+  .admin-menu-result { min-block-size: var(--control-touch); }
+}
+
+/* --- 5. עמודת התוכן וראש המסך -------------------------------------------- */
+.admin-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-inline-size: 0;
+}
+
+.admin-main-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 32px;
+}
+.admin-main-head-text {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: flex-end;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.admin-main-head-text .kicker { margin: 0 0 6px; }
+.admin-main-icon { display: none; }
+#adminViewTitle {
+  margin: 0;
+  color: var(--ink-1);
+  font: 500 var(--t-h1)/var(--lh-h1) var(--font-serif);
+}
+#adminViewDescription {
+  max-inline-size: var(--measure);
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+.admin-main-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* הסרגל לכל רוחב, מתחת לכותרת ולפעולות */
+.admin-main-head > .rule-sargel { flex: 1 0 100%; }
+
+@media (max-width: 767px) {
+  .admin-main-head { gap: 12px; margin-block-end: 20px; }
+  .admin-main-head-text { flex-basis: 100%; }
+  .admin-main-actions { inline-size: 100%; }
+  .admin-main-actions > * { flex: 1 1 0; }
+}
+
+/* --- 6. המסכים ------------------------------------------------------------- */
+.admin-view { display: none; }
+.admin-view.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-inline-size: 0;
+}
+@media (max-width: 767px) {
+  .admin-view.is-active { gap: 20px; }
+}
+
+/* --- 7. תוספות לפאנל (הפאנל עצמו בבסיס) ---------------------------------- */
+.admin-panel { min-inline-size: 0; }
+.admin-panel-body > p:not([class]) {
+  margin: 0;
+  max-inline-size: var(--measure);
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+.admin-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+/* מונה בתוך כותרת הפאנל */
+.admin-pane-count {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  block-size: 20px;
+  padding-inline: 7px;
+  border-radius: var(--r-xs);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 700 var(--t-micro)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.admin-panel-head h3 > .admin-pane-count { overflow: visible; }
+/* כותרת־משנה בתוך פאנל */
+.admin-pane-heading {
+  margin: 0;
+  color: var(--ink-3);
+  font: 600 var(--t-micro)/var(--lh-micro) var(--font-sans);
+}
+
+/* "?" — קישור לסעיף במדריך */
+.admin-help-link {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  font: 600 1rem/1 var(--font-serif);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.admin-help-link:hover {
+  border-color: var(--line-accent);
+  background-color: var(--accent-tint-1);
+  color: var(--accent-ink);
+}
+
+/* כפתורי השורות שה-JS בונה: גודל קריא בלי לשנות את ה-JS */
+.admin-main :is(.btn-primary-gold, .btn-secondary-dark, .btn-danger-soft) { font-size: var(--t-micro); }
+.admin-row select { padding-inline-start: 36px; font-size: var(--t-small); }
+
+@media (max-width: 767px) {
+  .admin-help-link { inline-size: var(--control-touch); block-size: var(--control-touch); }
+  .admin-panel-actions { gap: 6px; }
+}
+
+/* --- 8. טפסים בתוך הלוח ---------------------------------------------------- */
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: end;
+  gap: 14px;
+}
+.admin-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-action-row > * { flex: 1 1 160px; }
+
+/* תיבת סימון בשורה ממוסגרת — כל השורה היא התווית */
+.admin-check-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: var(--control);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.admin-check-row:hover { border-color: var(--line-strong); }
+.admin-check-row:has(input:checked) { border-color: var(--line-accent); background-color: var(--accent-tint-1); }
+.admin-check-row:has(input:disabled) { cursor: default; }
+.admin-check-row:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.admin-check-row > input { flex: none; }
+
+/* הודעת אזהרה קצרה */
+.admin-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warn-line);
+  border-inline-start-width: 3px;
+  border-radius: var(--r-md);
+  background-color: var(--warn-tint);
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.admin-callout > :is(i, svg) { flex: none; inline-size: 16px; block-size: 16px; margin-block-start: 1px; color: var(--warn); }
+
+/* בורר סמל התיקייה */
+.admin-icon-picker {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.admin-icon-picker > legend { padding: 0; }
+.admin-icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.admin-icon-picker-grid > .admin-filter-chip {
+  justify-content: center;
+  min-block-size: var(--control);
+  border-radius: var(--r-md);
+}
+
+@media (max-width: 767px) {
+  .admin-check-row { min-block-size: var(--control-touch); }
+  .admin-icon-picker-grid > .admin-filter-chip { min-block-size: var(--control-touch); }
+}
+
+/* --- 9. סקירה כללית: מחוונים, ממתין לטיפול, פעולות מהירות --------------- */
+.admin-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 16px;
+}
+@media (min-width: 1101px) {
+  .admin-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* מנהל בדרגה 3: שני המחוונים של מנהל־העל מוסתרים — נשארים ארבעה */
+  .admin-overview:has(> .super-admin-only.hidden) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .admin-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+
+.admin-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+  gap: 20px;
+}
+@media (max-width: 767px) {
+  .admin-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.admin-attention-list {
+  display: flex;
+  flex-direction: column;
+}
+.admin-attention-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  inline-size: 100%;
+  min-block-size: 56px;
+  padding: 10px 4px;
+  border: 0;
+  border-block-end: 1px solid var(--line);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: start;
+}
+.admin-attention-row:last-child { border-block-end: 0; }
+button.admin-attention-row { cursor: pointer; transition: background-color var(--dur-1) var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  button.admin-attention-row:hover { background-color: var(--surface-2); }
+}
+.admin-attention-row > div { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.admin-attention-row strong { color: var(--ink-1); font: 600 var(--t-body)/var(--lh-body) var(--font-sans); }
+.admin-attention-row small { color: var(--ink-3); font-size: var(--t-small); line-height: var(--lh-small); }
+.admin-attention-icon {
+  --tone: var(--accent);
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 50%;
+  background-color: var(--surface-inset);
+  color: var(--tone);
+}
+.admin-attention-icon > :is(i, svg) { inline-size: 18px; block-size: 18px; }
+.admin-attention-row[data-tone="ok"] .admin-attention-icon { --tone: var(--success); background-color: var(--success-tint); }
+
+/* פעולות מהירות: כפתורים בלי מחלקה, נבנים ב-admin-ui.js */
+.admin-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+#adminQuickActions > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-block-size: 56px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+#adminQuickActions > button:hover { border-color: var(--line-input); background-color: var(--surface-2); }
+#adminQuickActions > button:active { transform: translateY(1px); background-color: var(--surface-3); }
+#adminQuickActions > button > :is(i, svg) {
+  grid-row: span 2;
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--ink-3);
+}
+#adminQuickActions > button small {
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 var(--t-micro)/var(--lh-micro) var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .admin-quick-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- 10. רשימות ושורות: גלילה פנימית וזרימה בטלפון ------------------------- */
+.admin-list-scroll {
+  max-block-size: 460px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* התמונה הממוזערת בשורות האישור */
+.admin-row > img { flex: none; }
+/* כרטיס שה-JS מסדר בעמודה (משתמשים, בקשות מחיקה) */
+.admin-row.flex-col { padding-block: 14px; }
+
+@media (max-width: 767px) {
+  /* שורה בשתי קומות: הטקסט לוקח את השורה, הפעולות יורדות לקצה */
+  .admin-row > .min-w-0.flex-1 { flex: 1 1 calc(100% - 56px); }
+  .admin-row:not(.flex-col) > .flex.gap-2 {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+  .admin-row .flex.gap-2 > button,
+  .admin-row .flex.gap-1\.5 > button,
+  .admin-row .grid > button { min-block-size: var(--control-touch); }
+}
+
+/* --- 11. סנכרון Drive -------------------------------------------------------- */
+.admin-progress-text {
+  margin: 8px 0 0;
+  color: var(--accent-ink);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.admin-sync-result {
+  min-block-size: 1.25rem;
+  margin: 0;
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+#driveConnectionStatus { margin: 0; }
+
+/* שורות התיקיות לסנכרון אוטומטי (drive-sync.js): המחרוזת שב-JS קטנה מדי,
+   ולכן הגודל והמסגרת נקבעים כאן לפי המזהה */
+#driveFoldersList > .admin-row { flex-wrap: wrap; gap: 8px; padding: 8px 4px; }
+#driveFoldersList > .admin-row input[type="text"] {
+  min-inline-size: 0;
+  min-block-size: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--r-sm);
+  background-color: var(--surface);
+  color: var(--ink-1);
+  font-size: var(--t-small);
+}
+#driveFoldersList > .admin-row input[type="text"]:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-tint-3);
+}
+#driveFoldersList > .admin-row label {
+  min-block-size: 36px;
+  color: var(--ink-2);
+  font-size: var(--t-small);
+}
+#driveFoldersList > .admin-row > button {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 36px;
+  min-block-size: 36px;
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  font-size: var(--t-body);
+}
+#driveFoldersList > .admin-row > button:hover { background-color: var(--danger-tint); }
+
+@media (max-width: 767px) {
+  #driveFoldersList > .admin-row input[type="text"] { flex: 1 1 100%; min-block-size: var(--control-touch); font-size: 16px; }
+  #driveFoldersList > .admin-row label { flex: 1; min-block-size: var(--control-touch); }
+  #driveFoldersList > .admin-row > button { min-inline-size: var(--control-touch); min-block-size: var(--control-touch); }
+}
+
+/* --- 12. תיקיות: עץ, הזזה, גרירה, הזמנות --------------------------------- */
+.admin-folder-row[data-depth="2"] { padding-inline-start: 28px; }
+.admin-folder-row[data-depth="3"] { padding-inline-start: 52px; }
+/* קו שיער שמסמן את ההזחה */
+.admin-folder-row[data-depth="2"],
+.admin-folder-row[data-depth="3"] { position: relative; }
+.admin-folder-row[data-depth="2"]::before,
+.admin-folder-row[data-depth="3"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 10px;
+  inset-inline-start: 14px;
+  inline-size: 1px;
+  background-color: var(--line-strong);
+}
+.admin-folder-row[data-depth="3"]::before { inset-inline-start: 38px; }
+.admin-folder-row[draggable="true"] { cursor: grab; }
+.admin-folder-row.is-drop-target {
+  background-color: var(--accent-tint-1);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+.admin-folder-row.is-dragging { opacity: .5; }
+
+.admin-folder-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.admin-folder-controls > select {
+  max-inline-size: 200px;
+  min-block-size: var(--control-sm);
+  font-size: var(--t-small);
+}
+.admin-folder-icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: var(--control-sm);
+  block-size: var(--control-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.admin-folder-icon-button:hover { background-color: var(--surface-2); color: var(--ink-1); }
+.admin-folder-icon-button:disabled { opacity: .4; cursor: not-allowed; }
+.admin-folder-manual {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 28px;
+  padding-inline: 8px;
+  border-radius: var(--r-xs);
+  background-color: var(--accent-tint-2);
+  color: var(--accent-ink);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  cursor: pointer;
+}
+.admin-folder-manual > input { inline-size: 14px; block-size: 14px; }
+
+@media (max-width: 767px) {
+  .admin-folder-controls { flex: 1 1 100%; }
+  .admin-folder-icon-button { inline-size: var(--control-touch); block-size: var(--control-touch); }
+  .admin-folder-controls > select { flex: 1 1 160px; max-inline-size: none; min-block-size: var(--control-touch); }
+  .admin-folder-manual { min-block-size: var(--control-touch); }
+}
+
+/* הזמנה לאירוע */
+.invite-auto-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-block-size: var(--control);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+  cursor: pointer;
+}
+.invite-auto-row > input { flex: none; margin-block-start: 1px; }
+.invite-auto-row:has(input:checked) { border-color: var(--line-accent); background-color: var(--accent-tint-1); }
+.invite-auto-row[hidden] { display: none; }
+
+.invite-created {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-md);
+  background-color: var(--accent-tint-1);
+}
+.invite-created[hidden] { display: none; }
+.invite-created-title {
+  margin: 0;
+  color: var(--ink-1);
+  font: 700 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.invite-created-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+body .invite-created-row input {
+  flex: 1 1 240px;
+  min-inline-size: 0;
+  direction: ltr;
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+/* --- 13. הורדות ופרטיות: תצוגת סימן המים ----------------------------------- */
+/* התצוגה מדמה פינה של תצלום, ולכן מותר כאן מעבר צבעים קבוע (DESIGN-SPEC §10.9) */
+.download-watermark-preview {
+  position: relative;
+  block-size: 96px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, #3a342c, #15130f);
+}
+.download-watermark-preview > span {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-end: 12px;
+  max-inline-size: calc(100% - 24px);
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  background-color: var(--media-chip);
+  color: var(--media-ink);
+  font: 600 var(--t-micro)/1.3 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.download-watermark-preview > span:empty { display: none; }
+.download-watermark-preview.is-off > span { opacity: .3; }
+
+/* --- 14. משתמשים: סרגל כלים, פעולה מרובה, תיבות בחירה והערות ------------- */
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.admin-toolbar > select { flex: 1 1 180px; min-inline-size: 0; }
+.admin-toolbar > .btn,
+.admin-toolbar > button { flex: none; }
+
+/* גלולת החיפוש של רשימת המשתמשים — אותה שפה כמו חיפוש התפריט */
+.admin-toolbar-search {
+  display: flex;
+  flex: 2 1 240px;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  min-block-size: var(--control);
+  padding-inline: 14px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--r-pill);
+  background-color: var(--surface);
+  color: var(--ink-3);
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+.admin-toolbar-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint-3);
+}
+.admin-toolbar-search > :is(i, svg) { flex: none; inline-size: 16px; block-size: 16px; }
+body .admin-toolbar-search input,
+body .admin-toolbar-search input:hover,
+body .admin-toolbar-search input:focus {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: calc(var(--control) - 2px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+/* סרגל הפעולה המרובה: דביק בתחתית בזמן גלילה ברשימה */
+.users-bulk-bar {
+  position: sticky;
+  inset-block-end: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-raised);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-2);
+}
+.users-bulk-count {
+  flex: 1 1 140px;
+  margin: 0;
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.users-bulk-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.users-bulk-controls > select { min-block-size: var(--control-sm); font-size: var(--t-small); }
+.users-bulk-result {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 2px;
+}
+.users-bulk-result:empty { display: none; }
+.users-bulk-result > p { margin: 0; }
+
+/* תיבת הבחירה בכרטיס: 18px בתוך אזור לחיצה של 44 */
+.user-bulk-check {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  margin-inline: -6px 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.user-bulk-check:hover { background-color: var(--surface-2); }
+.user-bulk-checkbox { inline-size: 18px; block-size: 18px; margin: 0; cursor: pointer; }
+.user-bulk-checkbox:disabled { cursor: not-allowed; opacity: .45; }
+.user-notes-button { flex: none; }
+
+/* הערות פנימיות על משתמש (admin-users-bulk.js) */
+.user-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-note {
+  padding: 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+}
+.user-note-body {
+  margin: 0;
+  color: var(--ink-1);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.user-note-delete { align-self: flex-end; }
+
+@media (max-width: 767px) {
+  .admin-toolbar > * { flex: 1 1 100%; }
+  .admin-toolbar-search { min-block-size: var(--control-touch); }
+  body .admin-toolbar-search input,
+  body .admin-toolbar-search input:focus { min-block-size: calc(var(--control-touch) - 2px); font-size: 16px; }
+  .users-bulk-bar { inset-block-end: 8px; padding: 10px 12px; }
+  .users-bulk-controls > * { flex: 1 1 calc(50% - 6px); }
+  .users-bulk-controls > select { min-block-size: var(--control-touch); }
+  .user-bulk-check { inline-size: var(--control-touch); block-size: var(--control-touch); }
+}
+
+/* --- 15. מדריך למנהלים (admin-guide-ui.js) --------------------------------- */
+.admin-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-inline-size: 0;
+}
+@media (min-width: 1101px) {
+  .admin-guide {
+    grid-template-columns: 220px minmax(0, 1fr);
+    align-items: start;
+    gap: 32px;
+  }
+  .admin-guide-toc {
+    position: sticky;
+    inset-block-start: calc(var(--header-h) + 8px);
+    max-block-size: calc(100vh - var(--header-h) - 28px);
+    overflow-y: auto;
+  }
+}
+
+/* תוכן העניינים: רשימה ממוספרת בספרות פליז */
+.admin-guide-toc { padding: 16px; }
+.admin-guide-toc .admin-section-label { margin: 0 0 8px; }
+.admin-guide-toc ol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide-toc;
+}
+.admin-guide-toc li { counter-increment: guide-toc; }
+.admin-guide-toc a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 36px;
+  padding-inline: 8px;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+  text-decoration: none;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.admin-guide-toc a::before {
+  content: counter(guide-toc);
+  flex: none;
+  min-inline-size: 1.25em;
+  color: var(--accent-ink);
+  font: 500 var(--t-body)/1 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.admin-guide-toc a:hover { background-color: var(--surface-2); color: var(--ink-1); }
+.admin-guide-toc a[aria-current="location"] {
+  background-color: var(--accent-tint-1);
+  color: var(--ink-1);
+  font-weight: 600;
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+@media (max-width: 1100px) {
+  /* התוכן למעלה, והרשימה גוללת לרוחב בתוך עצמה */
+  .admin-guide-toc ol {
+    flex-direction: row;
+    gap: 4px;
+    max-inline-size: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .admin-guide-toc ol::-webkit-scrollbar { display: none; }
+  .admin-guide-toc li { flex: none; scroll-snap-align: start; }
+  .admin-guide-toc a {
+    min-block-size: var(--control-touch);
+    padding-inline: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    white-space: nowrap;
+  }
+  .admin-guide-toc a[aria-current="location"] { border-color: var(--line-accent); box-shadow: none; }
+}
+
+.admin-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.admin-guide-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.admin-guide-toolbar > .admin-guide-search { flex: 1 1 240px; min-inline-size: 0; }
+#adminGuideStatus { margin: 0; }
+.admin-guide-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* סעיף: details מקורי — לא נוגעים ב-display שלו, כדי ש-[hidden] יגבר */
+.admin-guide-section {
+  padding: 0;
+  scroll-margin-block-start: calc(var(--header-h) + 16px);
+}
+.admin-guide-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-block-size: 48px;
+  padding: 14px 18px;
+  border-radius: var(--r-lg);
+  list-style: none;
+  cursor: pointer;
+}
+.admin-guide-summary::-webkit-details-marker { display: none; }
+.admin-guide-summary::marker { content: ""; }
+.admin-guide-summary:hover { background-color: var(--surface-2); }
+/* חץ שמסתובב בפתיחה */
+.admin-guide-summary::after {
+  content: "";
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  margin-inline-start: auto;
+  border-block-end: 1.5px solid var(--ink-3);
+  border-inline-start: 1.5px solid var(--ink-3);
+  rotate: -45deg;
+  transition: rotate var(--dur-2) var(--ease-out);
+}
+.admin-guide-section[open] > .admin-guide-summary::after { rotate: 135deg; }
+.admin-guide-section[open] > .admin-guide-summary {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  border-block-end: 1px solid var(--line);
+}
+.admin-guide-summary .admin-stat-icon { inline-size: 36px; block-size: 36px; }
+.admin-guide-summary-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.admin-guide-summary-text strong {
+  color: var(--ink-1);
+  font: 500 1.125rem/1.35 var(--font-serif);
+}
+.admin-guide-summary-text small {
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+.admin-guide-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  block-size: 22px;
+  padding-inline: 8px;
+  border-radius: var(--r-pill);
+  background-color: var(--accent-tint-2);
+  color: var(--accent-ink);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  white-space: nowrap;
+}
+
+.admin-guide-content {
+  padding: 16px 18px 20px;
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+.admin-guide-content > * { max-inline-size: var(--measure); margin: 0; }
+.admin-guide-content > * + * { margin-block-start: 12px; }
+.admin-guide-content strong { color: var(--ink-1); font-weight: 600; }
+.admin-guide-subtitle {
+  margin-block-start: 20px;
+  color: var(--ink-1);
+  font: 700 var(--t-body)/var(--lh-body) var(--font-sans);
+}
+.admin-guide-content > .admin-guide-subtitle { margin-block-start: 20px; }
+.admin-guide-note {
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--info);
+  border-radius: var(--r-sm);
+  background-color: var(--info-tint);
+  color: var(--ink-1);
+}
+.admin-guide-list {
+  padding-inline-start: 20px;
+}
+.admin-guide-list > li + li { margin-block-start: 6px; }
+.admin-guide-list > li::marker { color: var(--ink-3); }
+/* שלבים: ספרות פליז בגופן הסריפי */
+.admin-guide-list.is-steps {
+  padding-inline-start: 0;
+  list-style: none;
+  counter-reset: guide-step;
+}
+.admin-guide-list.is-steps > li {
+  position: relative;
+  padding-inline-start: 32px;
+  counter-increment: guide-step;
+}
+.admin-guide-list.is-steps > li::before {
+  content: counter(guide-step);
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  min-inline-size: 22px;
+  color: var(--accent-ink);
+  font: 500 1.0625rem/var(--lh-body) var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.admin-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-guide-content > .admin-guide-actions { margin-block-start: 16px; }
+
+@media (max-width: 767px) {
+  .admin-guide-summary { padding: 12px 14px; }
+  .admin-guide-content { padding: 14px 14px 18px; }
+  .admin-guide-toolbar > button { flex: 1 1 calc(50% - 4px); min-block-size: var(--control-touch); }
+}
+
+/* --- 16. הדפסה ------------------------------------------------------------- */
+@media print {
+  .admin-sidebar,
+  .admin-main-actions,
+  .admin-help-link,
+  .users-bulk-bar { display: none; }
+  .admin-shell { display: block; padding: 0; }
+  .admin-panel { break-inside: avoid; box-shadow: none; }
+}
+/* ==========================================================================
+   admin.css — חלק 2: המסכים מ"הודעות ופניות" עד "כלי תחזוקה", מרכז ההודעות,
+   המצב המהיר, הערות פנימיות, וכל המסמן שנבנה ב-JS בתוכם.
+   מעטפת הדיאלוגים, השיחה, ההעלאה, ההודעה הקופצת והחזרה לראש הדף — ב-styles.css
+   (00-foundation ו-1-index-*). כאן רק מה שייחודי ללוח הניהול.
+   כלל: אין display בבורר חזק ממחלקה אחת על רכיב שמוסתר ב-.hidden.
+   ========================================================================== */
+
+/* --- 1. עזרים משותפים למסכים ------------------------------------------- */
+
+/* קבוצת פעולות בכותרת לוח: עוטפת לשורה משלה בטלפון בלי חפיפה */
+.admin-panel-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* פתק מצב (סיכום עבודת רקע, אחסון): גוון מידע עם פס בצד ההתחלה */
+.admin-note {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--info-line);
+  border-inline-start: 3px solid var(--info);
+  border-radius: var(--r-md);
+  background-color: var(--info-tint);
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.admin-note:empty { display: none; }
+
+/* שורת פעולות של עבודת רקע: הפעלה ראשית רחבה + עצירה */
+.admin-job-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.admin-job-actions.is-wrap { flex-wrap: wrap; }
+.admin-job-actions > .is-grow { flex: 1 1 auto; }
+.admin-panel-body .btn.is-block { inline-size: 100%; }
+.admin-launch-button { inline-size: 100%; }
+
+/* שתי פעולות זו לצד זו (גיבוי) — עמודה אחת בטלפון */
+.admin-split-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.admin-file-button { cursor: pointer; }
+.admin-file-button:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.admin-restore-status {
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+
+.admin-status-line { min-block-size: 1.25rem; text-align: center; }
+.admin-subsection-label {
+  margin-block-start: 8px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* קבוצת בחירה (רדיו) — שורות של 40px, 44 במגע */
+.admin-choice-group {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.admin-choice-group > legend { margin-block-end: 6px; padding: 0; }
+.admin-choice-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.admin-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 40px;
+  padding-inline: 12px;
+  border-block-end: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.admin-choice:last-child { border-block-end: 0; }
+.admin-choice:hover { background-color: var(--surface-2); color: var(--ink-1); }
+.admin-choice:has(input:checked) { color: var(--ink-1); font-weight: 600; }
+
+/* שורת מתג (תיבת סימון בתוך שורה מוקפת) */
+.admin-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-block-size: 44px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--ink-1);
+  font: 600 var(--t-small)/1.3 var(--font-sans);
+  cursor: pointer;
+}
+.admin-switch-row:has(input:checked) { border-color: var(--line-accent); background-color: var(--accent-tint-1); }
+
+/* תת-לוח (טופס ספק ה-AI) — .hidden גובר: display במחלקה אחת */
+.admin-subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+}
+.admin-subpanel-title {
+  margin: 0;
+  color: var(--ink-1);
+  font: 600 var(--t-body)/var(--lh-body) var(--font-sans);
+}
+
+/* סיכום עבודות הרקע (background-jobs-admin.js ממלא) */
+.admin-background-summary:empty { display: none; }
+.admin-background-summary {
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+
+/* תיבת האבחון: JS מציב pre-wrap ויישור להתחלה */
+#adminDiagnostics {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 2. הודעת פופ-אפ: תצוגה מקדימה --------------------------------------- */
+.popup-preview {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+}
+.popup-preview-image {
+  display: block;
+  inline-size: 100%;
+  max-block-size: 320px;
+  object-fit: contain;
+}
+.popup-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-block-start: 1px solid var(--line);
+  background-color: var(--surface);
+  font-size: var(--t-micro);
+}
+.popup-preview-status { color: var(--accent-ink); font-weight: 600; }
+.popup-preview-meta { color: var(--ink-3); }
+.popup-preview-link {
+  margin: 0;
+  padding: 0 12px 8px;
+  background-color: var(--surface);
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+}
+.popup-preview-link:empty { display: none; }
+
+/* --- 3. ניתוח נתונים: הפריטים הנצפים (admin-ui.js) ----------------------- */
+.analytics-media-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+.analytics-media-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.analytics-media-heading h4 {
+  margin: 0;
+  color: var(--ink-1);
+  font: 500 var(--t-h3)/var(--lh-h3) var(--font-serif);
+}
+.analytics-media-count {
+  display: inline-flex;
+  align-items: center;
+  block-size: 22px;
+  padding-inline: 8px;
+  border-radius: var(--r-xs);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.analytics-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+}
+.analytics-media-empty,
+.analytics-media-grid > .admin-empty { grid-column: 1 / -1; margin: 0; }
+.analytics-media-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  padding: 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--ink-1);
+  text-align: start;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.analytics-media-card:hover { border-color: var(--line-accent); background-color: var(--surface-2); }
+.analytics-media-card:active { transform: translateY(1px); }
+.analytics-media-preview {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-3);
+  color: var(--ink-3);
+  object-fit: cover;
+}
+.analytics-media-rank {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-start: 14px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 28px;
+  block-size: 28px;
+  padding-inline: 6px;
+  border: 1px solid var(--media-chip-line);
+  border-radius: var(--r-pill);
+  background-color: var(--media-chip);
+  color: var(--media-ink);
+  font: 500 var(--t-small)/1 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+}
+.analytics-media-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.analytics-media-details strong {
+  overflow: hidden;
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.analytics-media-type,
+.analytics-media-last-viewed { color: var(--ink-3); font-size: var(--t-micro); }
+.analytics-media-views {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+}
+.analytics-media-views strong {
+  color: var(--ink-1);
+  font: 500 var(--t-h3)/1.1 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 4. סטטיסטיקות: גרפים, טבלה, דירוגים (admin-stats.js) ----------------- */
+.stats-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 16px;
+}
+.stats-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.stats-chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.stats-chart-caption strong {
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.stats-chart-caption span {
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+.stats-chart-svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 112px;
+  border-block-end: 1px solid var(--line);
+}
+/* צבע העמודות מגוון הגרף (data-tone ב-00-foundation) */
+.stats-bar { fill: var(--tone, var(--accent)); transition: opacity var(--dur-1) var(--ease-out); }
+.stats-bar:hover { opacity: .75; }
+.stats-bar.is-empty { fill: var(--surface-3); }
+.stats-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-table-details {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.stats-table-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 44px;
+  padding-inline: 14px;
+  color: var(--ink-2);
+  font: 600 var(--t-small)/1.3 var(--font-sans);
+  list-style: none;
+  cursor: pointer;
+}
+.stats-table-details > summary::-webkit-details-marker { display: none; }
+.stats-table-details > summary::before {
+  content: "";
+  flex: none;
+  inline-size: 7px;
+  block-size: 7px;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-start: 1.5px solid currentColor;
+  rotate: -45deg;
+  transition: rotate var(--dur-2) var(--ease-out);
+}
+.stats-table-details[open] > summary::before { rotate: 135deg; }
+.stats-table-details > summary:hover { color: var(--ink-1); }
+.stats-table-details > .stats-table-wrap { padding: 0 14px 14px; }
+
+.stats-table-wrap { overflow-x: auto; max-inline-size: 100%; }
+/* טבלאות הניהול נשענות על .table שב-00-foundation */
+.stats-table,
+.admin-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+.stats-table caption {
+  padding-block: 0 8px;
+  color: var(--ink-3);
+  font: 600 var(--t-micro)/var(--lh-micro) var(--font-sans);
+  text-align: start;
+}
+:is(.stats-table, .admin-table) th {
+  padding: 8px 10px;
+  border-block-end: 1px solid var(--line-strong);
+  color: var(--ink-3);
+  font: 600 var(--t-micro)/var(--lh-micro) var(--font-sans);
+  text-align: start;
+  white-space: nowrap;
+}
+:is(.stats-table, .admin-table) tbody th { color: var(--ink-1); font-size: var(--t-small); }
+:is(.stats-table, .admin-table) td {
+  padding: 10px;
+  border-block-end: 1px solid var(--line);
+  color: var(--ink-2);
+  vertical-align: middle;
+}
+.stats-table td { font-variant-numeric: tabular-nums; text-align: end; }
+:is(.stats-table, .admin-table) tbody tr:last-child > * { border-block-end: 0; }
+
+.stats-top-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 20px;
+}
+.stats-top-grid > section { min-inline-size: 0; }
+.stats-top-grid h4 {
+  margin: 0 0 8px;
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.stats-top-grid h4 .field-hint { font-weight: 400; }
+.stats-rank {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: stats-rank;
+}
+.stats-rank-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-block-size: 40px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--line);
+  counter-increment: stats-rank;
+}
+.stats-rank-item:last-child { border-block-end: 0; }
+.stats-rank-item::before {
+  content: counter(stats-rank);
+  flex: none;
+  min-inline-size: 1.5em;
+  color: var(--accent-ink);
+  font: 500 var(--t-body)/1 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+}
+.stats-rank-name {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--ink-1);
+  font-size: var(--t-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stats-rank-value {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+.stats-rank:empty::after {
+  content: "—";
+  color: var(--ink-3);
+}
+
+/* אחסון: מדדי מכסה וטופס הסף */
+.storage-quota {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.storage-quota:empty { display: none; }
+.storage-quota-warning { color: var(--danger); font-weight: 600; }
+.storage-quota-meter {
+  display: block;
+  inline-size: 100%;
+  block-size: 6px;
+  margin-block-start: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-3);
+  color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.storage-quota-meter::-webkit-progress-bar { border-radius: var(--r-pill); background-color: var(--surface-3); }
+.storage-quota-meter::-webkit-progress-value { border-radius: var(--r-pill); background-color: var(--accent); }
+.storage-quota-meter::-moz-progress-bar { border-radius: var(--r-pill); background-color: var(--accent); }
+.storage-quota-line.is-over .storage-quota-meter::-webkit-progress-value { background-color: var(--danger); }
+.storage-quota-line.is-over .storage-quota-meter::-moz-progress-bar { background-color: var(--danger); }
+
+.storage-budget-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+.storage-budget-form .field > label {
+  color: var(--ink-2);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.storage-budget-submit {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+/* --- 5. שגיאות ותקלות: הטבלה (admin-errors.js) ----------------------------- */
+.admin-table-wrap {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.admin-errors-table { min-inline-size: 880px; }
+.admin-errors-table td { font-size: var(--t-small); }
+.admin-errors-table > tbody > tr:hover > td { background-color: var(--surface-2); }
+.error-message { min-inline-size: 260px; max-inline-size: 420px; }
+.error-message .admin-row-title,
+.error-details > summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.error-message .admin-row-title { margin: 0; }
+.error-message .admin-row-meta {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: var(--t-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error-details > summary { cursor: pointer; list-style: none; }
+.error-details > summary::-webkit-details-marker { display: none; }
+.error-details > summary:hover { color: var(--accent-ink); }
+.error-details[open] > summary { -webkit-line-clamp: unset; }
+.error-stack {
+  max-block-size: 260px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--surface-inset);
+  color: var(--ink-2);
+  font: 400 var(--t-micro)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  direction: ltr;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.error-source {
+  display: inline-flex;
+  align-items: center;
+  block-size: 22px;
+  padding-inline: 8px;
+  border-radius: var(--r-xs);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  white-space: nowrap;
+}
+.error-source[data-source="worker"] { background-color: var(--violet-tint); color: var(--violet); }
+.error-source[data-source="site"] { background-color: var(--info-tint); color: var(--info); }
+.error-count,
+.error-time {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.error-count { color: var(--ink-1); font-weight: 600; text-align: end; }
+.error-url {
+  max-inline-size: 220px;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+.error-url a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.error-actions { text-align: end; white-space: nowrap; }
+.error-actions .btn-primary-gold,
+.error-actions .btn-secondary-dark { min-block-size: 32px; padding-inline: 12px; }
+.admin-errors-table td.admin-empty { border: 0; padding: 24px; }
+
+/* --- 6. אנשים ופרצופים (face-people.js) ----------------------------------- */
+.people-admin-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+}
+.people-admin-run .field-hint { flex: 1 1 260px; margin: 0; }
+.people-admin-tabs .admin-filter-chip { min-block-size: 40px; }
+.people-admin-tabs [data-people-count] {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 22px;
+  block-size: 20px;
+  padding-inline: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.people-admin-tabs .is-active [data-people-count] { background-color: var(--accent); color: var(--on-accent); }
+
+.people-admin-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 14px;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.people-admin-list[aria-busy="true"] { opacity: .6; cursor: progress; }
+.people-admin-list > .admin-empty,
+.people-admin-list > p,
+.people-admin-detail-head { grid-column: 1 / -1; }
+.people-admin-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-block-end: 8px;
+  border-block-end: 1px solid var(--line);
+}
+.people-admin-detail-head h4 {
+  margin: 0;
+  color: var(--ink-1);
+  font: 500 var(--t-h3)/var(--lh-h3) var(--font-serif);
+}
+
+.people-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-inline-size: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface);
+  box-shadow: inset 0 1px 0 var(--highlight);
+}
+.people-admin-review {
+  border-color: var(--warn-line);
+  background-color: var(--warn-tint);
+}
+.people-admin-member { align-items: flex-start; }
+.people-admin-faces,
+.people-admin-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.people-admin-pair { gap: 12px; }
+.people-admin-pair .face-crop { inline-size: 88px; }
+.people-admin-member > .face-crop { inline-size: 96px; }
+.people-admin-meta {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+.people-admin-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.people-admin-name > label {
+  color: var(--ink-2);
+  font: 600 var(--t-small)/1 var(--font-sans);
+}
+.people-admin-name > input { flex: 1 1 140px; min-inline-size: 0; }
+.people-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: auto;
+}
+.people-admin-actions > :is(.btn-primary-gold, .btn-secondary-dark, .btn-danger-soft) {
+  min-block-size: 36px;
+  padding-inline: 12px;
+}
+.people-admin-select { display: inline-flex; min-inline-size: 0; max-inline-size: 100%; }
+body .people-admin-select select { max-inline-size: 100%; min-block-size: 36px; }
+.people-admin-pages,
+.face-people-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+.people-admin-pages:empty,
+.face-people-pages:empty { display: none; }
+
+/* חיתוך פרצוף: המסגרת קובעת יחס 1:1, ו-JS ממקם את התמונה בסגנון מוטבע */
+.face-crop {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  inline-size: 48px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--surface-3);
+}
+.face-crop > img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.face-crop > img.is-cropped { max-inline-size: none; object-fit: none; }
+.face-crop.is-empty::after {
+  content: "";
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  background-color: var(--line-strong);
+}
+.people-admin-member .face-crop,
+.people-admin-pair .face-crop { border-radius: var(--r-md); }
+
+/* איחוד ידני: רשת הפרצופים */
+.face-people-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.face-people-toolbar:empty { display: none; }
+.face-people-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+}
+.face-person-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.face-person-card > label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+.face-person-card > label:hover { border-color: var(--line-accent); }
+.face-person-card > label:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background-color: var(--accent-tint-1);
+}
+.face-person-card > label:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.face-person-card input[type="checkbox"] {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-start: 10px;
+  z-index: 2;
+}
+.face-person-card canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-3);
+}
+.face-person-card > .btn-secondary-dark {
+  min-block-size: 32px;
+  padding-inline: 8px;
+  font-size: var(--t-micro);
+}
+
+/* --- 7. מרכז ההודעות (#adminMessagesCenterModal, z 110) -------------------- */
+/* השורש מוסתר ב-.hidden; display במחלקה אחת כדי ש-.hidden יגבר */
+.admin-messages-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.admin-messages-window {
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  max-inline-size: 1240px;
+  block-size: 100%;
+  max-block-size: 920px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background-color: var(--surface-raised);
+  color: var(--ink-1);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-3);
+}
+.admin-messages-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px 14px;
+  border-block-end: 1px solid var(--line);
+}
+.admin-messages-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.admin-messages-brand-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+  color: var(--ink-3);
+}
+.admin-messages-brand small {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+}
+.admin-messages-brand h2 {
+  margin: 0;
+  color: var(--ink-1);
+  font: 500 var(--t-h2)/var(--lh-h2) var(--font-serif);
+}
+
+/* פס המונים: שבב גוון + מספר + תווית */
+.admin-messages-stats {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 12px 24px;
+  overflow-x: auto;
+  border-block-end: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.admin-messages-stats::-webkit-scrollbar { display: none; }
+.admin-messages-stats > div {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background-color: var(--surface);
+}
+[dir="ltr"] .admin-messages-stats > div { padding: 6px 6px 6px 14px; }
+.admin-messages-stats > div > .chip {
+  inline-size: 28px;
+  block-size: 28px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+.admin-messages-stats > div > div { display: flex; align-items: baseline; gap: 6px; }
+.admin-messages-stats strong {
+  color: var(--ink-1);
+  font: 600 var(--t-body)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.admin-messages-stats small { color: var(--ink-3); font-size: var(--t-micro); white-space: nowrap; }
+
+.admin-messages-layout {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(300px, 360px);
+  min-block-size: 0;
+}
+.admin-conversations-pane,
+.admin-recipients-pane,
+.admin-compose-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.admin-recipients-pane {
+  border-inline: 1px solid var(--line);
+}
+.admin-compose-pane { background-color: var(--surface); }
+
+.admin-pane-heading,
+.admin-compose-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.admin-pane-heading > div > span,
+.admin-compose-heading small {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font: 400 var(--t-micro)/var(--lh-micro) var(--font-sans);
+}
+.admin-pane-heading > div > span::before,
+.admin-compose-heading small::before {
+  content: "";
+  flex: none;
+  inline-size: 16px;
+  block-size: 1px;
+  background-color: var(--accent);
+}
+.admin-pane-heading h3,
+.admin-compose-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  color: var(--ink-1);
+  font: 600 var(--t-h3)/var(--lh-h3) var(--font-sans);
+}
+.admin-pane-heading h3 > :is(i, svg),
+.admin-compose-heading h3 > :is(i, svg) { color: var(--ink-3); }
+#adminMessageUsersSummary,
+.admin-compose-selection {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+}
+.admin-compose-selection { color: var(--accent-ink); font-weight: 600; }
+
+/* מסנני השיחות: מקטעים (.segmented); הדגשה ב-is-active */
+.admin-conversation-filters { align-self: flex-start; max-inline-size: 100%; overflow-x: auto; }
+
+/* רשימת השיחות */
+.admin-conversation-list {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+.admin-conversation-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  inline-size: 100%;
+  min-block-size: 56px;
+  padding: 10px 8px;
+  border: 0;
+  border-block-end: 1px solid var(--line);
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--ink-1);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.admin-conversation-card:last-child { border-block-end: 0; }
+.admin-conversation-card:hover { background-color: var(--surface-2); }
+.admin-conversation-card.is-active {
+  background-color: var(--accent-tint-1);
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.admin-conversation-card.is-resolved { color: var(--ink-2); }
+.admin-conversation-avatar,
+.admin-message-user-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--t-small)/1 var(--font-sans);
+}
+.admin-conversation-avatar img,
+.admin-message-user-avatar img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+.admin-conversation-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.admin-conversation-headline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.admin-conversation-headline strong {
+  overflow: hidden;
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-conversation-headline time {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+.admin-conversation-preview {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-conversation-card.is-unread .admin-conversation-preview { color: var(--ink-1); font-weight: 600; }
+.admin-conversation-meta { display: flex; align-items: center; gap: 6px; margin-block-start: 2px; }
+.admin-conversation-status {
+  display: inline-flex;
+  align-items: center;
+  block-size: 20px;
+  padding-inline: 7px;
+  border-radius: var(--r-xs);
+  background-color: var(--warn-tint);
+  color: var(--warn);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+}
+.admin-conversation-card.is-resolved .admin-conversation-status { background-color: var(--success-tint); color: var(--success); }
+.admin-conversation-unread {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 20px;
+  block-size: 20px;
+  padding-inline: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font: 700 var(--t-micro)/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.admin-conversation-arrow { flex: none; color: var(--ink-3); }
+[dir="ltr"] .admin-conversation-arrow { scale: -1 1; }
+.admin-conversation-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  text-align: center;
+}
+.admin-conversation-empty strong { color: var(--ink-2); font-weight: 600; }
+
+/* מונה הפניות ומונה המצב המהיר */
+.admin-pane-count { font-variant-numeric: tabular-nums; }
+.admin-pane-count.animate-pulse { animation: none; }
+
+/* בחירת נמענים */
+.admin-recipient-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.admin-recipient-controls > .admin-menu-search { flex: 1 1 200px; min-inline-size: 0; }
+.admin-message-users-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  align-content: start;
+  gap: 8px;
+}
+.admin-message-user-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-inline-size: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.admin-message-user-card:hover { border-color: var(--line-strong); background-color: var(--surface-2); }
+.admin-message-user-card.is-selected {
+  border-color: var(--line-accent);
+  background-color: var(--accent-tint-1);
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.admin-message-user-card:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+
+/* כתיבת הודעה */
+.admin-compose-field textarea { min-block-size: 180px; resize: vertical; }
+.admin-compose-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+}
+.admin-compose-meta > span { display: inline-flex; align-items: center; gap: 6px; }
+.admin-compose-meta b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.admin-compose-send { inline-size: 100%; }
+.admin-compose-progress {
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+}
+.admin-compose-tip {
+  margin: 0;
+  padding: 10px 12px;
+  border-inline-start: 3px solid var(--info);
+  border-radius: var(--r-sm);
+  background-color: var(--info-tint);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+.admin-compose-tip strong { color: var(--ink-1); }
+
+@media (max-width: 1023px) {
+  .admin-messages-layout {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .admin-conversations-pane,
+  .admin-recipients-pane,
+  .admin-compose-pane { flex: none; overflow: visible; }
+  .admin-recipients-pane { border-inline: 0; border-block: 1px solid var(--line); }
+}
+@media (max-width: 767px) {
+  /* בטלפון: מסך מלא, בלי פינות ובלי ריפוד חיצוני */
+  .admin-messages-overlay { padding: 0; }
+  .admin-messages-window {
+    max-block-size: none;
+    block-size: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+  .admin-messages-header { padding: 12px 16px; padding-block-start: max(12px, env(safe-area-inset-top)); }
+  .admin-messages-stats { padding-inline: 16px; }
+  .admin-conversations-pane,
+  .admin-recipients-pane,
+  .admin-compose-pane { padding: 16px; }
+  .admin-compose-pane { padding-block-end: max(16px, env(safe-area-inset-bottom)); }
+  .admin-conversation-card { min-block-size: 60px; }
+  .admin-recipient-controls > .btn { min-block-size: 44px; }
+}
+
+/* --- 8. מצב מהיר לאישור העלאות (.pending-swipe, z 120) --------------------- */
+html.pending-swipe-open { overflow: hidden; }
+
+.pending-swipe {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0px, 2vw, 20px);
+  background-color: var(--overlay);
+}
+@media (min-width: 768px) {
+  .pending-swipe { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+}
+.pending-swipe-shell {
+  inline-size: 100%;
+  max-inline-size: 600px;
+  block-size: 100%;
+  max-block-size: 920px;
+}
+.pending-swipe-shell > .modal-head { gap: 10px; }
+.pending-swipe-shell > .modal-head h3 { flex: 1 1 auto; }
+.pending-swipe-shell > .modal-head .admin-stat-icon { inline-size: 32px; block-size: 32px; }
+#pendingSwipeCount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  block-size: 24px;
+  padding-inline: 9px;
+  border-radius: var(--r-xs);
+  background-color: var(--surface-3);
+  color: var(--ink-2);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  white-space: nowrap;
+}
+.pending-swipe-help {
+  flex: none;
+  margin: 0;
+  padding: 10px 24px 0;
+  color: var(--ink-3);
+  font-size: var(--t-micro);
+  line-height: var(--lh-micro);
+}
+
+/* הבמה: הכרטיס הבא, הנוכחי ומצב הריק — באותו תא */
+.pending-swipe-stage {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: 14px 24px;
+}
+.pending-swipe-stage > * { grid-area: 1 / 1; min-block-size: 0; }
+
+.pending-swipe-next {
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  background-color: var(--surface-2);
+  opacity: .5;
+  transform: translateY(10px) scale(.94);
+  pointer-events: none;
+}
+.pending-swipe-next img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+
+.pending-swipe-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  background-color: var(--surface-raised);
+  box-shadow: var(--shadow-3);
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transform: translateX(var(--swipe-x, 0)) rotate(var(--swipe-rotate, 0deg));
+  will-change: transform;
+}
+.pending-swipe-card:active { cursor: grabbing; }
+.pending-swipe-card:focus-visible { box-shadow: var(--focus-ring), var(--shadow-3); }
+.pending-swipe-card[data-hint="approve"] {
+  border-color: color-mix(in srgb, var(--green) calc(var(--swipe-progress, 0) * 100%), var(--line-strong));
+}
+.pending-swipe-card[data-hint="reject"] {
+  border-color: color-mix(in srgb, var(--danger) calc(var(--swipe-progress, 0) * 100%), var(--line-strong));
+}
+.pending-swipe-card.is-returning {
+  transition: transform .22s var(--ease-out), opacity .22s var(--ease-out);
+}
+.pending-swipe-card[data-leaving] { opacity: 0; pointer-events: none; }
+/* בזמן שהכרטיס עף (‎220ms) כפתורי היציאה אינם זמינים — סגירה באמצע היציאה
+   הייתה מאבדת את ההחלטה, שנרשמת רק בסוף התנועה */
+.pending-swipe:has(.pending-swipe-card[data-leaving]:not([hidden])) [data-swipe-close] { pointer-events: none; }
+
+.pending-swipe-media {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 200px;
+  max-block-size: 56vh;
+  overflow: hidden;
+  background-color: var(--surface-inset);
+}
+.pending-swipe-media > img,
+.pending-swipe-video {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+.pending-swipe-kind {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-end: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  block-size: 24px;
+  padding-inline: 8px;
+  border: 1px solid var(--media-chip-line);
+  border-radius: var(--r-xs);
+  background-color: var(--media-chip);
+  color: var(--media-ink);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+}
+/* חותמות ההחלטה: אשר בקצה הסוף, דחה בקצה ההתחלה; עוצמה לפי --swipe-progress */
+.pending-swipe-stamp {
+  position: absolute;
+  inset-block-start: 16px;
+  padding: 4px 12px;
+  border: 2px solid currentColor;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-raised);
+  font: 600 1.5rem/1.1 var(--font-serif);
+  opacity: 0;
+  rotate: -8deg;
+  pointer-events: none;
+}
+.pending-swipe-stamp[data-stamp="approve"] { inset-inline-end: 16px; color: var(--success); }
+.pending-swipe-stamp[data-stamp="reject"] { inset-inline-start: 16px; color: var(--danger); rotate: 8deg; }
+.pending-swipe-card[data-hint="approve"] .pending-swipe-stamp[data-stamp="approve"],
+.pending-swipe-card[data-hint="reject"] .pending-swipe-stamp[data-stamp="reject"] {
+  opacity: var(--swipe-progress, 0);
+}
+
+.pending-swipe-meta {
+  flex: none;
+  padding: 14px 16px 16px;
+  border-block-start: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--t-small);
+}
+.pending-swipe-meta h4 {
+  margin: 0 0 8px;
+  overflow: hidden;
+  color: var(--ink-1);
+  font: 500 var(--t-h3)/var(--lh-h3) var(--font-serif);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-swipe-meta dl { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+.pending-swipe-meta dl > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.pending-swipe-meta dt {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 104px;
+  color: var(--ink-3);
+}
+.pending-swipe-meta dd { min-inline-size: 0; margin: 0; color: var(--ink-1); overflow-wrap: anywhere; }
+.pending-swipe-email { color: var(--ink-3); direction: ltr; unicode-bidi: plaintext; }
+.pending-swipe-new {
+  display: inline-flex;
+  align-items: center;
+  block-size: 20px;
+  margin-inline-start: 4px;
+  padding-inline: 7px;
+  border-radius: var(--r-xs);
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font: 600 var(--t-micro)/1 var(--font-sans);
+  vertical-align: middle;
+}
+
+.pending-swipe-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-xl);
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  text-align: center;
+}
+.pending-swipe-empty p { margin: 0; }
+.pending-swipe-empty-title {
+  color: var(--ink-1);
+  font: 500 var(--t-h3)/var(--lh-h3) var(--font-serif);
+}
+
+/* פעולות: אשר ראשון בסדר המסמך — בימין ב-RTL */
+.pending-swipe-actions {
+  display: grid;
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 24px;
+}
+.pending-swipe-actions > .btn { min-block-size: 48px; font-size: var(--t-body); }
+
+.pending-swipe-reason {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 24px 0;
+  color: var(--ink-2);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.pending-swipe-reason > input { font-weight: 400; }
+
+/* פס הביטול: מתרוקן לאורך --undo-ms; צבע לפי ההחלטה */
+.pending-swipe-undo {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 10px 12px 13px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+}
+.pending-swipe-undo > p {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  color: var(--ink-1);
+  font-size: var(--t-small);
+}
+.pending-swipe-undo-bar {
+  position: absolute;
+  inset: auto 0 0;
+  block-size: 3px;
+  background-color: var(--accent);
+  transform-origin: 100% 50%;
+}
+[dir="ltr"] .pending-swipe-undo-bar { transform-origin: 0 50%; }
+.pending-swipe-undo[data-action="approve"] .pending-swipe-undo-bar { background-color: var(--success); }
+.pending-swipe-undo[data-action="reject"] .pending-swipe-undo-bar { background-color: var(--danger); }
+.pending-swipe-undo-bar.is-running {
+  animation: bar-grow var(--undo-ms, 5s) linear reverse both;
+}
+.pending-swipe-shell > :last-child { margin-block-end: 20px; }
+
+@media (max-width: 767px) {
+  .pending-swipe { padding: 0; background-color: var(--bg); }
+  .pending-swipe-shell {
+    max-inline-size: none;
+    max-block-size: none;
+    block-size: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding-block-end: env(safe-area-inset-bottom);
+  }
+  .pending-swipe-shell > .modal-head { padding-block-start: max(12px, env(safe-area-inset-top)); }
+  .pending-swipe-help { padding-inline: 16px; }
+  .pending-swipe-stage { padding: 10px 16px; }
+  .pending-swipe-media { min-block-size: 180px; max-block-size: 46vh; }
+  .pending-swipe-actions { padding-inline: 16px; }
+  .pending-swipe-reason { padding-inline: 16px; }
+  .pending-swipe-undo { margin-inline: 16px; }
+  .pending-swipe-shell > :last-child { margin-block-end: 12px; }
+}
+@media (max-height: 700px) {
+  .pending-swipe-help { display: none; }
+}
+
+/* --- 9. הערות פנימיות על משתמש (#userNotesModal) --------------------------- */
+.user-notes-list {
+  max-block-size: 45vh;
+  overflow-y: auto;
+  gap: 8px;
+}
+.user-notes-list > .admin-empty { margin: 0; }
+.user-note.admin-row {
+  min-block-size: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+}
+
+.user-note .admin-row-meta { margin: 0; }
+.user-note-delete.btn-danger-soft {
+  align-self: flex-end;
+  min-block-size: 32px;
+  padding-inline: 10px;
+  font-size: var(--t-micro);
+}
+
+/* --- 10. טלפון: לוחות, טפסים וטבלאות בשתי שורות ---------------------------- */
+@media (max-width: 767px) {
+  .admin-panel-actions { inline-size: 100%; }
+  .admin-panel-actions > .btn { min-block-size: 44px; }
+  .admin-job-actions > .btn { min-block-size: 44px; }
+  .admin-choice { min-block-size: 44px; }
+  .storage-budget-form { grid-template-columns: minmax(0, 1fr); }
+  .storage-budget-submit > .btn { inline-size: 100%; }
+  .analytics-media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .people-admin-tabs .admin-filter-chip { min-block-size: 44px; }
+  .people-admin-actions > :is(.btn-primary-gold, .btn-secondary-dark, .btn-danger-soft) { min-block-size: 44px; }
+  body .people-admin-select select { min-block-size: 44px; }
+  .face-people-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .face-person-card > .btn-secondary-dark { min-block-size: 44px; }
+  .user-note-delete.btn-danger-soft { min-block-size: 44px; }
+
+  /* טבלת השגיאות: כל שורה הופכת לבלוק של שתי עמודות; הכותרת מוסתרת חזותית */
+  .admin-table-wrap { overflow-x: visible; border: 0; background-color: transparent; }
+  .admin-errors-table { min-inline-size: 0; }
+  .admin-errors-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .admin-errors-table,
+  .admin-errors-table tbody { display: block; }
+  .admin-errors-table tbody > tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding-block: 12px;
+    border-block-end: 1px solid var(--line);
+  }
+  .admin-errors-table tbody > tr > td {
+    display: block;
+    min-inline-size: 0;
+    max-inline-size: none;
+    padding: 0;
+    border: 0;
+    color: var(--ink-3);
+    font-size: var(--t-small);
+  }
+  .admin-errors-table tbody > tr > td.error-message { grid-column: 1 / -1; color: var(--ink-1); }
+  .admin-errors-table tbody > tr > td.error-url { grid-column: 1 / -1; }
+  .admin-errors-table tbody > tr > td.error-actions { grid-column: 1 / -1; text-align: end; }
+  .admin-errors-table tbody > tr > td.admin-empty { grid-column: 1 / -1; }
+  .admin-errors-table > tbody > tr:hover > td { background-color: transparent; }
+  .error-count { text-align: start; }
+  .error-actions .btn-primary-gold,
+  .error-actions .btn-secondary-dark { min-block-size: 44px; }
+
+  /* טבלאות סטטיסטיקה קצרות: נגללות בתוך עצמן, לא את הדף */
+  .stats-table-wrap { overflow-x: auto; }
+}
+
+/* --- 11. תנועה מופחתת: הכרטיס והפס בלי תנועה (הבלוק הכללי ב-00-foundation) --- */
+@media (prefers-reduced-motion: reduce) {
+  .pending-swipe-undo-bar.is-running { animation: none; }
+  .stats-table-details > summary::before { transition: none; }
+}
+
+/* --- 12. הדפסה: לוח הניהול אינו מודפס עם החלונות ---------------------------- */
+@media print {
+  .admin-messages-overlay,
+  .pending-swipe { display: none; }
+}
+
+/* ==========================================================================
+   סוף הקובץ: hidden של Tailwind חוזר כאן. בבנייה (Vite) styles.css ו-
+   tailwind.generated.css, המשותפים לשני הדפים, נארזים לקובץ CSS משותף
+   שנטען לפני admin.css — ובלי השורה הזאת כל display בכלל של admin.css היה
+   גובר על hidden. אותה ספציפיות (מחלקה אחת), ולכן כאן היא שוב אחרונה.
+   ========================================================================== */
+.hidden { display: none; }

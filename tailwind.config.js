@@ -8,9 +8,58 @@
 // הלאה. כך כל צמד של רקע כהה וטקסט בהיר הופך מאליו לרקע בהיר וטקסט כהה,
 // והניגודיות נשמרת בכל רכיב — גם ברכיבים שנבנים כמחרוזת ב-JS.
 //
-// הסריקה כוללת את קובצי ה-JS, משום שחלק ניכר מה-HTML נבנה שם.
+// הסריקה כוללת את קובצי ה-JS, משום שחלק ניכר מה-HTML נבנה שם: כל קובץ JS
+// (מלבד בדיקות וה-Worker) שמרכיב מחרוזות class או משנה classList.
+// admin.css ו-styles.css אינם נסרקים.
 module.exports = {
-  content: ["./index.html", "./admin.html", "./admin-messages.html", "./app.js", "./session-ui.js", "./gallery.js", "./gallery-feed.js", "./lightbox-slideshow.js", "./admin.js", "./admin-ui.js", "./admin-app.js", "./popup-announcement.js", "./popup-admin.js", "./chat.js", "./chat-admin.js", "./session-auth.js", "./drive-sync.js", "./face-search.js", "./face-index.js", "./admin-errors.js", "./media-variants-admin.js", "./capture-dates-admin.js", "./media-description.js"],
+  content: [
+    "./index.html",
+    "./admin.html",
+    "./admin-messages.html",
+    "./admin-app.js",
+    "./admin-errors.js",
+    "./admin-guide-ui.js",
+    "./admin-stats.js",
+    "./admin-ui.js",
+    "./admin-users-bulk.js",
+    "./admin.js",
+    "./ai-titles-admin.js",
+    "./app.js",
+    "./big-screen.js",
+    "./capture-dates-admin.js",
+    "./chat-admin.js",
+    "./chat.js",
+    "./download-privacy-admin.js",
+    "./drive-sync.js",
+    "./face-index.js",
+    "./face-people.js",
+    "./face-search.js",
+    "./folder-preview.js",
+    "./gallery-feed.js",
+    "./gallery-filter-panel.js",
+    "./gallery-folders.js",
+    "./gallery-navigation-ui.js",
+    "./gallery-timeline-ui.js",
+    "./gallery.js",
+    "./invites-admin.js",
+    "./lightbox-slideshow.js",
+    "./maintenance-admin.js",
+    "./manual-order-ui.js",
+    "./manual-tags.js",
+    "./media-description.js",
+    "./media-edit-ui.js",
+    "./media-variants-admin.js",
+    "./my-uploads.js",
+    "./pending-swipe.js",
+    "./people.js",
+    "./popup-admin.js",
+    "./popup-announcement.js",
+    "./print-album-ui.js",
+    "./search-history-ui.js",
+    "./session-auth.js",
+    "./session-ui.js",
+    "./video-hover-preview.js"
+  ],
   theme: {
     extend: {
       colors: {
