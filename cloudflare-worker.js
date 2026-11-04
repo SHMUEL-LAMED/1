@@ -2,6 +2,10 @@
 // הלוגיקה עצמה מחולקת למודולים בתיקייה worker/ (ראו README). בפריסה הכול
 // נארז לקובץ ESM יחיד (scripts/bundle-worker.mjs), כי ה-Action מעלה מודול אחד.
 import {
+  createAlbumPdf,
+  serveAlbumPdf
+} from "./worker/album.js";
+import {
   aiImageSearch,
   aiImageTitle,
   aiProviderSettings,
@@ -361,6 +365,12 @@ export default {
       }
       if (request.method === "GET" && url.pathname.startsWith("/face-assets/")) {
         return await serveFaceAsset(request, env, url.pathname);
+      }
+      if (request.method === "POST" && url.pathname === "/album/pdf") {
+        return await createAlbumPdf(request, env);
+      }
+      if (request.method === "GET" && url.pathname.startsWith("/album/file/")) {
+        return await serveAlbumPdf(request, env, url.pathname);
       }
       if (request.method === "POST" && url.pathname === "/order") {
         return await saveManualOrder(request, env);
