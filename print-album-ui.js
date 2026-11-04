@@ -1,8 +1,16 @@
 // print-album-ui.js — אלבום להדפסה: החלון, טעינת התמונות וההדפסה.
 //
 // נטען עצלה (app.js) מ"אלבום להדפסה" בעמוד האירוע ומ"אלבום PDF" בסרגל הבחירה
-// המרובה. ה-PDF הוא של הדפדפן: האלבום נבנה כעמודי A4 בתוך #printAlbum, שמוסתר
-// במסך, ו-window.print() מדפיס רק אותו (body.is-printing-album ב-styles.css).
+// המרובה.
+//
+// המסלול הראשי: אלבום בענן. הרשימה נשלחת ל-POST /album/pdf, השרת בונה את
+// ה-PDF (worker/album.js, Browser Rendering של Cloudflare) ומחזיר קישור
+// להורדה — בלי לטעון את התמונות לזיכרון של הטלפון. כשהשירות עוד לא הופעל
+// בשרת (album_cloud_unavailable, או Worker ישן שאין בו את הנתיב) — חוזרים
+// למסלול המקומי שלמטה.
+//
+// המסלול המקומי: ה-PDF הוא של הדפדפן. האלבום נבנה כעמודי A4 בתוך
+// #printAlbum, שמוסתר במסך, ו-window.print() מדפיס רק אותו (body.is-printing-album ב-styles.css).
 // כך אין ספריית PDF כבדה, והטקסט העברי, הגופן וכיוון הקריאה הם בדיוק של הדף.
 //
 // לפני ההדפסה כל התמונות נטענות ומפוענחות — אחרת חלון ההדפסה היה מצלם
@@ -29,6 +37,10 @@ const IMAGE_TIMEOUT_MS = 30_000;
 let pendingAlbum = null;
 // הטעינה שרצה: { cancelled, aborts } — aborts מסיימים מיד טעינות שבדרך.
 let activeJob = null;
+// יצירת PDF בענן לוקחת עד כשתי דקות באלבום גדול.
+const CLOUD_ALBUM_TIMEOUT_MS = 240_000;
+// השרת אינו יודע ליצור אלבום בענן: חוזרים לחלון ההדפסה.
+const CLOUD_FALLBACK_CODES = new Set(['album_cloud_unavailable']);
 
 function readPerPage() {
     return readGalleryPreference(ALBUM_PER_PAGE_KEY, normalizeAlbumPerPage);
@@ -72,9 +84,17 @@ function albumBelongsToViewer(album) {
     return Boolean(album?.ownerUid) && album.ownerUid === uid;
 }
 
+// ההסבר שבחלון מתאר את האלבום בענן. ב-index.html עדיין כתוב שהאלבום נפתח
+// בחלון ההדפסה (המסלול המקומי), ולכן הוא מתעדכן כאן בכל פתיחה של החלון.
+function describeCloudAlbum() {
+    const hint = document.querySelector('#printAlbumModal .field-hint');
+    if (hint) hint.textContent = 'האלבום נוצר בענן כקובץ PDF בעמודי A4 ויורד אליך, בלי להעמיס על הטלפון או המחשב.';
+}
+
 function openAlbumDialog(album) {
     const ownerUid = approvedViewerUid();
     if (!ownerUid) return;
+    describeCloudAlbum();
     pendingAlbum = { ...album, ownerUid };
     const perPage = readPerPage();
     document.querySelectorAll('input[name="printAlbumPerPage"]').forEach(input => {
@@ -265,6 +285,72 @@ function albumNotes({ skipped, failed, truncated }) {
     return notes.join(' ');
 }
 
+// האם לחזור לאלבום המקומי: השירות לא הופעל, או Worker ישן בלי הנתיב (404).
+function shouldFallbackToLocal(error) {
+    // גם שגיאת רשת בלי סטטוס: עדיף אלבום מקומי מאשר שום אלבום.
+    return CLOUD_FALLBACK_CODES.has(error?.code) || error?.status === 404 || error?.status === 405 || !error?.status;
+}
+
+// הורדת הקובץ מהקישור שהשרת החזיר. הקישור עצמו הוא ההרשאה, ולכן אפשר
+// לפתוח אותו כרגיל, גם בטלפון.
+function downloadAlbum(url, fileName) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName || 'album.pdf';
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+// אלבום בענן. מחזיר true כשהטיפול הסתיים (הצליח או נכשל עם הודעה), ו-false
+// כשצריך לחזור למסלול המקומי.
+async function createCloudAlbum(album, prepared, perPage, job, stopped, more) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    job.aborts.add(abort);
+    const total = prepared.items.length;
+    let tick = 0;
+    setProgress(`יוצר את האלבום בענן… (${total} תמונות)`, 0.05);
+    // אין דיווח התקדמות מהשרת; הסרגל מתקדם לאט עד 90% כדי להראות שזה חי.
+    const ticker = setInterval(() => {
+        tick += 1;
+        if (!job.cancelled) setProgress(`יוצר את האלבום בענן… (${total} תמונות)`, Math.min(0.9, 0.05 + tick * 0.02));
+    }, 1000);
+    let result;
+    try {
+        result = await window.r2Request('/album/pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: album.title,
+                description: album.description || '',
+                eventDate: album.eventDate || '',
+                perPage,
+                ids: prepared.items.map(item => item.id)
+            }),
+            signal: controller.signal,
+            timeoutMs: CLOUD_ALBUM_TIMEOUT_MS
+        });
+    } catch (error) {
+        if (job.cancelled) return true;
+        if (shouldFallbackToLocal(error)) return false;
+        throw error;
+    } finally {
+        clearInterval(ticker);
+        job.aborts.delete(abort);
+    }
+    if (stopped()) return true;
+    if (!result?.url) throw new Error('יצירת האלבום בענן נכשלה.');
+    setProgress('האלבום מוכן, מוריד…', 1);
+    activeJob = null;
+    window.closeModal('printAlbumModal');
+    downloadAlbum(result.url, result.fileName);
+    const notes = albumNotes({ skipped: prepared.skipped + (Number(result.skipped) || 0), failed: 0, truncated: prepared.truncated || more });
+    window.showNotification(`האלבום מוכן (${result.pages} עמודים) ויורד עכשיו. הקישור תקף שבעה ימים.${notes ? ` ${notes}` : ''}`, true);
+    return true;
+}
+
 window.startPrintAlbum = async function() {
     const album = pendingAlbum;
     if (!album || activeJob) return;
@@ -305,6 +391,9 @@ window.startPrintAlbum = async function() {
             window.showNotification('אין באלבום תמונות להדפסה.', false);
             return;
         }
+
+        if (await createCloudAlbum(album, prepared, perPage, job, stopped, more)) return;
+        if (stopped()) return;
 
         const images = new Map();
         const total = prepared.items.length;
