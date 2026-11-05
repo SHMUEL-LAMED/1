@@ -20,6 +20,7 @@ on:
       - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
+      - wrangler.toml
   pull_request:
     branches: [main, staging]
     types: [closed]
@@ -30,6 +31,7 @@ on:
       - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
+      - wrangler.toml
   workflow_dispatch:
     inputs:
       target:
@@ -176,7 +178,12 @@ jobs:
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
             // רק ה-API החדש workers/workers תומך בירושה ממזהה גרסה מסוים.
-            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: inheritFrom })),
+            // Browser Rendering is declared explicitly, even on the first deploy.
+            // Preserve every other binding from the currently active version.
+            bindings: [
+              ...bindingNames.filter(name => name !== "BROWSER").map(name => ({ type: "inherit", name, version_id: inheritFrom })),
+              { type: "browser", name: "BROWSER" }
+            ],
             annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
           console.log(`Preserving ${bindingNames.length} bindings of ${workerName} (inherited from ${inheritFrom}).`);

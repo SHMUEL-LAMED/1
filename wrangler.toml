@@ -1,0 +1,8 @@
+# Production bindings are deployed by .github/workflows/deploy-worker.yml.
+# Keep the same guard as wrangler.jsonc: never replace the API with a Vite build.
+name = "simchas-gallery-api"
+main = "./WORKERS-BUILDS-DISABLED--deploy-via-github-actions-only.js"
+compatibility_date = "2026-08-13"
+
+[browser]
+binding = "BROWSER"

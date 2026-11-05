@@ -28,3 +28,10 @@ test("ה-Action של הפריסה יורש Bindings מהגרסה הפעילה ו
     assert.match(workflow, /workers\/workers\/\$\{workerName\}/);
     assert.match(workflow, /Uploaded version is missing inherited bindings; refusing to deploy/);
 });
+
+test("wrangler.toml declares BROWSER and preserves the accidental-deployment guard", async () => {
+    const config = await readFile(new URL("./wrangler.toml", import.meta.url), "utf8");
+    assert.match(config, /name = "simchas-gallery-api"/);
+    assert.match(config, /main = "\.\/WORKERS-BUILDS-DISABLED--deploy-via-github-actions-only\.js"/);
+    assert.match(config, /\[browser\]\s+binding = "BROWSER"/);
+});
