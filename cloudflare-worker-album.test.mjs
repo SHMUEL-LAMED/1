@@ -130,6 +130,8 @@ test("יצירת אלבום: רק פריטים מאושרים ומאובטחים
   assert.equal(rendered[0].action, "pdf");
   const html = rendered[0].options.html;
   assert.equal(rendered[0].options.pdfOptions.format, "a4");
+  assert.equal(rendered[0].options.gotoOptions.timeout, 60_000);
+  assert.equal(rendered[0].options.pdfOptions.timeout, 120_000);
   // סדר הצילום: img_2 (נוצר קודם) לפני img_1; התצוגה הבינונית במקום המקור.
   assert.ok(html.indexOf("img_2.jpg") < html.indexOf("variants/img_1/medium.webp"));
   assert.ok(!html.includes("insecure.example"));
@@ -196,4 +198,11 @@ test("HTML ושם קובץ: טקסט מוברח ושם בלי תווים אסו�
   assert.ok(html.includes('data-per-page="4"'));
   assert.equal(albumFileName('חתונה: "כהן"/לוי'), "חתונה- -כהן-לוי.pdf");
   assert.equal(albumFileName(""), "אלבום.pdf");
+});
+
+test("Browser binding Response: PDF bytes are read and rate limits remain retryable", async () => {
+  const bytes = await renderAlbumPdf({ BROWSER: { quickAction: async () => new Response(PDF) } }, "<html></html>");
+  assert.deepEqual(bytes, PDF);
+  await assert.rejects(renderAlbumPdf({ BROWSER: { quickAction: async () => new Response("busy", { status: 429 }) } }, ""),
+    error => error.code === "album_render_busy" && error.status === 429);
 });

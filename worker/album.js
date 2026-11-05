@@ -33,6 +33,8 @@ export const ALBUM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const ALBUM_RATE_LIMIT = 10;
 const ALBUM_RATE_WINDOW_MS = 60 * 60 * 1000;
 const RENDER_TIMEOUT_MS = 120_000;
+// Quick Actions permits at most 60 seconds for page loading (PDF rendering may take longer).
+const PAGE_LOAD_TIMEOUT_MS = 60_000;
 const DB_CHUNK = 50;
 const TOKEN_PATTERN = /^[a-f0-9]{32}$/;
 const UID_PATTERN = /^[a-zA-Z0-9_-]{1,160}$/;
@@ -153,7 +155,7 @@ export function albumRendererAvailable(env) {
 
 const PDF_OPTIONS = {
   html: "",
-  gotoOptions: { waitUntil: "networkidle0", timeout: RENDER_TIMEOUT_MS },
+  gotoOptions: { waitUntil: "networkidle0", timeout: PAGE_LOAD_TIMEOUT_MS },
   pdfOptions: { format: "a4", printBackground: true, preferCSSPageSize: true, timeout: RENDER_TIMEOUT_MS }
 };
 
@@ -176,7 +178,13 @@ function assertPdf(bytes) {
 export async function renderAlbumPdf(env, html, fetchImpl = fetch) {
   const options = { ...PDF_OPTIONS, html };
   if (typeof env?.BROWSER?.quickAction === "function") {
-    return assertPdf(await readPdfBytes(await env.BROWSER.quickAction("pdf", options)));
+    const response = await env.BROWSER.quickAction("pdf", options);
+    if (response?.ok === false) {
+      console.error("Browser Rendering binding failed", response.status, (await response.text().catch(() => "")).slice(0, 500));
+      if (response.status === 429) throw apiError("שירות ה-PDF בענן עמוס כרגע. נסה שוב בעוד דקה.", 429, "album_render_busy");
+      throw apiError("יצירת ה-PDF בענן נכשלה. נסה שוב בעוד רגע.", 502, "album_render_failed");
+    }
+    return assertPdf(await readPdfBytes(response));
   }
   if (env?.BROWSER_RENDERING_TOKEN && env?.CF_ACCOUNT_ID) {
     const account = encodeURIComponent(String(env.CF_ACCOUNT_ID).trim());
