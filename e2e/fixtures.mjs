@@ -3,7 +3,7 @@
 // הבדיקות טוענות את האתר האמיתי ב-Chromium, אבל בלי רשת: ספריית Google,
 // lucide והגופנים מוחלפים בתחליפים קטנים, וה-Worker מוחלף בזיוף בזיכרון
 // שמחזיר בדיוק את הצורות ש-cloudflare-client.js מצפה להן (ראו
-// handleDataRequest ו-establishGoogleSession ב-cloudflare-worker.js).
+// handleDataRequest ב-worker/data.js ו-establishGoogleSession ב-worker/auth.js).
 // כך הבדיקה מתרגלת את קוד הדפדפן כולו — התחברות, שחזור, הרשאות, גלריה —
 // בלי להיות תלויה בשרת חי ובלי לגעת בנתונים אמיתיים.
 import { test as base, expect } from '@playwright/test';

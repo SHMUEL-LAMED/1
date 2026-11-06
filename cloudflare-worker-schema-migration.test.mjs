@@ -157,7 +157,7 @@ test("Worker ישן שכתב גרסה נמוכה יותר אינו מוריד א
   // הגרסה הרשומה גבוהה מזו של הקוד (כמו אחרי פריסה של ענף חדש יותר).
   const d1 = productionDatabaseAtVersion4();
   d1.database.prepare("UPDATE gallery_schema_meta SET schema_version = 12 WHERE schema_key = 'gallery'").run();
-  const source = readFileSync(new URL("./cloudflare-worker.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./worker/schema.js", import.meta.url), "utf8");
   const upsert = source.match(/INSERT INTO gallery_schema_meta \(schema_key, schema_version, updated_at\)\s+VALUES \('gallery', \?, \?\)[\s\S]*?updated_at = excluded\.updated_at/)[0];
   d1.database.prepare(upsert).run(5, Date.now());
   assert.equal(meta(d1, "gallery"), 12);

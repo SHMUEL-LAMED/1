@@ -19,7 +19,8 @@ test('deployment inherits every binding from the active version using the suppor
         if (url.endsWith('/versions/active-version')) return response({ resources: { bindings: [{ name: 'GALLERY_DB' }, { name: 'GALLERY_BUCKET' }, { name: 'OPENAI_API_KEY' }] } });
         throw new Error(`unexpected ${url}`);
     }, processMock, quiet);
-    assert.ok(metadata.bindings.every(binding => binding.version_id === 'active-version'));
+    assert.ok(metadata.bindings.filter(binding => binding.name !== 'BROWSER').every(binding => binding.version_id === 'active-version'));
+    assert.deepEqual(metadata.bindings.find(binding => binding.name === 'BROWSER'), { type: 'browser', name: 'BROWSER' });
     let uploaded = false;
     let deployed = false;
     const deploy = new AsyncFunction('readFileSync', 'fetch', 'process', 'console', scripts[1]);

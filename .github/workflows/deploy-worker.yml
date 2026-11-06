@@ -1,5 +1,8 @@
 name: Deploy Cloudflare Worker
-# פריסה לשני ה-Workers מאותו קובץ, לפי הענף:
+# פריסה לשני ה-Workers מאותו קוד, לפי הענף. קוד המקור מחולק ל-cloudflare-worker.js
+# ולמודולים בתיקייה worker/, ולפני ההעלאה הוא נארז (esbuild) לקובץ ESM יחיד
+# dist-worker/cloudflare-worker.js, שעולה כמודול הראשי היחיד cloudflare-worker.js.
+# יעדים לפי הענף:
 #   main    → simchas-gallery-api          (ייצור)
 #   staging → simchas-gallery-api-staging  (סביבת הניסוי)
 # בהפעלה ידנית היעד נבחר בשדה target; יעד production מותר מ-main בלבד, ויעד
@@ -12,15 +15,23 @@ on:
     branches: [main, staging]
     paths:
       - cloudflare-worker.js
+      - "worker/**"
+      - scripts/bundle-worker.mjs
+      - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
+      - wrangler.toml
   pull_request:
     branches: [main, staging]
     types: [closed]
     paths:
       - cloudflare-worker.js
+      - "worker/**"
+      - scripts/bundle-worker.mjs
+      - package-lock.json
       - .github/workflows/deploy-worker.yml
       - wrangler.jsonc
+      - wrangler.toml
   workflow_dispatch:
     inputs:
       target:
@@ -93,6 +104,17 @@ jobs:
           npm run check:syntax
           npm test
 
+      - name: Bundle Worker
+        # ה-API מקבל כאן מודול אחד; אריזה מבטיחה שכל מודולי worker/ נכללים בו.
+        run: |
+          npm run build:worker
+          node --check dist-worker/cloudflare-worker.js
+          node --input-type=module -e '
+            const worker = (await import("./dist-worker/cloudflare-worker.js")).default;
+            if (typeof worker?.fetch !== "function") throw new Error("Bundled Worker has no default fetch handler.");
+            console.log("Bundled Worker exports a fetch handler.");
+          '
+
       - name: Validate Cloudflare token
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.DEPLOY_TARGET == 'production' && secrets.CLOUDFLARE_PRODUCTION_API_TOKEN || (env.DEPLOY_TARGET == 'staging' && secrets.CLOUDFLARE_API_TOKEN) || '' }}
@@ -156,7 +178,12 @@ jobs:
             main_module: "cloudflare-worker.js",
             compatibility_date: "2026-08-13",
             // רק ה-API החדש workers/workers תומך בירושה ממזהה גרסה מסוים.
-            bindings: bindingNames.map(name => ({ type: "inherit", name, version_id: inheritFrom })),
+            // Browser Rendering is declared explicitly, even on the first deploy.
+            // Preserve every other binding from the currently active version.
+            bindings: [
+              ...bindingNames.filter(name => name !== "BROWSER").map(name => ({ type: "inherit", name, version_id: inheritFrom })),
+              { type: "browser", name: "BROWSER" }
+            ],
             annotations: { "workers/message": `GitHub ${process.env.GITHUB_SHA} (${process.env.DEPLOY_TARGET})` }
           }));
           console.log(`Preserving ${bindingNames.length} bindings of ${workerName} (inherited from ${inheritFrom}).`);
@@ -198,7 +225,8 @@ jobs:
               modules: [{
                 name: "cloudflare-worker.js",
                 content_type: "application/javascript+module",
-                content_base64: readFileSync("cloudflare-worker.js").toString("base64")
+                // הקובץ הארוז (שלב Bundle Worker), לא קובץ המקור שמייבא את worker/.
+                content_base64: readFileSync("dist-worker/cloudflare-worker.js").toString("base64")
               }]
             })
           }, "Version upload", versionApiBase);

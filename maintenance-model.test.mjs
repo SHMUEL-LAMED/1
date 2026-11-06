@@ -9,7 +9,7 @@ import {
 } from "./maintenance-model.js";
 
 const DAY = 24 * 60 * 60 * 1000;
-const workerSource = readFileSync(new URL("./cloudflare-worker.js", import.meta.url), "utf8");
+const workerSource = readFileSync(new URL("./worker/maintenance.js", import.meta.url), "utf8");
 
 test("הקבועים זהים לאלה שב-Worker", () => {
   assert.match(workerSource, new RegExp(`const TRASH_RETENTION_DAYS = ${TRASH_RETENTION_DAYS};`));

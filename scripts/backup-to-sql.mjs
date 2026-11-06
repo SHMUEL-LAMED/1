@@ -1,5 +1,5 @@
 // scripts/backup-to-sql.mjs — הופך גיבוי D1 יומי (backups/d1/YYYY-MM-DD.json.gz,
-// ראו maintenanceBackup ב-cloudflare-worker.js) לקובץ SQL לשחזור ידני.
+// ראו maintenanceBackup ב-worker/maintenance.js) לקובץ SQL לשחזור ידני.
 //
 //   node scripts/backup-to-sql.mjs simchas-gallery-d1-2026-10-30.json.gz > restore.sql
 //

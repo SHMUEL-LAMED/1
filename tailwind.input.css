@@ -3,3 +3,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* שורה לא מתכווצת ברשימה עם גובה מרבי (admin-list-scroll ב-admin.css): flex
+   היה מכווץ כל שורה ל-min-block-size שלה, והכרטיסים (משתמשים, תיקיות, בקשות)
+   נערמו זה על זה. */
+@layer components {
+  .admin-list-scroll > * { flex-shrink: 0; }
+}
