@@ -52,6 +52,7 @@ import {
 } from './media-link.js';
 // הטעינה הראשונה: אילו תמונות יורדות מיד ובעדיפות גבוהה (first-load.js).
 import { aboveFoldCardCount, heroTileLoading, MAX_EAGER_CARDS } from './first-load.js';
+import { fillHeroTiles, HERO_MOSAIC_LIMIT, HERO_SWAP_INTERVAL_MS, mergeHeroPool, nextHeroSwap } from './hero-mosaic.js';
 // זיהוי הכפילויות לפני העלאה (ראו resolveDuplicateMedia).
 import { duplicateLookupHashes, markDuplicates, duplicateLabel } from './users-model.js';
 // תיקיות מקוננות ותמונת שער: העץ, הכרטיסים, פירורי הלחם ותת־התיקיות (gallery-folders.js).
@@ -1578,29 +1579,101 @@ function latestImagesSource() {
     return window.state.latestImages?.length ? window.state.latestImages : (window.state.images || []);
 }
 
-// פסיפס הרגעים האחרונים בפוסטר הכניסה: עד חמש תמונות מהחדשות ביותר.
-// מצויר מחדש רק כשהרשימה השתנתה, כדי שלא יהבהב בכל רינדור.
-const HERO_MOSAIC_LIMIT = 5;
+// פסיפס הרגעים בפוסטר הכניסה: חמש תמונות אקראיות מכל מה שנטען בביקור,
+// ואריח אחד מתחלף מדי כמה שניות בתמונה אקראית אחרת (hero-mosaic.js).
+// האריחים שכבר מוצגים נשמרים בין רינדורים, כדי שהפסיפס לא יהבהב.
+function heroMosaicPool() {
+    return mergeHeroPool([
+        window.state.latestImages || [],
+        window.state.images || [],
+        window.getAllLoadedImages?.() || [],
+    ]);
+}
+
+function heroTileUrl(item) {
+    return pickCardSource(item, window.safeImageUrl).url || '';
+}
+
+const heroTileUsable = item => Boolean(window.safeRecordId(item?.id) && heroTileUrl(item));
+
+function heroTileImageHtml(item, index) {
+    const { loading, fetchPriority } = heroTileLoading(index);
+    return `<img src="${window.escapeHtml(heroTileUrl(item))}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" onerror="this.parentElement.remove()">`;
+}
+
+function currentHeroIds(mosaic) {
+    return Array.from(mosaic.children || []).map(tile => tile.dataset?.heroId).filter(Boolean);
+}
+
 function renderHeroMosaic() {
     const mosaic = document.getElementById('heroMosaic');
     if (!mosaic) return;
-    const tiles = [...latestImagesSource()]
-        .map(item => {
-            const url = pickCardSource(item, window.safeImageUrl).url;
-            return url ? { id: window.safeRecordId(item.id), url, createdAt: Number(item?.createdAt) || 0 } : null;
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, HERO_MOSAIC_LIMIT);
-    const key = tiles.map(tile => tile.id).join('|');
-    if (mosaic.dataset.mosaicKey === key) return;
-    mosaic.dataset.mosaicKey = key;
-    // הפוסטר תמיד בראש הדף, ולכן האריחים אינם עצלים; הראשון, הגדול, הוא
-    // התמונה הראשונה שהמבקר רואה ויורד בעדיפות גבוהה (first-load.js).
-    mosaic.innerHTML = tiles.map((tile, index) => {
-        const { loading, fetchPriority } = heroTileLoading(index);
-        return `<span style="--tile-index:${index}"><img src="${window.escapeHtml(tile.url)}" alt="" loading="${loading}" fetchpriority="${fetchPriority}" decoding="async" onerror="this.parentElement.remove()"></span>`;
-    }).join('');
+    const tiles = fillHeroTiles(currentHeroIds(mosaic), heroMosaicPool(), { limit: HERO_MOSAIC_LIMIT, usable: heroTileUsable });
+    const key = tiles.map(item => window.safeRecordId(item.id)).join('|');
+    if (mosaic.dataset.mosaicKey !== key) {
+        mosaic.dataset.mosaicKey = key;
+        // הפוסטר תמיד בראש הדף, ולכן האריחים אינם עצלים; הראשון, הגדול, הוא
+        // התמונה הראשונה שהמבקר רואה ויורד בעדיפות גבוהה (first-load.js).
+        mosaic.innerHTML = tiles.map((item, index) =>
+            `<span style="--tile-index:${index}" data-hero-id="${window.escapeHtml(window.safeRecordId(item.id))}">${heroTileImageHtml(item, index)}</span>`
+        ).join('');
+    }
+    startHeroMosaicRotation();
+}
+
+let heroRotationTimer = null;
+let heroLastSwapSlot = -1;
+let heroSwapBusy = false;
+
+function prefersReducedMotion() {
+    return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+}
+
+function swapHeroTile() {
+    const mosaic = document.getElementById('heroMosaic');
+    if (!mosaic || heroSwapBusy || document.hidden) return;
+    const ids = currentHeroIds(mosaic);
+    const swap = nextHeroSwap(ids, heroMosaicPool(), { lastSlot: heroLastSwapSlot, usable: heroTileUsable });
+    if (!swap) return;
+    const url = heroTileUrl(swap.item);
+    const id = window.safeRecordId(swap.item.id);
+    heroSwapBusy = true;
+    // התמונה החדשה נטענת ברקע, ורק כשהיא מוכנה היא נכנסת בדעיכה מעל הישנה —
+    // כך לעולם לא נראה אריח ריק באמצע ההחלפה.
+    const preload = new Image();
+    preload.decoding = 'async';
+    preload.onload = () => {
+        heroSwapBusy = false;
+        const tile = mosaic.children?.[swap.slot];
+        if (!tile || tile.dataset.heroId !== ids[swap.slot]) return;
+        const next = document.createElement('img');
+        next.src = url;
+        next.alt = '';
+        next.decoding = 'async';
+        next.className = 'hero-tile-incoming';
+        const previous = [...tile.querySelectorAll('img')];
+        const finish = () => previous.forEach(img => img.remove());
+        if (prefersReducedMotion()) {
+            next.className = '';
+            tile.append(next);
+            finish();
+        } else {
+            next.addEventListener('animationend', () => { next.className = ''; finish(); }, { once: true });
+            tile.append(next);
+        }
+        tile.dataset.heroId = id;
+        heroLastSwapSlot = swap.slot;
+        mosaic.dataset.mosaicKey = currentHeroIds(mosaic).join('|');
+    };
+    preload.onerror = () => { heroSwapBusy = false; };
+    preload.src = url;
+}
+
+function startHeroMosaicRotation() {
+    if (heroRotationTimer !== null) return;
+    heroRotationTimer = window.setInterval(swapHeroTile, HERO_SWAP_INTERVAL_MS);
+    // ב-Node (בבדיקות) הטיימר לא יחזיק את התהליך בחיים.
+    heroRotationTimer?.unref?.();
 }
 
 // „כניסה לארכיון” מוביל ישירות לבחירת האירוע — הצעד הראשון באתר.

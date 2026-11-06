@@ -36,6 +36,7 @@ const APP_SHELL = [
   "./gallery-layout.js",
   "./gallery-random.js",
   "./first-load.js",
+  "./hero-mosaic.js",
   "./search-history.js",
   "./search-history-ui.js",
   "./search-suggest.js",
