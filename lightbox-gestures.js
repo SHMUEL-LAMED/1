@@ -33,7 +33,9 @@ let view = { ...IDENTITY_VIEW };
 const pointers = new Map();
 let gesture = null;
 let lastTap = null;
-let lastTouchDoubleTapAt = 0;
+// מתחיל ב"מעולם לא": השעון הוא performance.now(), שמתחיל באפס בטעינת הדף,
+// ולכן ערך התחלתי 0 היה מבטל כל לחיצה כפולה בעכבר ב-600ms הראשונים.
+let lastTouchDoubleTapAt = -Infinity;
 let originalToken = 0;
 let originalRequested = false;
 let committing = false;

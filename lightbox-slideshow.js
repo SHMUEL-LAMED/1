@@ -26,6 +26,8 @@ let deps = null;
 let scheduler = null;
 let active = false;
 let enteredFullscreen = false;
+// בקשת הכניסה למסך מלא שעוד לא הושלמה, אם יש כזו.
+let fullscreenRequest = null;
 let wakeLock = null;
 let skipVideos = false;
 let slideToken = 0;
@@ -138,21 +140,40 @@ function enterFullscreen() {
     const request = modal.requestFullscreen || modal.webkitRequestFullscreen;
     if (typeof request !== 'function') return;
     try {
-        const result = request.call(modal, { navigationUI: 'hide' });
+        const pending = Promise.resolve(request.call(modal, { navigationUI: 'hide' }));
         enteredFullscreen = true;
-        Promise.resolve(result).catch(() => { enteredFullscreen = false; });
+        fullscreenRequest = pending;
+        pending.then(
+            () => { if (fullscreenRequest === pending) fullscreenRequest = null; },
+            () => {
+                if (fullscreenRequest !== pending) return;
+                fullscreenRequest = null;
+                enteredFullscreen = false;
+            }
+        );
     } catch {
         enteredFullscreen = false;
     }
 }
 
+// הכניסה למסך מלא אסינכרונית. עצירה שמגיעה לפני שהיא הושלמה (התנתקות מיד
+// אחרי "מסך גדול", למשל) ממתינה לה ויוצאת אחריה — אחרת הדפדפן נכנס למסך
+// מלא אחרי העצירה ונשאר בו.
 function exitFullscreen() {
     const wasOurs = enteredFullscreen;
+    const pending = fullscreenRequest;
     enteredFullscreen = false;
-    if (!wasOurs || fullscreenElement() !== el.modal) return;
-    const d = doc();
-    const exit = d.exitFullscreen || d.webkitExitFullscreen;
-    try { Promise.resolve(exit?.call(d)).catch(() => {}); } catch { /* כבר יצא */ }
+    fullscreenRequest = null;
+    if (!wasOurs) return;
+    const leave = () => {
+        // מצגת חדשה שנפתחה בינתיים מחזיקה את המסך המלא בעצמה.
+        if (enteredFullscreen || fullscreenElement() !== el.modal) return;
+        const d = doc();
+        const exit = d.exitFullscreen || d.webkitExitFullscreen;
+        try { Promise.resolve(exit?.call(d)).catch(() => {}); } catch { /* כבר יצא */ }
+    };
+    if (pending) pending.then(leave, () => {});
+    else leave();
 }
 
 function onFullscreenChange() {
