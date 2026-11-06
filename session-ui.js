@@ -14,6 +14,7 @@ import {
     readRememberedAccount, rememberAccount, forgetRememberedAccount, markSignedOut,
     returningGateCopy, gateKindFor, accountInitial, RETURN_REASONS
 } from './returning-account.js';
+import { validateRequestName, needsAccessRequest, accessRequestFields } from './access-request.js';
 
 function browserStorage() {
     try { return window.localStorage || null; } catch { return null; }
@@ -62,8 +63,12 @@ function updateAccessGate(hasGalleryAccess, approvalStatus, signedIn = false) {
     const accessGateText = document.getElementById('galleryAccessGateText');
     const headerConnectionStatus = document.getElementById('headerConnectionStatus');
 
+    // בזמן שהחיבור השמור עוד נבדק, אין עדיין תשובה: השער מוסתר ורצועת הכניסה
+    // נשארת, כדי שמשתמש מאושר לא יראה לרגע דף "אין גישה" לפני שהגלריה נפתחת.
+    const resolving = !hasGalleryAccess && sessionStillResolving(window.state || {}, signedIn);
     document.body.classList.toggle('gallery-locked', !hasGalleryAccess);
-    if (accessGate) accessGate.classList.toggle('hidden', hasGalleryAccess);
+    document.body.classList.toggle('session-resolving', resolving);
+    if (accessGate) accessGate.classList.toggle('hidden', hasGalleryAccess || resolving);
     if (headerConnectionStatus) {
         headerConnectionStatus.textContent = hasGalleryAccess ? 'גישה מאושרת' : 'נדרשת הרשאה';
         // הצבע נגזר מהמצב ב-CSS, ולכן אין כאן רשימת מחלקות שיש לתחזק פעמיים.
@@ -91,16 +96,24 @@ function updateAccessGate(hasGalleryAccess, approvalStatus, signedIn = false) {
             title: 'החשבון חסום',
             text: 'מנהל־העל חסם את החשבון. ניתן לפנות אליו לבירור.'
         },
+        request: {
+            state: 'request',
+            chip: 'בקשת גישה',
+            title: 'עוד צעד אחד: מי אתה?',
+            text: 'כדי שהמנהל יוכל לזהות אותך ולאשר את הגישה, יש לכתוב את שמך המלא האמיתי. בלי שם אמיתי לא ניתן לשלוח את הבקשה.'
+        },
         'signed-out': {
             state: 'signed-out',
-            chip: 'ברוכים הבאים',
-            title: 'התחבר כדי לצפות בגלריה',
-            text: 'הארכיון הדיגיטלי של שמחת התורה — תמונות וסרטונים מכל השנים, מסודרים לפי אירועים ותאריכים עבריים. הכניסה באמצעות Google, ולאחריה מנהל מאשר את החשבון.'
+            chip: 'אין גישה',
+            title: 'אין לך גישה לגלריה',
+            text: 'הגלריה פתוחה רק למי שמנהל האתר אישר. אפשר לשלוח בקשת גישה — זה לוקח פחות מדקה.'
         }
     };
 
+    const state = window.state || {};
     const rememberedAccount = signedIn ? null : readRememberedAccount(browserStorage());
-    const kind = gateKindFor({ approvalStatus, signedIn, rememberedAccount });
+    const needsRequest = signedIn && approvalStatus === 'pending' && needsAccessRequest(state.userProfile);
+    const kind = gateKindFor({ approvalStatus, signedIn, rememberedAccount, needsRequest });
     const gate = kind === 'returning' ? returningGateCopy(rememberedAccount) : gateStates[kind];
 
     if (accessGate) {
@@ -111,7 +124,100 @@ function updateAccessGate(hasGalleryAccess, approvalStatus, signedIn = false) {
     if (accessGateChip) accessGateChip.textContent = gate.chip;
     accessGateTitle.textContent = gate.title;
     accessGateText.textContent = gate.text;
-    renderReturningAccount(kind === 'returning' ? rememberedAccount : null);
+    const signedInAccount = state.currentUser
+        ? { name: state.currentUser.displayName || '', email: state.currentUser.email || '', photoURL: state.currentUser.photoURL || '' }
+        : null;
+    renderReturningAccount(kind === 'returning' ? rememberedAccount : (kind === 'request' ? signedInAccount : null));
+    renderRequestSummary(kind === 'pending' ? state.userProfile?.requestedName : '');
+    if (kind === 'request') handleAccessRequestInput();
+}
+
+// "הבקשה נשלחה בשם …" במסך ההמתנה, כשיש שם בבקשה.
+function renderRequestSummary(name) {
+    const summary = document.getElementById('gateRequestSummary');
+    const target = document.getElementById('gateRequestedName');
+    const clean = String(name || '').trim();
+    if (target) target.textContent = clean;
+    if (summary) summary.hidden = !clean;
+}
+
+// טופס בקשת הגישה: הכפתור נדלק רק כשהשם עובר את הבדיקה. ההודעה מתחת לשדה
+// מתחלפת בשגיאה רק אחרי שהמבקר התחיל להקליד או יצא מהשדה, כדי שהטופס לא
+// ייפתח בצעקה.
+const NAME_HINT = 'כפי שמכירים אותך בישיבה. בלי שם אמיתי לא ניתן לשלוח את הבקשה.';
+function handleAccessRequestInput(touched = false) {
+    const input = document.getElementById('accessRequestName');
+    const hint = document.getElementById('accessRequestNameHint');
+    const submit = document.getElementById('accessRequestSubmit');
+    if (!input) return null;
+    if (touched || input.value) input.dataset.touched = 'true';
+    const result = validateRequestName(input.value);
+    const showError = !result.ok && input.dataset.touched === 'true' && (touched || input.value.trim().length > 0);
+    input.setAttribute('aria-invalid', showError ? 'true' : 'false');
+    if (hint) {
+        hint.textContent = showError ? result.error : (result.ok ? 'מצוין — אפשר לשלוח את הבקשה.' : NAME_HINT);
+        hint.dataset.state = showError ? 'error' : (result.ok ? 'ok' : 'idle');
+    }
+    if (submit && submit.dataset.busy !== 'true') {
+        submit.disabled = !result.ok;
+        submit.setAttribute('aria-disabled', String(!result.ok));
+    }
+    return result;
+}
+window.handleAccessRequestInput = handleAccessRequestInput;
+
+async function submitAccessRequest(event) {
+    event?.preventDefault?.();
+    const state = window.state || {};
+    const input = document.getElementById('accessRequestName');
+    const note = document.getElementById('accessRequestNote');
+    const submit = document.getElementById('accessRequestSubmit');
+    const result = handleAccessRequestInput(true);
+    if (!result?.ok) {
+        input?.focus();
+        return false;
+    }
+    const uid = state.currentUser?.uid;
+    if (!uid || !window.db) {
+        window.showNotification?.('החיבור עדיין נטען. נסה שוב בעוד רגע.', false);
+        return false;
+    }
+    const fields = accessRequestFields({ name: input.value, note: note?.value });
+    if (submit) { submit.dataset.busy = 'true'; submit.disabled = true; }
+    try {
+        // מודול הנתונים כבר טעון בדף; הייבוא כאן רק מוסר אותו לטופס.
+        const { doc, setDoc } = await import('./cloudflare-client.js');
+        const ref = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userProfiles', uid);
+        await setDoc(ref, fields, { merge: true });
+        // המצב המקומי מתעדכן מיד, בלי לחכות לסנכרון הבא של הפרופיל.
+        state.userProfile = { ...(state.userProfile || {}), ...fields };
+        window.showNotification?.(`תודה, ${fields.requestedName}. הבקשה נשלחה למנהל.`, true);
+        updateSessionUI();
+    } catch (error) {
+        console.error('Access request failed:', error);
+        window.reportClientError?.(error, 'access-request');
+        window.showNotification?.(error?.message || 'שליחת הבקשה נכשלה. נסה שוב.', false);
+    } finally {
+        if (submit) delete submit.dataset.busy;
+        handleAccessRequestInput();
+    }
+    return false;
+}
+window.submitAccessRequest = submitAccessRequest;
+
+// האם עוד מוקדם לקבוע שאין גישה: יש חיבור שמור שטרם נבדק מול השרת, או
+// שהמשתמש מחובר והפרופיל שלו עוד לא נקרא. כישלון בקריאת הפרופיל מסיים את
+// ההמתנה (session-auth.js), כך שהשער לעולם אינו נשאר מוסתר.
+const SESSION_TOKEN_STORAGE_KEY = 'simchas_gallery_google_id_token';
+function sessionStillResolving(state, signedIn) {
+    if (signedIn) return !state.userProfile && !state.userProfileFailed && !state.isAdminLoggedIn;
+    if (state.authResolved) return false;
+    try {
+        return Boolean(window.localStorage?.getItem(SESSION_TOKEN_STORAGE_KEY)
+            || window.sessionStorage?.getItem(SESSION_TOKEN_STORAGE_KEY));
+    } catch {
+        return false;
+    }
 }
 
 // כרטיס החשבון שבמסך "ברוך שובך": תמונה (או האות הראשונה), שם ודוא"ל.

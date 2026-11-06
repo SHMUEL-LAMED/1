@@ -119,10 +119,12 @@ export function returningGateCopy(account) {
 }
 
 // איזה מסך מציג השער למבקר שאין לו גישה לגלריה.
+//   request — מחובר וממתין, אך עוד לא מילא שם מלא בטופס הבקשה.
 //   pending / rejected / blocked — לפי מצב החשבון המחובר.
 //   returning — אין חשבון מחובר, אבל יש חשבון מאושר שנזכר מהמכשיר.
 //   signed-out — מבקר חדש.
-export function gateKindFor({ approvalStatus, signedIn, rememberedAccount }) {
+export function gateKindFor({ approvalStatus, signedIn, rememberedAccount, needsRequest = false }) {
+    if (signedIn && approvalStatus === 'pending' && needsRequest) return 'request';
     if (signedIn && ['pending', 'rejected', 'blocked'].includes(approvalStatus)) return approvalStatus;
     if (!signedIn && rememberedAccount) return 'returning';
     return 'signed-out';

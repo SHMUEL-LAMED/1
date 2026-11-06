@@ -450,14 +450,35 @@ window.renderPendingUsers = function() {
         identity.className = 'min-w-0 flex-1';
         const name = document.createElement('p');
         name.className = 'admin-row-title truncate';
-        name.textContent = profile.displayName || 'משתמש Google';
+        // השם המלא שהמבקש כתב בטופס הבקשה (access-request.js) קודם לשם Google,
+        // שהוא לעיתים כינוי. שם Google נשאר בשורת הדוא"ל, להשוואה.
+        const requestedName = String(profile.requestedName || '').trim();
+        name.textContent = requestedName || profile.displayName || 'משתמש Google';
         const email = document.createElement('p');
         email.className = 'admin-row-meta truncate';
-        email.textContent = profile.email || '';
+        const googleName = String(profile.displayName || '').trim();
+        email.textContent = requestedName && googleName && googleName !== requestedName
+            ? `${profile.email || ''} · ב-Google: ${googleName}`
+            : (profile.email || '');
         identity.append(name, email);
         header.appendChild(identity);
 
         card.appendChild(header);
+
+        if (!requestedName) {
+            const missing = document.createElement('p');
+            missing.className = 'admin-row-meta';
+            missing.textContent = 'עדיין לא מילא שם מלא בטופס הבקשה.';
+            identity.appendChild(missing);
+        }
+        if (profile.requestNote) {
+            const noteBox = document.createElement('p');
+            noteBox.className = 'p-2.5 rounded-lg bg-amber-400/10 border border-amber-400/25 text-[11px] leading-relaxed';
+            const label = document.createElement('strong');
+            label.textContent = 'קשר לישיבה: ';
+            noteBox.append(label, document.createTextNode(String(profile.requestNote)));
+            card.appendChild(noteBox);
+        }
 
         // הגיע מקישור הזמנה לאירוע: השרת לבדו כותב את השדה (POST /invites/redeem).
         if (profile.inviteFolderName) {

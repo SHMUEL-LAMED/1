@@ -345,6 +345,9 @@ async function initFirebase() {
 
         // ניהול הזדהות ישיר מול Google, ללא Firebase Authentication.
         onAuthStateChanged(auth, async (user) => {
+            // מכאן ידוע אם יש חיבור; עד עכשיו השער המתין (session-ui.js).
+            window.state.authResolved = true;
+            window.state.userProfileFailed = false;
             window.stopAdminListeners?.();
             if (user) {
                 const providerIds = (user.providerData || []).map(p => p.providerId);
@@ -379,6 +382,9 @@ async function initFirebase() {
                 if (isGoogleUser) {
                     ensureGoogleUserProfile(user).catch(error => {
                         console.error('Creating Google user profile failed:', error);
+                        // בלי פרופיל השער מפסיק להמתין ומציג את מצב החשבון.
+                        window.state.userProfileFailed = true;
+                        window.updateAdminUI();
                         const errorCode = error?.code || 'unknown';
                         window.showNotification(`לא ניתן היה לשלוח את בקשת ההצטרפות (${errorCode}).`, false);
                     });
@@ -625,7 +631,12 @@ function setupFirestoreListeners(user) {
             if (approved && window.state.popupAnnouncementConfig) {
                 window.showPopupAnnouncement?.(window.state.popupAnnouncementConfig);
             }
-        }, handleFsError));
+        }, error => {
+            // הפרופיל לא נקרא: השער מפסיק להמתין ומציג את מצב החשבון.
+            window.state.userProfileFailed = true;
+            window.updateAdminUI?.();
+            handleFsError(error);
+        }));
 
         const favoritesRef = doc(window.db, 'artifacts', window.appId, 'public', 'data', 'userFavorites', user.uid);
         window.firestoreUnsubscribers.push(onSnapshot(favoritesRef, (snapshot) => {

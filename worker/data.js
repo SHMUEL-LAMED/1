@@ -54,6 +54,7 @@ import {
 import {
   assertSuperAdminRetained
 } from "./users.js";
+import { validateRequestName, normalizeRequestNote } from "../access-request.js";
 import {
   apiError,
   computeEtag,
@@ -574,6 +575,16 @@ async function handleDataRequest(request, env, url, ctx) {
       for (const field of INVITE_PROFILE_FIELDS) {
         if (existing[field] !== undefined) nextData[field] = existing[field];
         else delete nextData[field];
+      }
+      // בקשת הגישה: השם המלא האמיתי נבדק גם כאן, כדי שדפדפן ישן או קריאה
+      // ישירה ל-API לא ישלחו בקשה בלי שם אמיתי (access-request.js).
+      if (Object.prototype.hasOwnProperty.call(nextData, "requestedName") && nextData.requestedName !== existing.requestedName) {
+        const checked = validateRequestName(nextData.requestedName);
+        if (!checked.ok) throw apiError(checked.error, 400, "invalid_request_name");
+        nextData.requestedName = checked.name;
+      }
+      if (Object.prototype.hasOwnProperty.call(nextData, "requestNote")) {
+        nextData.requestNote = normalizeRequestNote(nextData.requestNote);
       }
     }
     // צופה ששולח העלאה לאישור כותב רק רשומה משלו: המעלה הוא החשבון המאומת,

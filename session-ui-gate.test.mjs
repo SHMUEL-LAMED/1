@@ -86,7 +86,7 @@ test("אורח שאינו מחובר רואה את שער הגישה, והגלר
     assert.ok(body.classList.contains("gallery-locked"), "הגלריה חייבת להיות נעולה לאורח");
     assert.ok(!el("galleryAccessGate").classList.contains("hidden"), "שער הגישה חייב להיות מוצג");
     assert.equal(el("galleryAccessGate").dataset.gateState, "signed-out");
-    assert.equal(el("galleryAccessGateTitle").textContent, "התחבר כדי לצפות בגלריה");
+    assert.equal(el("galleryAccessGateTitle").textContent, "אין לך גישה לגלריה");
     assert.equal(el("headerConnectionStatus").textContent, "נדרשת הרשאה");
 });
 
@@ -142,7 +142,7 @@ test("\"זה לא החשבון שלי\" מחזיר את מסך המבקר החד
 
     window.forgetReturningAccount();
     assert.equal(el("galleryAccessGate").dataset.gateState, "signed-out");
-    assert.equal(el("galleryAccessGateTitle").textContent, "התחבר כדי לצפות בגלריה");
+    assert.equal(el("galleryAccessGateTitle").textContent, "אין לך גישה לגלריה");
     assert.equal(el("gateReturningName").textContent, "");
     assert.equal(storageData.size, 0);
 });
