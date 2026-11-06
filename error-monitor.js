@@ -6,7 +6,8 @@
 //
 // כללי הזהירות: אותה שגיאה נשלחת פעם אחת בלבד לכל טעינת דף, עד עשר
 // שגיאות שונות לטעינה, ורעש ידוע — ResizeObserver, "Script error." ממקור
-// אחר, בקשות שבוטלו ומצב לא מקוון — אינו נשלח כלל. הדיווח אינו כולל
+// אחר, בקשות שבוטלו, מצב לא מקוון, כשל רשת ומגבלת קצב — אינו נשלח כלל,
+// וגם דפדפן אוטומטי (בדיקות) אינו מדווח. הדיווח אינו כולל
 // פרטים אישיים: הודעה, מחסנית, כתובת הדף, הדפדפן וגרסת האתר בלבד.
 // המשתמש המחובר מזוהה בשרת לפי האסימון, ולא לפי מה שהדפדפן טוען.
 
@@ -23,6 +24,15 @@ const IGNORED_MESSAGE_PATTERNS = [
 const ABORTED_MESSAGE_PATTERNS = [
     /\baborted\b/i,
     /signal is aborted/i
+];
+// בקשת fetch שלא הגיעה לשרת כלל (רשת חלשה, מעבר בין Wi‑Fi לסלולר, מכשיר
+// שנכנס לשינה). הניסוח שונה בין הדפדפנים: כרום, פיירפוקס וספארי.
+const NETWORK_FAILURE_PATTERNS = [
+    /^Failed to fetch\b/i,
+    /^NetworkError when attempting to fetch resource/i,
+    /^Load failed$/i,
+    /^The network connection was lost/i,
+    /^The Internet connection appears to be offline/i
 ];
 
 function normalizePart(value) {
@@ -70,8 +80,10 @@ export function describeError(error, context) {
 }
 
 // רעש שאינו מעיד על תקלה באתר: לולאת ResizeObserver, שגיאת סקריפט ממקור
-// אחר שהדפדפן מסתיר את פרטיה, בקשה שבוטלה (ניווט באמצע טעינה) ושגיאות
-// בזמן שהמכשיר מנותק מהרשת.
+// אחר שהדפדפן מסתיר את פרטיה, בקשה שבוטלה (ניווט באמצע טעינה), שגיאות
+// בזמן שהמכשיר מנותק מהרשת, בקשה שלא הגיעה לשרת בגלל הרשת, ותשובת "עמוס,
+// נסה שוב" (429) — מגבלת קצב צפויה ולא תקלה. כשל אמיתי בשרת נרשם ביומן
+// מצד ה-Worker עצמו.
 export function isIgnorableError(described, { online = true } = {}) {
     if (!online) return true;
     const message = String(described?.message || '').trim();
@@ -79,6 +91,8 @@ export function isIgnorableError(described, { online = true } = {}) {
     if (IGNORED_MESSAGE_PATTERNS.some(pattern => pattern.test(message))) return true;
     if (described?.extra?.name === 'AbortError') return true;
     if (ABORTED_MESSAGE_PATTERNS.some(pattern => pattern.test(message))) return true;
+    if (NETWORK_FAILURE_PATTERNS.some(pattern => pattern.test(message))) return true;
+    if (String(described?.extra?.status || '') === '429') return true;
     return false;
 }
 
@@ -210,6 +224,9 @@ export function createErrorMonitor(options = {}) {
 // בעצמו. getToken מחזירה את אסימון ההתחברות של המשתמש המחובר, או null.
 export function installErrorMonitor({ endpoint, version = '', getToken = null } = {}) {
     if (typeof window === 'undefined') return null;
+    // דפדפן אוטומטי (בדיקות Playwright, מדידת זמן הטעינה) אינו מדווח: הוא
+    // רץ מ-127.0.0.1 מול שרת הייצור, ותקלותיו אינן של משתמשים אמיתיים.
+    if (typeof navigator !== 'undefined' && navigator.webdriver === true) return null;
     const monitor = createErrorMonitor({
         endpoint,
         version,

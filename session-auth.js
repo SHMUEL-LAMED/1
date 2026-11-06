@@ -205,20 +205,27 @@ window.lockGalleryImmediatelySidebar = async function(confirmed = false) {
     }
 };
 
+// השרת מחזיר permission_denied (קו תחתון); הצורה עם המקף נשארה מימי Firebase.
+function isPermissionDenied(err) {
+    return err?.code === 'permission_denied' || err?.code === 'permission-denied' || Number(err?.status) === 403;
+}
+
 export function reportFirestoreError(err) {
     if (err.code === 'unavailable') {
         console.warn("חיבור הרשת חלש או חסום (Offline). מנסה להתחבר מחדש ברקע...");
     } else if (err.code === 'database_binding_missing') {
         console.error("Cloudflare D1 binding is missing.", err);
         window.showNotification("מסד הנתונים של Cloudflare עדיין לא חובר ל־Worker.", false);
-    } else if (err.code === 'permission-denied') {
-        console.error("Cloudflare D1 request denied.", err);
+    } else if (isPermissionDenied(err)) {
+        console.warn("Cloudflare D1 request denied.", err);
         window.showNotification("שגיאת אבטחה: אין הרשאת גישה לנתונים.", false);
     } else {
         console.error("Cloudflare data error:", err);
     }
-    // ניתוק רשת אינו תקלה באתר; כל השאר נרשם ליומן השגיאות שבלוח הניהול.
-    if (err?.code !== 'unavailable') window.reportClientError?.(err, 'data-listener');
+    // ניתוק רשת אינו תקלה באתר, וגם לא סירוב הרשאה: השרת דוחה כך חשבון
+    // שהרשאתו השתנתה (נחסם, הוחזר להמתנה) בזמן שהדף עוד פתוח — זו תשובה
+    // צפויה ולא באג. כל השאר נרשם ליומן השגיאות שבלוח הניהול.
+    if (err?.code !== 'unavailable' && !isPermissionDenied(err)) window.reportClientError?.(err, 'data-listener');
 }
 
 async function syncGoogleUserProfile(user) {

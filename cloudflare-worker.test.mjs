@@ -24,11 +24,9 @@ class MockD1 {
         return value !== undefined && value !== null && String(value) === expected;
       });
     }
-    const idList = /AND document_id IN \(([?, ]+)\)/.exec(sql);
-    if (idList) {
-      const count = idList[1].split(",").length;
-      const ids = new Set(bindings.slice(cursor, cursor + count).map(String));
-      cursor += count;
+    // רשימת המזהים מגיעה כפרמטר JSON יחיד (json_each), בגלל מגבלת 100 הפרמטרים של D1.
+    if (/AND document_id IN \(SELECT value FROM json_each\(\?\)\)/.test(sql)) {
+      const ids = new Set(JSON.parse(String(bindings[cursor++])).map(String));
       rows = rows.filter(row => ids.has(String(row.document_id)));
     }
     return { rows, cursor };

@@ -278,13 +278,16 @@ function listFilterSql(query) {
     clause += ` AND CAST(json_extract(data_json, '$.${filter.field}') AS TEXT) = ?`;
     bindings.push(filter.value);
   }
+  // רשימת מזהים נשלחת כפרמטר JSON יחיד ונפרסת ב-json_each: ב-D1 מותרים
+  // עד 100 פרמטרים לשאילתה, ו-?ids= עם 100 מזהים ועוד שם האוסף, LIMIT
+  // ו-OFFSET חרגה מהמגבלה ("too many SQL variables").
   if (query.ids.length) {
-    clause += ` AND document_id IN (${query.ids.map(() => "?").join(", ")})`;
-    bindings.push(...query.ids);
+    clause += " AND document_id IN (SELECT value FROM json_each(?))";
+    bindings.push(JSON.stringify(query.ids));
   }
   if (query.excludeIds?.length) {
-    clause += ` AND document_id NOT IN (${query.excludeIds.map(() => "?").join(", ")})`;
-    bindings.push(...query.excludeIds);
+    clause += " AND document_id NOT IN (SELECT value FROM json_each(?))";
+    bindings.push(JSON.stringify(query.excludeIds));
   }
   return { clause, bindings };
 }
