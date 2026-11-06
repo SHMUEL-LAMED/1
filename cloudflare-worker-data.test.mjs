@@ -20,6 +20,8 @@ class SqliteD1Statement {
     this.bindings = [];
   }
   bind(...values) {
+    // כמו D1 האמיתי: עד 100 פרמטרים לשאילתה.
+    if (values.length > 100) throw new Error("D1_ERROR: too many SQL variables: SQLITE_ERROR");
     this.bindings = values.map(normalizeBinding);
     return this;
   }
@@ -318,6 +320,17 @@ test("the ids filter returns the requested documents only, and refuses oversized
     apiRequest("/data/images?ids=image-00007,image-00123,missing-id,image-00007"), environment(database)
   ));
   assert.deepEqual(payload.documents.map(item => item.id).sort(), ["image-00007", "image-00123"]);
+
+  // הלקוח שולח 100 מזהים בבקשה, והשרת מקבל עד 200: שניהם בתוך מגבלת
+  // 100 הפרמטרים של D1, כי הרשימה נשלחת כפרמטר JSON יחיד.
+  const full = Array.from({ length: 200 }, (_, index) => `image-${String(index + 1).padStart(5, "0")}`);
+  const fullPayload = await readJson(await worker.fetch(
+    apiRequest(`/data/images?ids=${full.join(",")}&folderId=folder-3`), environment(database)
+  ));
+  assert.ok(fullPayload.documents.length > 0);
+  assert.ok(fullPayload.documents.every(item => full.includes(item.id) && item.data.folderId === "folder-3"));
+  const fullCount = await readJson(await worker.fetch(apiRequest(`/data/images/count?ids=${full.join(",")}`), environment(database)));
+  assert.equal(fullCount.count, 200);
 
   const tooMany = Array.from({ length: 201 }, (_, index) => `image-${String(index).padStart(5, "0")}`).join(",");
   const rejected = await worker.fetch(apiRequest(`/data/images?ids=${tooMany}`), environment(database));

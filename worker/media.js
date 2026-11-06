@@ -988,11 +988,27 @@ async function storeMediaVariants(request, env, imageId, parts, { ownerUid, stat
     } else {
       staleKeys.push(variantObjectKey(imageId, entry.name, VARIANT_AVIF_EXTENSION));
     }
-    for (const staleKey of staleKeys) await env.GALLERY_BUCKET.delete(staleKey);
-    await forgetVariantFiles(env, staleKeys);
+    await deleteStaleVariantObjects(env, staleKeys);
     variants[entry.name] = variant;
   }
   return variants;
+}
+
+// ניקוי עותקים ישנים בסיומת אחרת הוא השלמה, לא חלק מהשמירה: התצוגה החדשה
+// כבר נשמרה. מחיקה אחת מרוכזת, ניסיון חוזר אחד אחרי שגיאה פנימית חולפת של
+// R2 (למשל 10001), ואם גם הוא נכשל — רישום בלוג בלבד. הרשומות בטבלת
+// התצוגות נשארות, כך שהקובץ היתום עדיין גלוי לכלי התחזוקה.
+async function deleteStaleVariantObjects(env, keys) {
+  if (!keys.length) return;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await env.GALLERY_BUCKET.delete(keys);
+      await forgetVariantFiles(env, keys);
+      return;
+    } catch (error) {
+      if (attempt === 2) console.warn("Stale variant cleanup skipped", error?.message || error);
+    }
+  }
 }
 
 async function readGalleryDocumentRow(env, collectionName, documentId) {

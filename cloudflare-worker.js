@@ -140,6 +140,10 @@ export { normalizeUsageCounts, normalizeStorageBudget, storageBudgetStatus } fro
 export { superAdminRetentionProblem, cleanUserNote } from "./worker/users.js";
 export { normalizeMediaPlaceholder, normalizeContentHash } from "./worker/uploads.js";
 
+// נתיבים שכשל 5xx בהם אינו נרשם ליומן השגיאות: בדיקת הגדרה שהמנהל מריץ
+// בעצמו ורואה את תוצאתה על המסך.
+const UNLOGGED_FAILURE_PATHS = new Set(["/admin/ai-settings/test"]);
+
 export function unwrapGalleryProxy(request, env) {
   const headerNames = [...request.headers.keys()].filter(name => name.startsWith("x-gallery-proxy-"));
   if (!headerNames.length) return { request, env };
@@ -416,7 +420,9 @@ export default {
       console.error("Worker request failed", error);
       const status = Number(error?.status) || 500;
       // רק כשלונות פנימיים נרשמים ליומן השגיאות; 4xx הן תשובות צפויות.
-      if (status >= 500) recordWorkerFailure(request, env, ctx, error, status);
+      // בדיקת מפתח ה־AI במסך הניהול מציגה את התוצאה למנהל מיד, ולכן מפתח
+      // שגוי שנבדק שם אינו תקלה שצריך לרשום.
+      if (status >= 500 && !UNLOGGED_FAILURE_PATHS.has(new URL(request.url).pathname)) recordWorkerFailure(request, env, ctx, error, status);
       return json(request, {
         success: false,
         code: error?.code || "internal_error",

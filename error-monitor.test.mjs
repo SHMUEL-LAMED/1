@@ -93,9 +93,16 @@ test("רעש ידוע אינו נשלח: ResizeObserver, Script error., ביטו
     assert.equal(await offline.monitor.report(new Error("Failed to fetch")), null);
     assert.equal(offline.fetchCalls.length, 0);
 
-    // שגיאה רגילה כן נשלחת.
-    assert.equal(await monitor.report(new Error("Failed to fetch")), "fetch");
-    assert.equal(isIgnorableError(describeError(new Error("Failed to fetch"))), false);
+    // בקשה שלא הגיעה לשרת בגלל הרשת, בכל ניסוחי הדפדפנים, ותשובת 429.
+    for (const message of ["Failed to fetch", "NetworkError when attempting to fetch resource.", "Load failed", "The network connection was lost."]) {
+        assert.equal(isIgnorableError(describeError(new TypeError(message))), true, message);
+    }
+    assert.equal(isIgnorableError(describeError(Object.assign(new Error("עמוס כרגע"), { status: 429 }))), true);
+    assert.equal(fetchCalls.length, 0);
+
+    // שגיאה רגילה כן נשלחת, וגם כשל שרת (5xx).
+    assert.equal(await monitor.report(new Error("Cannot read properties of undefined")), "fetch");
+    assert.equal(isIgnorableError(describeError(Object.assign(new Error("שגיאה פנימית"), { status: 500 }))), false);
 });
 
 test("מי שאינו מחובר מדווח ב-sendBeacon עם Blob של JSON", async () => {
