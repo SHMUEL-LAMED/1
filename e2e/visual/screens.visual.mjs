@@ -18,8 +18,11 @@ async function openGallery(page, worker, options = {}) {
 // הזמן היחסי (או נתון שנזרע בשעה הנוכחית) היה מפיל את כל הצילומים.
 // המסכה מצוירת מעל הכול, גם מעל חלון שמכסה את הערך, ולכן היא ניתנת רק
 // בצילום שבו ראש הדף גלוי.
+// גם פסיפס הרגעים מכוסה: התמונות בו נבחרות באקראי ומתחלפות מדי כמה שניות
+// (hero-mosaic.js), ולכן אינן זהות בין ריצות.
 const dynamicRegions = page => [
-    page.locator('#heroUpdatedAt')
+    page.locator('#heroUpdatedAt'),
+    page.locator('#heroMosaic')
 ];
 
 // לחיצה ממקום גלילה קבוע: הדף מתייצב, הפקד נגלל למרכז המסך בלי אנימציה,
