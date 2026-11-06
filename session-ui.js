@@ -10,6 +10,15 @@
 // מצב החשבון. החלק הניהולי נמצא ב-updateAdminPanelUI שב-admin.js, והוא
 // נקרא כאן רק אם הוא קיים בדף הנוכחי.
 
+import {
+    readRememberedAccount, rememberAccount, forgetRememberedAccount, markSignedOut,
+    returningGateCopy, gateKindFor, accountInitial, RETURN_REASONS
+} from './returning-account.js';
+
+function browserStorage() {
+    try { return window.localStorage || null; } catch { return null; }
+}
+
 // כל אלמנט נבדק בנפרד. אין כאן יציאה מוקדמת: הגרסה הקודמת יצאה מיד אם
 // #sidebarLockStatus היה חסר, וכך שער הגישה ונעילת הגלריה לא התעדכנו
 // בשום דף שאין בו את מגירת הניהול.
@@ -19,8 +28,14 @@ function updateSessionUI() {
     const approvalStatus = state.userApprovalStatus;
     const role = state.userRole;
     const hasGalleryAccess = state.isAdminLoggedIn || (state.isGoogleUser && approvalStatus === 'approved');
+    const signedIn = Boolean(state.isGoogleUser && currentUser);
 
-    updateAccessGate(hasGalleryAccess, approvalStatus);
+    // חשבון מאושר נזכר במכשיר, כדי שבפעם הבאה יקבל מסך "ברוך שובך".
+    // חשבון שנחסם או נדחה נשכח: אין להזמין אותו לחזור.
+    if (signedIn && hasGalleryAccess) rememberAccount(browserStorage(), currentUser);
+    else if (signedIn && ['rejected', 'blocked'].includes(approvalStatus)) forgetRememberedAccount(browserStorage());
+
+    updateAccessGate(hasGalleryAccess, approvalStatus, signedIn);
     updateLaunchers(state);
     updateIdentityCards(currentUser, approvalStatus, role, state);
     updateUploadAccess(role, approvalStatus, state);
@@ -36,9 +51,12 @@ window.updateSessionUI = updateSessionUI;
 // שלא יהיה צורך לשנות כל קורא, אך הוא מצביע עכשיו על שכבת הסשן.
 window.updateAdminUI = updateSessionUI;
 
-// מסך טרם ההתחברות מציג מצב אחד בכל רגע: כפתור Google למי שטרם נכנס,
-// מסך המתנה למי שכבר ביקש אישור, והודעה ברורה לחשבון שנדחה או נחסם.
-function updateAccessGate(hasGalleryAccess, approvalStatus) {
+// מסך טרם ההתחברות מציג מצב אחד בכל רגע:
+//   • signed-out — מבקר חדש: מה יש בגלריה, איך נכנסים ומה קורה אחר כך.
+//   • returning  — מבקר חוזר שהתנתק או שהחיבור שלו הסתיים: "שלום שוב"
+//                  עם השם והתמונה שלו, וכניסה מחדש בלחיצה אחת.
+//   • pending / rejected / blocked — לפי מצב החשבון המחובר.
+function updateAccessGate(hasGalleryAccess, approvalStatus, signedIn = false) {
     const accessGate = document.getElementById('galleryAccessGate');
     const accessGateTitle = document.getElementById('galleryAccessGateTitle');
     const accessGateText = document.getElementById('galleryAccessGateText');
@@ -72,19 +90,73 @@ function updateAccessGate(hasGalleryAccess, approvalStatus) {
             chip: 'החשבון חסום',
             title: 'החשבון חסום',
             text: 'מנהל־העל חסם את החשבון. ניתן לפנות אליו לבירור.'
+        },
+        'signed-out': {
+            state: 'signed-out',
+            chip: 'ברוכים הבאים',
+            title: 'התחבר כדי לצפות בגלריה',
+            text: 'הארכיון הדיגיטלי של שמחת התורה — תמונות וסרטונים מכל השנים, מסודרים לפי אירועים ותאריכים עבריים. הכניסה באמצעות Google, ולאחריה מנהל מאשר את החשבון.'
         }
     };
-    const gate = gateStates[approvalStatus] || {
-        state: 'signed-out',
-        chip: 'כניסה מאובטחת',
-        title: 'התחבר כדי לצפות בגלריה',
-        text: 'התחבר באמצעות Google. לאחר מכן תישלח למנהל בקשה לאישור החשבון.'
-    };
-    if (accessGate) accessGate.dataset.gateState = gate.state;
+
+    const rememberedAccount = signedIn ? null : readRememberedAccount(browserStorage());
+    const kind = gateKindFor({ approvalStatus, signedIn, rememberedAccount });
+    const gate = kind === 'returning' ? returningGateCopy(rememberedAccount) : gateStates[kind];
+
+    if (accessGate) {
+        accessGate.dataset.gateState = gate.state;
+        if (gate.reason) accessGate.dataset.returnReason = gate.reason;
+        else delete accessGate.dataset.returnReason;
+    }
     if (accessGateChip) accessGateChip.textContent = gate.chip;
     accessGateTitle.textContent = gate.title;
     accessGateText.textContent = gate.text;
+    renderReturningAccount(kind === 'returning' ? rememberedAccount : null);
 }
+
+// כרטיס החשבון שבמסך "ברוך שובך": תמונה (או האות הראשונה), שם ודוא"ל.
+function renderReturningAccount(account) {
+    const photo = document.getElementById('gateReturningPhoto');
+    const initial = document.getElementById('gateReturningInitial');
+    const name = document.getElementById('gateReturningName');
+    const email = document.getElementById('gateReturningEmail');
+    if (!account) {
+        if (photo) { photo.removeAttribute('src'); photo.classList.add('hidden'); }
+        if (name) name.textContent = '';
+        if (email) email.textContent = '';
+        return;
+    }
+    const photoUrl = window.safeImageUrl?.(account.photoURL) || '';
+    if (photo) {
+        if (photoUrl) {
+            // תמונה שנכשלה בטעינה מפנה את מקומה לאות הראשונה.
+            photo.onerror = () => { photo.classList.add('hidden'); initial?.classList.remove('hidden'); };
+            photo.src = photoUrl;
+            photo.classList.remove('hidden');
+        } else {
+            photo.removeAttribute('src');
+            photo.classList.add('hidden');
+        }
+    }
+    if (initial) {
+        initial.textContent = accountInitial(account);
+        initial.classList.toggle('hidden', Boolean(photoUrl));
+    }
+    if (name) name.textContent = account.name || account.email;
+    if (email) email.textContent = account.email;
+}
+
+// "זה לא החשבון שלי": מוחק את החשבון השמור, והשער חוזר למסך המבקר החדש.
+function forgetReturningAccount() {
+    forgetRememberedAccount(browserStorage());
+    updateSessionUI();
+    window.showNotification?.('החשבון הוסר מהמכשיר הזה.', true);
+}
+window.forgetReturningAccount = forgetReturningAccount;
+
+// נקרא לפני התנתקות מכוונת (session-auth.js), כדי שהמסך הבא יאמר
+// "התנתקת" ולא "החיבור הסתיים".
+window.noteManualSignOut = () => markSignedOut(browserStorage(), RETURN_REASONS.SIGNED_OUT);
 
 // כפתורים שמובילים לניהול מוצגים למי שרשאי. הם קיימים גם בדף הגלריה
 // (בחירה מרובה, עריכת אירוע, מעבר ללוח הניהול) ולכן נשארים כאן.

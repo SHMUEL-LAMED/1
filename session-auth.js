@@ -172,6 +172,8 @@ window.signOutGoogleAccount = async function(confirmed = false) {
         await settlePendingSwipe();
         window.google?.accounts?.id?.disableAutoSelect();
         window.clearDriveConnection?.();
+        // שער הכניסה יאמר "התנתקת" ולא "החיבור הסתיים" (session-ui.js).
+        window.noteManualSignOut?.();
         await signOut(auth);
         window.showNotification("התנתקת מחשבון Google.", true);
     } catch (e) {
@@ -194,6 +196,7 @@ window.lockGalleryImmediatelySidebar = async function(confirmed = false) {
         window.showNotification("מתנתק ממצב ניהול...", true);
         await settlePendingSwipe();
         window.clearDriveConnection?.();
+        window.noteManualSignOut?.();
         await signOut(auth);
         window.showNotification("התנתקת בהצלחה. חזרת למצב משתמש.", true);
     } catch (e) {

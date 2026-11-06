@@ -1,7 +1,7 @@
 // ההתחברות והשער: מה מבקר רואה לפני הכניסה ואחריה, ואיך ההתחברות שורדת
 // רענון ולשונית נוספת, מתחלפת באסימון השרת ונמחקת בהתנתקות.
 import {
-    test, expect, seedSession, signInViaGoogle, readStoredToken, DEFAULT_USER, DAY_MS
+    test, expect, seedSession, signInViaGoogle, readStoredToken, DEFAULT_USER, DAY_MS, TOKEN_KEY
 } from './fixtures.mjs';
 
 const gate = page => page.locator('#galleryAccessGate');
@@ -18,6 +18,11 @@ test('אורח רואה את שער הכניסה, והגלריה נעולה', as
     await expect(page.locator('#photosGrid')).toBeHidden();
     // כפתור האתר הוחלף בכפתור הרשמי של Google.
     await expect(gate(page).locator('[data-official-google-button-host]')).toHaveText('[google]');
+    // מבקר חדש מקבל את ההסבר המלא: מה יש בגלריה ושלבי הכניסה, בלי כרטיס "שלום שוב".
+    await expect(gate(page).locator('.gate-features')).toBeVisible();
+    await expect(gate(page).locator('.gate-steps')).toBeVisible();
+    await expect(gate(page).locator('.gate-account')).toBeHidden();
+    await expect(gate(page).locator('.gate-link')).toBeHidden();
 });
 
 test('אסימון שמור משחזר צופה מאושר: הגלריה נפתחת והתמונות מצוירות', async ({ page, worker }) => {
@@ -54,9 +59,10 @@ test('ההתחברות משותפת ללשונית נוספת, והתנתקות 
 
     await second.evaluate(() => window.signOutGoogleAccount(true));
     await expect(second.locator('body')).toHaveClass(/gallery-locked/);
-    // אירוע storage מעביר את ההתנתקות ללשונית הראשונה בלי רענון.
+    // אירוע storage מעביר את ההתנתקות ללשונית הראשונה בלי רענון. החשבון
+    // אושר בעבר, ולכן השער מציג "שלום שוב" ולא את מסך המבקר החדש.
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
-    await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
     await expect.poll(() => readStoredToken(page)).toBeNull();
 });
 
@@ -162,12 +168,82 @@ test('התנתקות דרך הכפתור מוחקת את האסימון ונוע
     await page.locator('#confirmApproveBtn').click();
 
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
-    await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
+    await expect(gate(page)).toHaveAttribute('data-return-reason', 'signed-out');
     await expect(page.locator('#customAlertMessage')).toHaveText('התנתקת מחשבון Google.');
     await expect.poll(() => readStoredToken(page)).toBeNull();
 
     await page.reload();
-    await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
+    await expect(page.locator('#galleryAccessGateChip')).toHaveText('התנתקת מהחשבון');
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
     expect(await readStoredToken(page)).toBeNull();
+});
+
+test('מבקר חוזר שהתנתק: "שלום שוב" עם החשבון שלו וכפתור Google, בלי ההסבר למבקר חדש', async ({ page, worker }) => {
+    worker.seedGallery({ images: 1 });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('body')).not.toHaveClass(/gallery-locked/);
+
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+
+    await expect(gate(page)).toBeVisible();
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
+    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('שלום שוב, דוד');
+    await expect(page.locator('#galleryAccessGateChip')).toHaveText('התנתקת מהחשבון');
+    await expect(page.locator('#gateReturningName')).toHaveText(DEFAULT_USER.name);
+    await expect(page.locator('#gateReturningEmail')).toHaveText(DEFAULT_USER.email);
+    // אין תמונת פרופיל, ולכן מוצגת האות הראשונה.
+    await expect(page.locator('#gateReturningInitial')).toHaveText('ד');
+    await expect(gate(page).locator('.gate-account')).toBeVisible();
+    await expect(gate(page).locator('[data-official-google-button-host]')).toBeVisible();
+    await expect(gate(page).locator('.gate-link')).toBeVisible();
+    await expect(gate(page).locator('.gate-features')).toBeHidden();
+    await expect(gate(page).locator('.gate-steps')).toBeHidden();
+    await expect(gate(page).locator('.gate-mark')).toBeHidden();
+});
+
+test('חיבור שהסתיים בלי התנתקות: "נדרשת התחברות מחדש"', async ({ page, worker }) => {
+    worker.seedGallery({ images: 1 });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('body')).not.toHaveClass(/gallery-locked/);
+
+    // האסימון נעלם בלי לחיצה על "התנתקות" — כמו חיבור שפג תוקפו.
+    await page.evaluate(key => localStorage.removeItem(key), TOKEN_KEY);
+    await page.reload();
+
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
+    await expect(gate(page)).toHaveAttribute('data-return-reason', 'expired');
+    await expect(page.locator('#galleryAccessGateChip')).toHaveText('נדרשת התחברות מחדש');
+    await expect(page.locator('#galleryAccessGateText')).toContainText('החיבור הקודם שלך הסתיים');
+    await expect(page.locator('#gateReturningName')).toHaveText(DEFAULT_USER.name);
+});
+
+test('"זה לא החשבון שלי" שוכח את החשבון ומחזיר את מסך המבקר החדש, גם אחרי רענון', async ({ page, worker }) => {
+    worker.seedGallery({ images: 1 });
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(page.locator('body')).not.toHaveClass(/gallery-locked/);
+    await page.evaluate(() => window.signOutGoogleAccount(true));
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'returning');
+
+    await gate(page).locator('.gate-link').click();
+
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
+    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('התחבר כדי לצפות בגלריה');
+    await expect(gate(page).locator('.gate-features')).toBeVisible();
+    await expect(gate(page).locator('.gate-account')).toBeHidden();
+    await expect(gate(page).locator('[data-official-google-button-host]')).toBeVisible();
+
+    await page.reload();
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
+});
+
+test('כפתור Google אינו מוצג במסך ההמתנה לאישור', async ({ page, worker }) => {
+    await seedSession(page, { worker, approved: false });
+    await page.goto('/');
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'pending');
+    await expect(gate(page).locator('.gate-login-slot')).toBeHidden();
 });
