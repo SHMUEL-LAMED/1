@@ -58,6 +58,7 @@ module.exports = {
     "./search-history-ui.js",
     "./session-auth.js",
     "./session-ui.js",
+    "./returning-account.js",
     "./video-hover-preview.js"
   ],
   theme: {

@@ -38,7 +38,8 @@ const GALLERY_ELEMENT_IDS = [
     "floatingSignedOutView", "floatingSignedInView", "floatingUserPanelName",
     "floatingUserPanelEmail", "floatingUserPanelBadge",
     "userUploadAccessCard", "userUploadAccessTitle", "userUploadAccessText",
-    "userUploadModeText", "userUploadSubmitBtn", "userActionArea"
+    "userUploadModeText", "userUploadSubmitBtn", "userActionArea",
+    "gateReturningPhoto", "gateReturningInitial", "gateReturningName", "gateReturningEmail"
 ];
 
 const elements = new Map(GALLERY_ELEMENT_IDS.map(id => [id, createElement(id)]));
@@ -51,8 +52,16 @@ globalThis.document = {
     createElement: () => createElement(),
     addEventListener() {}
 };
+const storageData = new Map();
+const localStorage = {
+    getItem: key => (storageData.has(key) ? storageData.get(key) : null),
+    setItem: (key, value) => storageData.set(key, String(value)),
+    removeItem: key => storageData.delete(key)
+};
+
 globalThis.window = {
     state: {},
+    localStorage,
     safeImageUrl: value => (/^https:\/\//i.test(String(value ?? "")) ? String(value) : ""),
     scheduleIconRefresh() {}
 };
@@ -61,7 +70,10 @@ await import("./session-ui.js");
 
 function render(state) {
     window.state = state;
-    elements.forEach(element => element.classes.clear());
+    elements.forEach(element => {
+        element.classes.clear();
+        element.dataset = {};
+    });
     body.classes.clear();
     window.updateSessionUI();
 }
@@ -76,6 +88,76 @@ test("אורח שאינו מחובר רואה את שער הגישה, והגלר
     assert.equal(el("galleryAccessGate").dataset.gateState, "signed-out");
     assert.equal(el("galleryAccessGateTitle").textContent, "התחבר כדי לצפות בגלריה");
     assert.equal(el("headerConnectionStatus").textContent, "נדרשת הרשאה");
+});
+
+test("צופה מאושר נזכר במכשיר; אחרי התנתקות מכוונת הוא מקבל \"שלום שוב\"", () => {
+    storageData.clear();
+    render({
+        isGoogleUser: true,
+        currentUser: { displayName: "שרה לוי", email: "sara@example.com", photoURL: "https://lh3.googleusercontent.com/a/s" },
+        userApprovalStatus: "approved",
+        userRole: "viewer"
+    });
+    window.noteManualSignOut();
+    render({ isGoogleUser: false, currentUser: null, userApprovalStatus: "signed_out", userRole: "guest" });
+
+    assert.equal(el("galleryAccessGate").dataset.gateState, "returning");
+    assert.equal(el("galleryAccessGate").dataset.returnReason, "signed-out");
+    assert.equal(el("galleryAccessGateTitle").textContent, "שלום שוב, שרה");
+    assert.equal(el("galleryAccessGateChip").textContent, "התנתקת מהחשבון");
+    assert.equal(el("gateReturningName").textContent, "שרה לוי");
+    assert.equal(el("gateReturningEmail").textContent, "sara@example.com");
+    assert.equal(el("gateReturningPhoto").src, "https://lh3.googleusercontent.com/a/s");
+    assert.ok(el("gateReturningInitial").classList.contains("hidden"), "יש תמונה, ולכן האות מוסתרת");
+    assert.ok(body.classList.contains("gallery-locked"));
+});
+
+test("חיבור שהסתיים בלי התנתקות מקבל נוסח \"נדרשת התחברות מחדש\"", () => {
+    storageData.clear();
+    render({
+        isGoogleUser: true,
+        currentUser: { displayName: "יוסי", email: "yossi@example.com" },
+        userApprovalStatus: "approved",
+        userRole: "uploader"
+    });
+    render({ isGoogleUser: false, currentUser: null, userApprovalStatus: "signed_out", userRole: "guest" });
+
+    assert.equal(el("galleryAccessGate").dataset.gateState, "returning");
+    assert.equal(el("galleryAccessGate").dataset.returnReason, "expired");
+    assert.equal(el("galleryAccessGateChip").textContent, "נדרשת התחברות מחדש");
+    assert.equal(el("gateReturningInitial").textContent, "י");
+    assert.ok(!el("gateReturningInitial").classList.contains("hidden"), "אין תמונה, ולכן מוצגת האות");
+});
+
+test("\"זה לא החשבון שלי\" מחזיר את מסך המבקר החדש", () => {
+    storageData.clear();
+    render({
+        isGoogleUser: true,
+        currentUser: { displayName: "דוד", email: "david@example.com" },
+        userApprovalStatus: "approved",
+        userRole: "viewer"
+    });
+    render({ isGoogleUser: false, currentUser: null, userApprovalStatus: "signed_out", userRole: "guest" });
+    assert.equal(el("galleryAccessGate").dataset.gateState, "returning");
+
+    window.forgetReturningAccount();
+    assert.equal(el("galleryAccessGate").dataset.gateState, "signed-out");
+    assert.equal(el("galleryAccessGateTitle").textContent, "התחבר כדי לצפות בגלריה");
+    assert.equal(el("gateReturningName").textContent, "");
+    assert.equal(storageData.size, 0);
+});
+
+test("חשבון ממתין אינו נזכר, וחשבון שנחסם נשכח", () => {
+    storageData.clear();
+    render({ isGoogleUser: true, currentUser: { displayName: "חדש", email: "new@example.com" }, userApprovalStatus: "pending", userRole: "viewer" });
+    assert.equal(storageData.size, 0, "חשבון שעוד לא אושר אינו נזכר");
+
+    render({ isGoogleUser: true, currentUser: { displayName: "רות", email: "ruth@example.com" }, userApprovalStatus: "approved", userRole: "viewer" });
+    assert.equal(storageData.size, 1);
+    render({ isGoogleUser: true, currentUser: { displayName: "רות", email: "ruth@example.com" }, userApprovalStatus: "blocked", userRole: "viewer" });
+    assert.equal(storageData.size, 0, "חשבון שנחסם נמחק מהזיכרון");
+    render({ isGoogleUser: false, currentUser: null, userApprovalStatus: "signed_out", userRole: "guest" });
+    assert.equal(el("galleryAccessGate").dataset.gateState, "signed-out");
 });
 
 test("משתמש שממתין לאישור מקבל את מסך ההמתנה ולא את מסך ההתחברות", () => {

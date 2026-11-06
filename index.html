@@ -168,16 +168,48 @@
         <section id="galleryStage" class="gallery-stage" aria-label="תמונות הגלריה">
 
             <!-- שער הכניסה: כרטיס אחד שמשתנה לפי מצב החשבון (session-ui.js).
-                 data-gate-state קובע איזה מרכיב data-gate-only מוצג. -->
+                 data-gate-state קובע אילו מרכיבי data-gate-only מוצגים; מרכיב יכול
+                 להשתייך לכמה מצבים (רשימה מופרדת ברווחים).
+                   signed-out — מבקר חדש: מה יש בגלריה ואיך נכנסים.
+                   returning  — מבקר חוזר שהתנתק או שהחיבור שלו הסתיים
+                                (returning-account.js): "שלום שוב" עם החשבון שלו.
+                   pending / blocked — חשבון מחובר שממתין לאישור או שנחסם. -->
             <div id="galleryAccessGate" class="hidden gate" data-gate-state="signed-out" aria-labelledby="galleryAccessGateTitle">
                 <span class="gate-mark" aria-hidden="true"><i data-lucide="lock-keyhole" class="w-6 h-6"></i></span>
-                <p class="gate-chip" id="galleryAccessGateChip">כניסה מאובטחת</p>
+                <p class="gate-chip" id="galleryAccessGateChip">ברוכים הבאים</p>
                 <h2 id="galleryAccessGateTitle" class="gate-title">התחבר כדי לצפות בגלריה</h2>
-                <p id="galleryAccessGateText" class="gate-text">התחבר באמצעות Google. לאחר מכן תישלח למנהל בקשה לאישור החשבון.</p>
+                <p id="galleryAccessGateText" class="gate-text">הארכיון הדיגיטלי של שמחת התורה — תמונות וסרטונים מכל השנים, מסודרים לפי אירועים ותאריכים עבריים. הכניסה באמצעות Google, ולאחריה מנהל מאשר את החשבון.</p>
 
-                <button type="button" onclick="signInWithGoogleAccount()" class="gate-login" data-gate-only="signed-out">
-                    <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
-                    <span>כניסה באמצעות Google</span>
+                <!-- מבקר חדש: מה מחכה בפנים -->
+                <ul class="gate-features" data-gate-only="signed-out" aria-label="מה יש בגלריה">
+                    <li><i data-lucide="images" class="w-4 h-4" aria-hidden="true"></i> תמונות וסרטונים מכל השנים</li>
+                    <li><i data-lucide="calendar-days" class="w-4 h-4" aria-hidden="true"></i> סידור לפי אירועים ותאריכים עבריים</li>
+                    <li><i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i> חיפוש מהיר לפי תיקייה, תיאור ותאריך</li>
+                </ul>
+
+                <!-- מבקר חוזר: החשבון שנכנס בפעם הקודמת -->
+                <div class="gate-account" data-gate-only="returning">
+                    <span class="gate-account-avatar" aria-hidden="true">
+                        <img id="gateReturningPhoto" class="hidden" alt="" referrerpolicy="no-referrer" decoding="async">
+                        <span id="gateReturningInitial"></span>
+                    </span>
+                    <span class="gate-account-text">
+                        <strong id="gateReturningName"></strong>
+                        <span id="gateReturningEmail" dir="ltr"></span>
+                    </span>
+                </div>
+
+                <!-- הכפתור מוחלף בכפתור הרשמי של Google (cloudflare-client.js). העטיפה
+                     היא שקובעת באילו מצבים הוא מוצג, כי הכפתור הרשמי אינו יורש מאפיינים. -->
+                <div class="gate-login-slot" data-gate-only="signed-out returning">
+                    <button type="button" onclick="signInWithGoogleAccount()" class="gate-login">
+                        <svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.38l-3.24-2.53c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.92A6.02 6.02 0 0 1 6.08 12c0-.67.12-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.61.38 3.13 1.04 4.53l3.35-2.61Z"/><path fill="#EA4335" d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.87-2.87C16.96 2.96 14.7 2 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z"/></svg>
+                        <span>כניסה באמצעות Google</span>
+                    </button>
+                </div>
+
+                <button type="button" onclick="forgetReturningAccount()" class="gate-link" data-gate-only="returning">
+                    זה לא החשבון שלי — כניסה עם חשבון אחר
                 </button>
 
                 <ol class="gate-steps" data-gate-only="signed-out" aria-label="שלבי הכניסה">
@@ -191,6 +223,7 @@
                 </button>
 
                 <p class="gate-note" data-gate-only="signed-out"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> הפרטים משמשים לזיהוי ולאישור הכניסה בלבד</p>
+                <p class="gate-note" data-gate-only="returning"><i data-lucide="smartphone" class="w-3.5 h-3.5"></i> החשבון נזכר במכשיר הזה בלבד, כדי לחסוך לך את ההסבר בפעם הבאה</p>
                 <p class="gate-note" data-gate-only="pending"><i data-lucide="bell" class="w-3.5 h-3.5"></i> אין צורך לשלוח בקשה נוספת — הגלריה תיפתח כאן מיד עם האישור</p>
                 <p class="gate-note" data-gate-only="blocked"><i data-lucide="life-buoy" class="w-3.5 h-3.5"></i> לבירור מול צוות הישיבה אפשר לפנות למנהל האתר</p>
             </div>
