@@ -1723,7 +1723,44 @@ body .brand-title,
 body a.admin-back-link { color: var(--ink-2); text-decoration: none; }
 body a.admin-back-link:hover { background-color: var(--surface-2); color: var(--ink-1); }
 
-/* כפתור הפרופיל: עיגול של 36px */
+/* ההגדרות והפרופיל: גלולה אחת, שני עיגולים באותו גודל (--account-btn)
+   ומפריד דק ביניהם — כך הם נקראים כזוג אחד ולא כשני פקדים מפוזרים. */
+.header-account {
+  --account-btn: 36px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.header-account:hover,
+.header-account:focus-within { border-color: var(--line-strong); }
+.header-account .settings-trigger {
+  inline-size: var(--account-btn);
+  block-size: var(--account-btn);
+  min-block-size: var(--account-btn);
+  padding: 0;
+  border-radius: 50%;
+}
+.header-account .settings-trigger > :is(i, svg) {
+  transition: rotate var(--dur-3) var(--ease-out);
+}
+.header-account .settings-trigger:hover > :is(i, svg),
+.header-account .settings-trigger[aria-expanded="true"] > :is(i, svg) { rotate: 60deg; }
+.header-account-divider {
+  flex: none;
+  inline-size: 1px;
+  block-size: 20px;
+  background-color: var(--line);
+}
+
+/* כפתור הפרופיל: עיגול באותו גודל של כפתור ההגדרות */
 .floating-profile-container {
   position: relative;
   flex: none;
@@ -1731,18 +1768,19 @@ body a.admin-back-link:hover { background-color: var(--surface-2); color: var(--
 .floating-profile-btn {
   display: grid;
   place-items: center;
-  inline-size: 36px;
-  block-size: 36px;
+  inline-size: var(--account-btn, 36px);
+  block-size: var(--account-btn, 36px);
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
-  background-color: var(--surface);
+  background-color: var(--surface-2);
   color: var(--ink-2);
   cursor: pointer;
-  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
 }
-.floating-profile-btn:hover { border-color: var(--line-accent); color: var(--ink-1); }
+.floating-profile-btn:hover { border-color: var(--line-accent); color: var(--ink-1); box-shadow: 0 0 0 2px var(--accent-tint-2); }
+.floating-profile-btn[aria-expanded="true"] { border-color: var(--accent); }
 #floatingWidgetBadge {
   position: absolute;
   inset-block-start: -4px;
@@ -1850,20 +1888,17 @@ html[data-api-environment="staging"] .env-ribbon {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  /* שטח מגע של 44px; העיגול הנראה נשאר 36px */
-  .floating-profile-btn {
-    inline-size: var(--control-touch);
-    block-size: var(--control-touch);
-    padding: 4px;
-    border: 0;
-    background-color: transparent;
+  /* בטלפון הגלולה צמודה יותר, והעיגולים גדלים לשטח מגע נוח (40px +
+     ריפוד הגלולה = 46px). */
+  .header-account {
+    --account-btn: 40px;
+    gap: 2px;
+    margin-inline-start: 2px;
+    padding: 2px;
+    box-shadow: none;
   }
-  .floating-profile-btn > * {
-    border-radius: 50%;
-    box-shadow: 0 0 0 1px var(--line-strong);
-  }
-  .floating-profile-btn > span { inline-size: 100%; block-size: 100%; background-color: var(--surface); }
-  .floating-profile-container #floatingWidgetBadge { inset-block-start: 0; inset-inline-end: 0; }
+  .header-account-divider { block-size: 18px; }
+  .floating-profile-container #floatingWidgetBadge { inset-block-start: -2px; inset-inline-end: -2px; }
 }
 
 /* --- 5.13 ערימת הכפתורים הצפים: חזרה לראש הדף ---
@@ -2953,12 +2988,32 @@ body.gallery-locked #emptyState {
 }
 
 /* ---------- רצועת הכניסה (section.gallery-hero.home-intro) ---------- */
+/* כרטיס מוגבה עם זוהר פליז עדין בפינת הפתיחה ופס זהב דק בראשו. */
 .gallery-hero {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 24px;
-  padding-block: 24px;
-  border-block-end: 1px solid var(--line);
+  margin-block-start: 16px;
+  padding: 24px 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(90% 70% at 100% 0%, var(--accent-tint-2), transparent 70%),
+    radial-gradient(60% 60% at 0% 100%, var(--accent-tint-1), transparent 70%),
+    var(--surface-raised);
+  box-shadow: var(--shadow-2);
+}
+.gallery-hero::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: -1;
+  block-size: 3px;
+  background: linear-gradient(to left, var(--accent), var(--gold-line, var(--accent-tint-3)) 55%, transparent);
 }
 .entry-top,
 .entry-identity,
@@ -2984,6 +3039,10 @@ body.gallery-locked #emptyState {
   font-weight: 500;
   color: var(--accent-ink);
 }
+/* מעבר לחץ: החץ זז מעט קדימה (שמאלה ב-RTL). */
+.entry-door { box-shadow: 0 6px 18px -8px var(--accent); }
+.entry-door :is(i, svg) { transition: translate var(--dur-2) var(--ease-out); }
+.entry-door:hover :is(i, svg) { translate: -3px 0; }
 .entry-lede {
   margin: 0;
   max-inline-size: 46ch;
@@ -3011,23 +3070,34 @@ body.gallery-locked #emptyState {
   gap: 8px;
   margin: 0;
 }
+.entry-facts .stat-chip {
+  border-color: var(--line);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.entry-facts .stat-chip dd { color: var(--accent-ink); }
+@media (max-width: 767px) {
+  .gallery-hero { padding: 22px 16px 16px; }
+  .entry-facts { gap: 6px; }
+  .entry-facts .stat-chip { padding-inline: 10px; }
+}
 .entry-facts dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
 
 @media (min-width: 768px) {
-  .gallery-hero { padding-block: 40px; }
+  .gallery-hero { margin-block-start: 24px; padding: 36px; }
 }
 @media (min-width: 1024px) {
   .gallery-hero {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     gap: 48px;
-    align-items: end;
+    align-items: center;
   }
 }
 @media (min-width: 1200px) {
-  .gallery-hero { padding-block: 56px 48px; }
+  .gallery-hero { margin-block-start: 32px; padding: 44px 48px; }
 }
 
 /* ---------- פסיפס הרגעים (#heroMosaic) ----------
@@ -3047,24 +3117,41 @@ body.gallery-locked #emptyState {
 }
 .hero-mosaic:empty {
   background: var(--surface-inset);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
 }
 .hero-mosaic > span {
   position: relative;
   min-inline-size: 0;
   min-block-size: 0;
   overflow: hidden;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   background: var(--surface-3);
+  box-shadow: var(--shadow-1);
   animation: fade-only var(--dur-4) var(--ease-out) both;
   animation-delay: calc(var(--tile-index, 0) * 60ms);
 }
+/* מסגרת פנימית דקה שמפרידה את התמונה מהרקע בשני המצבים. */
+.hero-mosaic > span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  pointer-events: none;
+}
+.hero-mosaic > span:first-child { border-start-start-radius: var(--r-lg); border-end-start-radius: var(--r-lg); }
+.hero-mosaic > span:nth-child(3) { border-start-end-radius: var(--r-lg); }
+.hero-mosaic > span:nth-child(5) { border-end-end-radius: var(--r-lg); }
 .hero-mosaic > span:first-child { grid-row: 1 / -1; }
 .hero-mosaic > span img {
   display: block;
   inline-size: 100%;
   block-size: 100%;
   object-fit: cover;
+  transition: scale var(--dur-4) var(--ease-out);
+}
+@media (hover: hover) {
+  .hero-mosaic > span:hover img { scale: 1.04; }
 }
 @media (min-width: 768px) {
   .hero-mosaic { block-size: 320px; }
