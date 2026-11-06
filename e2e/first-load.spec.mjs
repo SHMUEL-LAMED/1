@@ -52,6 +52,26 @@ test.describe('מסך רחב', () => {
     });
 });
 
+test('הפסיפס מחליף מדי כמה שניות אריח אחד בתמונה אקראית שאינה מוצגת', async ({ page, worker }) => {
+    worker.seedGallery({ images: 12 });
+    await page.clock.install();
+    await seedSession(page, { worker });
+    await page.goto('/');
+    await expect(tiles(page)).toHaveCount(5);
+    const shownIds = () => page.locator('#heroMosaic > span').evaluateAll(nodes => nodes.map(node => node.dataset.heroId));
+    const before = await shownIds();
+    expect(new Set(before).size).toBe(5);
+    await page.clock.runFor(5_500);
+    await expect.poll(async () => (await shownIds()).filter((id, index) => id !== before[index]).length).toBe(1);
+    const after = await shownIds();
+    const changed = after.find((id, index) => id !== before[index]);
+    expect(before).not.toContain(changed);
+    expect(new Set(after).size).toBe(5);
+    // בסוף ההחלפה נשארת באריח תמונה אחת בלבד.
+    await page.clock.runFor(1_500);
+    await expect(tiles(page)).toHaveCount(5);
+});
+
 test.describe('טלפון', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
