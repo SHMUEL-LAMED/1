@@ -30,6 +30,7 @@ const APP_SHELL = [
   "./error-monitor.js",
   "./session-ui.js",
   "./returning-account.js",
+  "./access-request.js",
   "./gallery.js",
   "./gallery-feed.js",
   "./gallery-layout.js",

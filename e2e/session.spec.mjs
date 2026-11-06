@@ -11,16 +11,20 @@ test('אורח רואה את שער הכניסה, והגלריה נעולה', as
 
     await expect(gate(page)).toBeVisible();
     await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
-    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('התחבר כדי לצפות בגלריה');
+    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('אין לך גישה לגלריה');
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
     await expect(page.locator('#headerConnectionStatus')).toHaveText('נדרשת הרשאה');
     await expect(page.locator('#headerConnectionStatus')).toHaveAttribute('data-state', 'locked');
     await expect(page.locator('#photosGrid')).toBeHidden();
     // כפתור האתר הוחלף בכפתור הרשמי של Google.
     await expect(gate(page).locator('[data-official-google-button-host]')).toHaveText('[google]');
-    // מבקר חדש מקבל את ההסבר המלא: מה יש בגלריה ושלבי הכניסה, בלי כרטיס "שלום שוב".
-    await expect(gate(page).locator('.gate-features')).toBeVisible();
+    // מבקר חדש מקבל דף "אין גישה" שלם עם שלבי בקשת הגישה, בלי כרטיס "שלום שוב".
+    await expect(page.locator('#galleryAccessGateChip')).toHaveText('אין גישה');
     await expect(gate(page).locator('.gate-steps')).toBeVisible();
+    await expect(gate(page).locator('.gate-steps')).toContainText('שם מלא אמיתי');
+    // הדף עומד לבדו: רצועת הכניסה והפסיפס אינם מוצגים מאחוריו.
+    await expect(page.locator('.gallery-hero')).toBeHidden();
+    await expect(page.locator('#accessRequestForm')).toBeHidden();
     await expect(gate(page).locator('.gate-account')).toBeHidden();
     await expect(gate(page).locator('.gate-link')).toBeHidden();
 });
@@ -75,6 +79,9 @@ test('משתמש שממתין לאישור רואה את מסך ההמתנה, ו
     await expect(gate(page)).toHaveAttribute('data-gate-state', 'pending');
     await expect(page.locator('#galleryAccessGateChip')).toHaveText('ממתין לאישור מנהל');
     await expect(page.locator('#galleryAccessGateTitle')).toHaveText('בקשת ההצטרפות ממתינה לאישור');
+    await expect(page.locator('#gateRequestSummary')).toBeVisible();
+    await expect(page.locator('#gateRequestedName')).toHaveText('דוד כהן');
+    await expect(page.locator('#accessRequestForm')).toBeHidden();
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
     await expect(page.locator('#floatingUserPanelBadge')).toHaveText('ממתין לאישור מנהל');
     await expect(page.locator('#sidebarLockStatus')).toHaveText('ממתין לאישור');
@@ -135,7 +142,8 @@ test('משתמש חדש שנכנס דרך Google מקבל פרופיל ממתי�
     await signInViaGoogle(page, { uid: 'google-user-new', email: 'new@example.com', name: 'חדש' });
 
     await expect.poll(() => readStoredToken(page)).toMatch(/^v1\./);
-    await expect(gate(page)).toHaveAttribute('data-gate-state', 'pending');
+    // משתמש חדש עוד לא מילא שם מלא, ולכן מקבל את טופס בקשת הגישה.
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'request');
     await expect(page.locator('#floatingUserPanelName')).toHaveText('חדש');
     await expect(page.locator('body')).toHaveClass(/gallery-locked/);
     const profile = worker.collection('userProfiles').get('google-user-new');
@@ -199,7 +207,7 @@ test('מבקר חוזר שהתנתק: "שלום שוב" עם החשבון שלו
     await expect(gate(page).locator('.gate-account')).toBeVisible();
     await expect(gate(page).locator('[data-official-google-button-host]')).toBeVisible();
     await expect(gate(page).locator('.gate-link')).toBeVisible();
-    await expect(gate(page).locator('.gate-features')).toBeHidden();
+    await expect(gate(page).locator('.gate-steps')).toBeHidden();
     await expect(gate(page).locator('.gate-steps')).toBeHidden();
     await expect(gate(page).locator('.gate-mark')).toBeHidden();
 });
@@ -232,8 +240,8 @@ test('"זה לא החשבון שלי" שוכח את החשבון ומחזיר א
     await gate(page).locator('.gate-link').click();
 
     await expect(gate(page)).toHaveAttribute('data-gate-state', 'signed-out');
-    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('התחבר כדי לצפות בגלריה');
-    await expect(gate(page).locator('.gate-features')).toBeVisible();
+    await expect(page.locator('#galleryAccessGateTitle')).toHaveText('אין לך גישה לגלריה');
+    await expect(gate(page).locator('.gate-steps')).toBeVisible();
     await expect(gate(page).locator('.gate-account')).toBeHidden();
     await expect(gate(page).locator('[data-official-google-button-host]')).toBeVisible();
 
@@ -246,4 +254,49 @@ test('כפתור Google אינו מוצג במסך ההמתנה לאישור', a
     await page.goto('/');
     await expect(gate(page)).toHaveAttribute('data-gate-state', 'pending');
     await expect(gate(page).locator('.gate-login-slot')).toBeHidden();
+});
+
+test('טופס בקשת הגישה: בלי שם מלא אמיתי אי אפשר לשלוח, ועם שם הבקשה נשמרת', async ({ page, worker }) => {
+    await seedSession(page, { worker, approved: false, requestedName: '' });
+    await page.goto('/');
+
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'request');
+    await expect(page.locator('#galleryAccessGateChip')).toHaveText('בקשת גישה');
+    const name = page.locator('#accessRequestName');
+    const submit = page.locator('#accessRequestSubmit');
+    const hint = page.locator('#accessRequestNameHint');
+    await expect(name).toBeVisible();
+    await expect(page.locator('#gateReturningEmail')).toHaveText(DEFAULT_USER.email);
+    await expect(gate(page).locator('.gate-login-slot')).toBeHidden();
+
+    // שדה ריק: הכפתור כבוי.
+    await expect(submit).toBeDisabled();
+
+    // מילה אחת אינה שם מלא.
+    await name.fill('דוד');
+    await expect(submit).toBeDisabled();
+    await expect(hint).toHaveText('יש לכתוב שם פרטי ושם משפחה.');
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+
+    // שם שאינו שם של אדם נחסם.
+    await name.fill('משתמש Google');
+    await expect(submit).toBeDisabled();
+    await expect(hint).toContainText('השם האמיתי');
+
+    // Enter בשדה עם שם לא תקין אינו שולח דבר.
+    await name.press('Enter');
+    expect(worker.collection('userProfiles').get(DEFAULT_USER.uid).requestedName).toBeUndefined();
+
+    await name.fill('דוד  כהן');
+    await page.locator('#accessRequestNote').fill('הורה של תלמיד');
+    await expect(submit).toBeEnabled();
+    await submit.click();
+
+    await expect(gate(page)).toHaveAttribute('data-gate-state', 'pending');
+    await expect(page.locator('#gateRequestedName')).toHaveText('דוד כהן');
+    await expect.poll(() => worker.collection('userProfiles').get(DEFAULT_USER.uid)).toMatchObject({
+        requestedName: 'דוד כהן',
+        requestNote: 'הורה של תלמיד',
+        status: 'pending'
+    });
 });

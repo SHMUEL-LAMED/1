@@ -495,11 +495,13 @@ export class FakeWorker {
         return this;
     }
 
-    seedUser({ uid = DEFAULT_USER.uid, email = DEFAULT_USER.email, name = DEFAULT_USER.name, picture = '', status = 'approved', role = 'viewer' } = {}) {
+    // requestedName: השם המלא מטופס בקשת הגישה. ממתין שנזרע בלעדיו מקבל את הטופס.
+    seedUser({ uid = DEFAULT_USER.uid, email = DEFAULT_USER.email, name = DEFAULT_USER.name, picture = '', status = 'approved', role = 'viewer', requestedName = '' } = {}) {
         const requestedAt = Date.now() - 7 * DAY_MS;
         return this.seed('userProfiles', uid, {
             uid, email, displayName: name, photoURL: picture, status, role, requestedAt,
             lastLoginAt: requestedAt,
+            ...(requestedName ? { requestedName, accessRequestedAt: requestedAt } : {}),
             ...(status === 'approved' ? { approvedAt: requestedAt, approvedBy: 'e2e-admin' } : {})
         });
     }
@@ -1983,9 +1985,10 @@ export async function installRoutes(context, worker) {
 // שדפדפן של משתמש שכבר התחבר פעם מכיל — וזורע את הפרופיל התואם בזיוף.
 export async function seedSession(page, {
     worker, uid = DEFAULT_USER.uid, email = DEFAULT_USER.email, name = DEFAULT_USER.name,
-    approved = true, role = 'viewer', status = approved ? 'approved' : 'pending', issuedAgoMs = 0, picture = ''
+    approved = true, role = 'viewer', status = approved ? 'approved' : 'pending', issuedAgoMs = 0, picture = '',
+    requestedName = status === 'pending' ? 'דוד כהן' : ''
 } = {}) {
-    worker?.seedUser({ uid, email, name, status, role, picture });
+    worker?.seedUser({ uid, email, name, status, role, picture, requestedName });
     const token = fakeSessionToken({ uid, email, name, picture }, { issuedAgoMs });
     await page.addInitScript(([key, value]) => {
         // פעם אחת לכל לשונית: רענון אחרי התנתקות אינו מחזיר את האסימון.

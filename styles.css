@@ -2975,6 +2975,17 @@ body.gallery-locked .gallery-layout {
     "hero"
     "stage";
 }
+body.gallery-locked:not(.session-resolving) .gallery-layout {
+  grid-template-areas: "stage";
+}
+/* בלי גישה השער הוא הדף כולו: הוא ממורכז בגובה המסך שמתחת לכותרת, ואין
+   מאחוריו רצועת כניסה, פסיפס או מקום ריק של תמונות. */
+body.gallery-locked:not(.session-resolving) .gallery-stage {
+  display: grid;
+  place-items: center;
+  min-block-size: calc(100dvh - var(--header-h) - 48px);
+}
+body.gallery-locked:not(.session-resolving) .gallery-hero,
 body.gallery-locked .folder-rail,
 body.gallery-locked .gallery-timeline,
 body.gallery-locked .gallery-toolbar,
@@ -3798,6 +3809,7 @@ body.gallery-locked #folderContext { display: none; }
 .gate [data-gate-only] { display: none; }
 .gate[data-gate-state="signed-out"] [data-gate-only~="signed-out"],
 .gate[data-gate-state="returning"] [data-gate-only~="returning"],
+.gate[data-gate-state="request"] [data-gate-only~="request"],
 .gate[data-gate-state="pending"] [data-gate-only~="pending"],
 .gate[data-gate-state="blocked"] [data-gate-only~="blocked"],
 .gate[data-gate-state="rejected"] [data-gate-only~="blocked"] { display: flex; }
@@ -3894,7 +3906,8 @@ body.gallery-locked #folderContext { display: none; }
 .gate-login-slot .gate-login { display: inline-flex; }
 
 /* "זה לא החשבון שלי": קישור שקט, לא כפתור מתחרה */
-.gate-link {
+.gate-link,
+.gate-signout {
   justify-content: center;
   min-block-size: var(--control-touch);
   padding: 4px 8px;
@@ -3908,7 +3921,8 @@ body.gallery-locked #folderContext { display: none; }
   text-underline-offset: 3px;
   cursor: pointer;
 }
-.gate-link:hover { color: var(--ink-1); text-decoration-color: currentColor; }
+.gate-link:hover,
+.gate-signout:hover { color: var(--ink-1); text-decoration-color: currentColor; }
 
 /* כפתור Google: שורה מרכזית של 48px; הסמל הצבעוני נשאר כמות שהוא */
 .gate-login {
@@ -3964,6 +3978,96 @@ body.gallery-locked #folderContext { display: none; }
   font-size: var(--t-small);
   line-height: var(--lh-small);
 }
+
+
+/* דף "אין גישה": מנעול גדול יותר וכותרת בולטת, כי זה כל מה שיש בדף */
+.gate[data-gate-state="signed-out"] .gate-mark {
+  inline-size: 64px;
+  block-size: 64px;
+  background-color: var(--accent-tint-2);
+  color: var(--accent-ink);
+}
+.gate[data-gate-state="signed-out"] .gate-mark :is(i[data-lucide], svg) { inline-size: 28px; block-size: 28px; }
+.gate[data-gate-state="signed-out"] .gate-steps {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-inset);
+}
+.gate-cta-label {
+  justify-content: center;
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+
+/* טופס בקשת הגישה */
+.gate-form {
+  flex-direction: column;
+  gap: 14px;
+  inline-size: min(100%, 400px);
+  text-align: start;
+}
+.gate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gate-field label {
+  color: var(--ink-1);
+  font: 600 var(--t-small)/var(--lh-small) var(--font-sans);
+}
+.gate-required { color: var(--danger); font-weight: 600; }
+.gate-optional { color: var(--ink-3); font-weight: 400; }
+.gate-field :is(input, textarea) {
+  inline-size: 100%;
+  min-block-size: var(--control-lg, 48px);
+  padding: 10px 12px;
+  border: 1px solid var(--line-input, var(--line-strong));
+  border-radius: var(--r-md);
+  background-color: var(--surface-raised, var(--surface));
+  color: var(--ink-1);
+  font: 400 var(--t-body)/1.4 var(--font-sans);
+  resize: vertical;
+}
+.gate-field :is(input, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.gate-field input[aria-invalid="true"] {
+  border-color: var(--danger-line, var(--danger));
+  background-color: var(--danger-tint, transparent);
+}
+.gate-field-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-small);
+  line-height: var(--lh-small);
+}
+.gate-field-hint[data-state="error"] { color: var(--danger); font-weight: 600; }
+.gate-field-hint[data-state="ok"] { color: var(--success); }
+.gate-submit {
+  justify-content: center;
+  gap: 8px;
+  inline-size: 100%;
+}
+.gate-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+/* "הבקשה נשלחה בשם …" */
+.gate-request-summary {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-inset);
+  color: var(--ink-2);
+  font-size: var(--t-small);
+}
+.gate-request-summary[hidden] { display: none !important; }
+.gate-request-summary strong { color: var(--ink-1); }
 
 
 /* --- 3. הקשר התיקייה: פירורי לחם ותת־תיקיות (#folderContext) ------------- */
