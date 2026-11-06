@@ -80,15 +80,19 @@
                     <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4"></i>
                     <span id="themeToggleText">בהיר</span>
                 </button>
-                <button type="button" onclick="toggleAdminDrawer()" class="icon-button settings-trigger" title="פתיחת אזור אישי והגדרות" aria-label="פתיחת אזור אישי והגדרות" aria-controls="adminDrawer" aria-expanded="false">
-                    <i data-lucide="settings" class="w-5 h-5"></i>
-                </button>
-                <div class="floating-profile-container">
-                    <span id="floatingWidgetBadge" class="hidden flex">0</span>
-                    <button id="floatingProfileButton" type="button" onclick="openFloatingProfile(event)" class="floating-profile-btn" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
-                        <img id="floatingUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="פרופיל" class="w-full h-full rounded-full object-cover hidden">
-                        <span id="floatingUserFallback" class="flex items-center justify-center"><i data-lucide="user-round" class="w-5 h-5"></i></span>
+                <!-- ההגדרות והפרופיל: זוג אחד באותו גובה, בתוך גלולה משותפת. -->
+                <div class="header-account" role="group" aria-label="אזור אישי">
+                    <button type="button" onclick="toggleAdminDrawer()" class="icon-button settings-trigger" title="פתיחת אזור אישי והגדרות" aria-label="פתיחת אזור אישי והגדרות" aria-controls="adminDrawer" aria-expanded="false">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
                     </button>
+                    <span class="header-account-divider" aria-hidden="true"></span>
+                    <div class="floating-profile-container">
+                        <span id="floatingWidgetBadge" class="hidden flex">0</span>
+                        <button id="floatingProfileButton" type="button" onclick="openFloatingProfile(event)" class="floating-profile-btn" title="פרופיל גוגל והודעות" aria-label="פרופיל גוגל והודעות" aria-controls="floatingProfilePanel" aria-expanded="false">
+                            <img id="floatingUserPhoto" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="פרופיל" class="w-full h-full rounded-full object-cover hidden">
+                            <span id="floatingUserFallback" class="flex items-center justify-center"><i data-lucide="user-round" class="w-5 h-5"></i></span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
