@@ -3164,6 +3164,12 @@ body.gallery-locked #emptyState {
 @media (hover: hover) {
   .hero-mosaic > span:hover img { scale: 1.04; }
 }
+/* החלפת אריח אקראית (hero-mosaic.js): התמונה החדשה נכנסת בדעיכה מעל הישנה. */
+.hero-mosaic > span img.hero-tile-incoming {
+  position: absolute;
+  inset: 0;
+  animation: fade-only 900ms var(--ease-out) both;
+}
 @media (min-width: 768px) {
   .hero-mosaic { block-size: 320px; }
 }
