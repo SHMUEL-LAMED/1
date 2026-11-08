@@ -219,14 +219,16 @@ test("מונה השגיאות שבתפריט נכתב רק למי שמורשה �
 });
 
 test("סל המחזור ויומן הפעולות שמורים למנהל־על", async () => {
-  // renderTrashItems ו-renderActivityLogs עברו עם לוח הניהול ל-admin-ui.js,
-  // שאינו ניתן לייבוא כאן; נבדק שהן נושאות את אותו guard בדיוק.
-  const source = readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8");
-  for (const fn of ["window.renderTrashItems", "window.renderActivityLogs"]) {
-    const start = source.indexOf(`${fn} = function`);
-    assert.ok(start > 0, `${fn} לא נמצאה ב-admin-ui.js`);
+  // renderTrashItems ו-renderActivityLogs חיות במודולים של המסכים שלהן
+  // (admin-trash.js, admin-activity.js), שנטענים לפי צורך ואינם ניתנים
+  // לייבוא כאן; נבדק שהן נושאות את אותו guard בדיוק.
+  for (const [file, fn] of [["admin-trash.js", "renderTrashItems"], ["admin-activity.js", "renderActivityLogs"]]) {
+    const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+    const start = source.indexOf(`export function ${fn}(`);
+    assert.ok(start > 0, `${fn} לא נמצאה ב-${file}`);
     const head = source.slice(start, start + 420);
     assert.match(head, /canViewSuperAdminData\(\)/, `${fn} חסרה בדיקת מנהל־על`);
+    assert.ok(source.includes(`window.${fn} = ${fn};`), `${fn} חייבת להיות חשופה על window מתוך ${file}`);
   }
 });
 
