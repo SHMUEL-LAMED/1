@@ -362,6 +362,28 @@ window.adminViewInfo = function(viewId) {
 // דרך window. עד שהמודול נטען, window[name] היא מעטפת שמושכת את המודול
 // ואז קוראת לפונקציה האמיתית — המודול עצמו מחליף את המעטפת בטעינתו.
 
+// Vite מאגד ייבוא דינמי רק כשהנתיב הוא מחרוזת קבועה, ולכן לכל מודול יש כאן
+// פונקציית טעינה משלה; מפתח המפה הוא השם שבו שאר הקובץ פונה אל המודול.
+const MODULE_LOADERS = {
+    './admin-folders.js': () => import('./admin-folders.js'),
+    './admin-users-view.js': () => import('./admin-users-view.js'),
+    './admin-health.js': () => import('./admin-health.js'),
+    './admin-backup.js': () => import('./admin-backup.js'),
+    './admin-analytics.js': () => import('./admin-analytics.js'),
+    './admin-trash.js': () => import('./admin-trash.js'),
+    './admin-activity.js': () => import('./admin-activity.js'),
+    './admin-tools.js': () => import('./admin-tools.js'),
+    './admin-users-bulk.js': () => import('./admin-users-bulk.js'),
+    './admin-stats.js': () => import('./admin-stats.js'),
+    './admin-errors.js': () => import('./admin-errors.js'),
+    './maintenance-admin.js': () => import('./maintenance-admin.js'),
+    './invites-admin.js': () => import('./invites-admin.js'),
+    './admin-guide-ui.js': () => import('./admin-guide-ui.js')
+};
+
+// הפונקציות ש-admin.html (ומאזיני הנתונים) קוראים להן דרך window, לפי המודול
+// שמגדיר אותן. עד שהמודול נטען, window[name] היא מעטפת שמושכת אותו ואז
+// קוראת לפונקציה האמיתית — המודול עצמו מחליף את המעטפת בטעינתו.
 const LAZY_MODULES = {
     './admin-folders.js': ['renderAdminFolders'],
     './admin-users-view.js': ['filterManagedUsers', 'exportUsersCsv', 'sendDirectMail', 'submitDirectEmail'],
@@ -379,7 +401,9 @@ const LAZY_MODULES = {
 
 const modulePromises = new Map();
 function loadModule(path) {
-    if (!modulePromises.has(path)) modulePromises.set(path, import(/* @vite-ignore */ path));
+    const loader = MODULE_LOADERS[path];
+    if (!loader) return Promise.reject(new Error(`${path} is not a known admin module`));
+    if (!modulePromises.has(path)) modulePromises.set(path, loader());
     return modulePromises.get(path);
 }
 function reportModuleError(label) {
