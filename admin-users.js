@@ -105,7 +105,8 @@ export async function deleteManagedUser(uid, confirmed = false) {
     }
     try {
         await window.moveUserToTrash(uid);
-        adminMessageRecipients.delete(window.safeRecordId(uid));
+        // רשימת הנמענים של מרכז ההודעות חיה ב-chat-admin.js, שנטען עצלה; בלי המודול אין מה לנקות.
+        window.forgetAdminMessageRecipient?.(window.safeRecordId(uid));
         window.state.allUsers = (window.state.allUsers || []).filter(user => user.uid !== uid);
         window.state.pendingUsers = (window.state.pendingUsers || []).filter(user => user.uid !== uid);
         window.renderManagedUsers();

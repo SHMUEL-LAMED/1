@@ -17,6 +17,10 @@ import {
 
 // נמעני השליחה הקבוצתית ומצב השליחה — מצב של מרכז ההודעות בלבד.
 const adminMessageRecipients = new Set();
+// מחיקת משתמש (admin-users.js) מסירה אותו גם מהנמענים שנבחרו לשליחה.
+window.forgetAdminMessageRecipient = function(uid) {
+    adminMessageRecipients.delete(uid);
+};
 let adminMessageSending = false;
 
 // מסנן רשימת הפניות. מצב של מרכז ההודעות בלבד, ולכן הוא חי כאן.
