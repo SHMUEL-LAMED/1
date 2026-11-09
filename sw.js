@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v80";
+const CACHE_VERSION = "v81";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -21,6 +21,8 @@ const CACHE_PREFIX = "simchat-gallery-shell-";
 // ו-users-model.js שהם נשענים עליו. manual-tags.js (תיוג ידני, למנהלים) ו-
 // invites-admin.js (לוח הניהול) הם כלי ניהול ונשארים בחוץ, ו-content-hash.js
 // נטען רק בהעלאה, כמו upload-queue.js.
+// icon-512.png (כ-190KB) אינו במעטפת: הוא נדרש רק בהתקנה למסך הבית,
+// ונכנס למטמון כשהדפדפן מבקש אותו. הורדה מראש שלו האטה כל כניסה ראשונה.
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -87,8 +89,7 @@ const APP_SHELL = [
   "./usage-beacon.js",
   "./manifest.webmanifest",
   "./favicon-32.png",
-  "./icon-192.png",
-  "./icon-512.png"
+  "./icon-192.png"
 ];
 
 // כתובות שתשובתן פרטית למשתמש ואסור לשמור אותן במטמון.
