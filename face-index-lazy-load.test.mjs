@@ -14,10 +14,12 @@ function withoutComments(source) {
   return source.replace(/^[ \t]*\/\/.*$/gm, "");
 }
 
-// המעטפת העצלה נשארה בתשתית המשותפת (app.js), אבל לוח האינדוקס ובדיקת
-// המערכת עברו לדף הניהול הנפרד ולכן נבדקים ב-admin-ui.js.
+// המעטפת העצלה נשארה בתשתית המשותפת (app.js). פתיחת לוח האינדוקס היא
+// רשומת המסך faceindex ברשימת המסכים (admin-ui.js), ובדיקת המערכת חיה
+// במודול של מסך התקינות (admin-health.js).
 const appJs = withoutComments(readFileSync(new URL("./app.js", import.meta.url), "utf8"));
 const adminUiJs = withoutComments(readFileSync(new URL("./admin-ui.js", import.meta.url), "utf8"));
+const adminHealthJs = withoutComments(readFileSync(new URL("./admin-health.js", import.meta.url), "utf8"));
 const faceIndexJs = readFileSync(new URL("./face-index.js", import.meta.url), "utf8");
 const faceIndexCode = withoutComments(faceIndexJs);
 
@@ -34,18 +36,18 @@ function registeredPlaceholders() {
   return [...block.matchAll(/'(\w+)'/g)].map(match => match[1]);
 }
 
-// קטע הקוד שמטפל בפתיחת לוח האינדוקס בלוח הניהול.
+// רשומת המסך faceindex: מה שרץ כשהמסך נפתח (open) ברשימת המסכים.
 function faceIndexPanelBlock() {
-  const start = adminUiJs.indexOf("if (viewId === 'faceindex')");
+  const start = adminUiJs.indexOf("id: 'faceindex'");
   assert.ok(start > -1, "מסלול פתיחת מסך האינדוקס לא נמצא ב-admin-ui.js");
-  return adminUiJs.slice(start, start + 700);
+  return adminUiJs.slice(start, start + 1200);
 }
 
 // בדיקת "אינדוקס פנים בענן" שבמסך בדיקת המערכת.
 function healthCheckBlock() {
-  const start = adminUiJs.indexOf("label: 'אינדוקס פנים בענן'");
-  assert.ok(start > -1, "בדיקת אינדוקס הפנים לא נמצאה ב-admin-ui.js");
-  return adminUiJs.slice(start, start + 700);
+  const start = adminHealthJs.indexOf("label: 'אינדוקס פנים בענן'");
+  assert.ok(start > -1, "בדיקת אינדוקס הפנים לא נמצאה ב-admin-health.js");
+  return adminHealthJs.slice(start, start + 700);
 }
 
 test("refreshFaceIndexSummary מוגדרת רק במודול העצל, ולכן חייבת המתנה לטעינה", () => {
