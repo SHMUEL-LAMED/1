@@ -83,8 +83,7 @@ test("רשימת המעטפת של הבנייה: הגלריה בשמות מגו�
     "./assets/face-search-DDDD.js",
     "./manifest.webmanifest",
     "./favicon-32.png",
-    "./icon-192.png",
-    "./icon-512.png"
+    "./icon-192.png"
   ]);
   for (const forbidden of ["admin-BBBB", "admin-errors", "chat-EEEE", "admin.html"]) {
     assert.ok(!list.some(entry => entry.includes(forbidden)), `${forbidden} אינו אמור לרדת מראש למבקר רגיל`);
@@ -163,4 +162,17 @@ test("הגדרות הבנייה: שני הדפים, בסיס יחסי, והפר�
   const checks = read(".github/workflows/checks.yml");
   assert.match(checks, /npm run build/);
   assert.match(checks, /E2E_ROOT: dist/);
+});
+
+test("רמזי modulepreload ב-index.html תואמים לגרף הייבוא הסטטי של app.js ומוסרים בבנייה", async () => {
+  const { dropSourcePreloads, staticImportGraph } = await import("./site-build.mjs");
+  const { readFileSync } = await import("node:fs");
+  const read = file => readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+  const html = read("index.html");
+  const hinted = [...html.matchAll(/<link rel="modulepreload" href="\.\/([^"]+)" data-source-preload>/g)].map(match => match[1]);
+  const graph = staticImportGraph("app.js", read);
+  assert.deepEqual([...hinted].sort(), [...graph].sort(), "מודול שנוסף או הוסר מהייבוא הסטטי צריך להתעדכן גם ברמזים שב-index.html");
+  const built = dropSourcePreloads(html);
+  assert.ok(!/modulepreload/.test(built));
+  assert.match(built, /<script type="module" src="\.\/app\.js"><\/script>/);
 });

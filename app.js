@@ -48,7 +48,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v80';
+const SITE_VERSION = 'v81';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -1704,11 +1704,12 @@ document.addEventListener('DOMContentLoaded', () => {
         installUsageBeacon();
         // רישום ה-Service Worker, ומעליו מעקב העדכונים: גרסה חדשה של האתר
         // מרעננת את הדף מיד, בלי שהמשתמש יצטרך לרענן בעצמו (ראו auto-update.js).
-        // הרישום נשאר כאן בכוונה: דחייה שלו אחרי load ואחרי התמונה הראשונה
-        // נמדדה (scripts/measure-first-load.mjs) ולא קיצרה את הטעינה הראשונה —
-        // קובצי המעטפת כבר במטמון ה-HTTP מהטעינה עצמה, וההתקנה זולה.
+        // הרישום נדחה עד אחרי אירוע load (התמונות שמעל קו הגלילה כבר ירדו) ועוד
+        // רגע של שקט: התקנת ה-SW מורידה את כל המעטפת, ובמדידה
+        // (scripts/measure-first-load.mjs) ההורדה הזו התחרתה על הפס עם נתוני
+        // הגלריה והתמונות הראשונות ועיכבה אותם ביותר משתי שניות.
         const serviceWorkerRegistration = 'serviceWorker' in navigator
-            ? navigator.serviceWorker.register('./sw.js').catch(error => {
+            ? whenPageSettled().then(() => navigator.serviceWorker.register('./sw.js')).catch(error => {
                 console.warn('Service worker registration failed:', error);
                 return null;
             })
@@ -1719,3 +1720,19 @@ document.addEventListener('DOMContentLoaded', () => {
         window.reportClientError?.(error, 'init');
     }
 });
+
+// מתקיים אחרי שהדף סיים לטעון (load) והדפדפן פנוי, ולכל המאוחר כמה שניות
+// אחר כך — כדי שעבודת רקע (רישום ה-Service Worker) לא תתחרה בטעינה הראשונה.
+function whenPageSettled({ idleTimeoutMs = 2000, maxWaitMs = 12000 } = {}) {
+    return new Promise(resolve => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        const afterLoad = () => {
+            if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(finish, { timeout: idleTimeoutMs });
+            else setTimeout(finish, 300);
+        };
+        if (document.readyState === 'complete') afterLoad();
+        else window.addEventListener('load', afterLoad, { once: true });
+        setTimeout(finish, maxWaitMs);
+    });
+}

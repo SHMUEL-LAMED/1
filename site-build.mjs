@@ -32,8 +32,7 @@ export const STATIC_FILES = [
 export const SHELL_STATIC_ASSETS = [
     './manifest.webmanifest',
     './favicon-32.png',
-    './icon-192.png',
-    './icon-512.png'
+    './icon-192.png'
 ];
 
 const VITE_MANIFEST_PATH = '.vite/manifest.json';
@@ -44,6 +43,34 @@ const STATIC_LINK_PATTERN = /<link\b(?![^>]*\bvite-ignore\b)(?=[^>]*\brel=["'](?
 
 export function keepStaticLinks(html) {
     return String(html).replace(STATIC_LINK_PATTERN, '<link vite-ignore');
+}
+
+// רמזי modulepreload של האתר שאינו בנוי (index.html, data-source-preload)
+// מצביעים על קובצי המקור; בבנייה הם מאוגדים לנתח אחד, ולכן הרמזים מוסרים.
+const SOURCE_PRELOAD_PATTERN = /[ \t]*<link\b[^>]*\bdata-source-preload\b[^>]*>\r?\n?/gi;
+
+export function dropSourcePreloads(html) {
+    return String(html).replace(SOURCE_PRELOAD_PATTERN, '');
+}
+
+// המודולים ש-entry מייבא סטטית (ברקורסיה), לפי סדר הגילוי, בלי entry עצמו.
+// read מקבל שם קובץ ומחזיר את תוכנו.
+export function staticImportGraph(entry, read) {
+    const seen = new Set([entry]);
+    const order = [];
+    const visit = file => {
+        const source = String(read(file));
+        const pattern = /^\s*(?:import|export)\s[^;]*?from\s+["']\.\/([^"']+)["']|^\s*import\s+["']\.\/([^"']+)["']/gm;
+        for (const match of source.matchAll(pattern)) {
+            const next = match[1] || match[2];
+            if (seen.has(next)) continue;
+            seen.add(next);
+            order.push(next);
+            visit(next);
+        }
+    };
+    visit(entry);
+    return order;
 }
 
 // כל הקבצים שהנקודות הנתונות טוענות סטטית: הנקודות עצמן, הייבואים הסטטיים
@@ -147,7 +174,7 @@ export function siteBuildPlugin({ revision, builtAt } = {}) {
         },
         transformIndexHtml: {
             order: 'pre',
-            handler: html => keepStaticLinks(html)
+            handler: html => dropSourcePreloads(keepStaticLinks(html))
         },
         writeBundle() {
             const manifestFile = path.join(outDir, VITE_MANIFEST_PATH);

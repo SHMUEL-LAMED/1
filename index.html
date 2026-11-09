@@ -46,6 +46,59 @@
     <!-- גרסה נעוצה, ו-async ולא defer: app.js לא מחכה לספריית האייקונים,
          ומצייר אותם כשהיא מגיעה. -->
     <script id="lucideScript" src="https://unpkg.com/lucide@1.31.0/dist/umd/lucide.min.js" async></script>
+    <!-- האתר שאינו בנוי (קובצי המקור כמות שהם): כל המודולים ש-app.js מייבא
+         סטטית מתחילים לרדת מיד ובמקביל, במקום להתגלות שכבה אחרי שכבה.
+         בבנייה של Vite השורות האלה מוסרות (site-build.mjs) — שם יש נתח אחד.
+         הרשימה נבדקת מול גרף הייבוא ב-site-build.test.mjs. -->
+    <link rel="modulepreload" href="./invite-link.js" data-source-preload>
+    <link rel="modulepreload" href="./users-model.js" data-source-preload>
+    <link rel="modulepreload" href="./session-auth.js" data-source-preload>
+    <link rel="modulepreload" href="./cloudflare-client.js" data-source-preload>
+    <link rel="modulepreload" href="./api-environment.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery.js" data-source-preload>
+    <link rel="modulepreload" href="./media-variants.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-random.js" data-source-preload>
+    <link rel="modulepreload" href="./video-hover-preview.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-layout.js" data-source-preload>
+    <link rel="modulepreload" href="./new-since.js" data-source-preload>
+    <link rel="modulepreload" href="./folder-preview.js" data-source-preload>
+    <link rel="modulepreload" href="./capture-date.js" data-source-preload>
+    <link rel="modulepreload" href="./hebrew-date.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-timeline.js" data-source-preload>
+    <link rel="modulepreload" href="./hebrew-date-range.js" data-source-preload>
+    <link rel="modulepreload" href="./video-length.js" data-source-preload>
+    <link rel="modulepreload" href="./lightbox-gestures.js" data-source-preload>
+    <link rel="modulepreload" href="./lightbox-math.js" data-source-preload>
+    <link rel="modulepreload" href="./lightbox-slideshow.js" data-source-preload>
+    <link rel="modulepreload" href="./big-screen.js" data-source-preload>
+    <link rel="modulepreload" href="./big-screen-model.js" data-source-preload>
+    <link rel="modulepreload" href="./scene-tags.js" data-source-preload>
+    <link rel="modulepreload" href="./media-alt.js" data-source-preload>
+    <link rel="modulepreload" href="./media-description.js" data-source-preload>
+    <link rel="modulepreload" href="./media-link.js" data-source-preload>
+    <link rel="modulepreload" href="./first-load.js" data-source-preload>
+    <link rel="modulepreload" href="./hero-mosaic.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-folders.js" data-source-preload>
+    <link rel="modulepreload" href="./folder-tree.js" data-source-preload>
+    <link rel="modulepreload" href="./manual-order.js" data-source-preload>
+    <link rel="modulepreload" href="./media-edit.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-feed.js" data-source-preload>
+    <link rel="modulepreload" href="./session-ui.js" data-source-preload>
+    <link rel="modulepreload" href="./returning-account.js" data-source-preload>
+    <link rel="modulepreload" href="./access-request.js" data-source-preload>
+    <link rel="modulepreload" href="./popup-announcement.js" data-source-preload>
+    <link rel="modulepreload" href="./error-monitor.js" data-source-preload>
+    <link rel="modulepreload" href="./auto-update.js" data-source-preload>
+    <link rel="modulepreload" href="./search-history-ui.js" data-source-preload>
+    <link rel="modulepreload" href="./search-history.js" data-source-preload>
+    <link rel="modulepreload" href="./search-suggest.js" data-source-preload>
+    <link rel="modulepreload" href="./people-model.js" data-source-preload>
+    <link rel="modulepreload" href="./search-suggest-ui.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-navigation-ui.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-navigation.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-timeline-ui.js" data-source-preload>
+    <link rel="modulepreload" href="./usage-beacon.js" data-source-preload>
+    <link rel="modulepreload" href="./gallery-filter-panel.js" data-source-preload>
     <script type="module" src="./app.js"></script>
 </head>
 <body class="app-shell min-h-screen flex flex-col">
