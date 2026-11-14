@@ -1,0 +1,907 @@
+/* ==========================================================================
+   גלריית שמחת התורה — שפת העיצוב "זוהר" (Aurora)
+   --------------------------------------------------------------------------
+   שכבת העיצוב החדשה של האתר כולו. נטענת אחרי styles.css (ואחרי admin.css
+   בלוח הניהול) ולפני tailwind.generated.css, ומחליפה את המראה בלי לשנות אף
+   מזהה, מחלקה או התנהגות: כל הרכיבים, ה-JS והבדיקות נשארים כפי שהם.
+
+   עקרונות:
+   • לילה עמוק בגווני אינדיגו, ושלושה אורות: זהב (הפעולה), סגול וטורקיז
+     (האווירה). במצב הבהיר — פנינה עם זוהר פסטל.
+   • רקע חי: הילות זוהר שנעות לאט, רשת דקה ונגיעת גרעין — מאחורי הכול.
+   • זכוכית: הכותרת, החלונות והפאנלים שקופים למחצה עם טשטוש.
+   • עומק: כרטיסים צפים מעט בריחוף, עם מסגרת זוהרת והבזק אור שעובר עליהם.
+   • טיפוגרפיה: כותרות סריף גדולות עם מעבר צבע זהב, ו-tabular-nums למספרים.
+   • נגישות: כל צמד טקסט־על־משטח עומד ב-WCAG AA (4.5:1), מסגרות שדות ב-3:1,
+     ו-prefers-reduced-motion מכבה כל תנועה.
+   • .hidden של Tailwind ממשיך לגבור: אין כאן display על רכיב שעשוי להיות מוסתר.
+   ========================================================================== */
+
+
+/* --------------------------------------------------------------------------
+   §1 פלטת Tailwind (--p-*) — האפורים מקבלים גוון אינדיגו
+   -------------------------------------------------------------------------- */
+:root {
+  --p-black: 9 11 23;
+  --p-slate-50: 250 249 255; --p-slate-100: 244 242 255; --p-slate-200: 207 203 234; --p-slate-300: 192 188 224; --p-slate-400: 169 164 204; --p-slate-500: 149 144 188; --p-slate-600: 92 88 130; --p-slate-700: 32 37 74; --p-slate-800: 24 28 54; --p-slate-900: 17 20 42; --p-slate-950: 9 11 23;
+}
+html[data-theme="light"] {
+  --p-white: 21 18 43;
+  --p-slate-50: 21 18 43; --p-slate-100: 28 25 52; --p-slate-200: 55 50 90; --p-slate-300: 66 61 104; --p-slate-400: 83 77 120; --p-slate-500: 92 86 128; --p-slate-600: 140 134 176; --p-slate-700: 228 224 241; --p-slate-800: 238 235 247; --p-slate-900: 255 255 255; --p-slate-950: 246 244 251;
+}
+
+
+/* --------------------------------------------------------------------------
+   §2 אסימונים — "לילה" (כהה, ברירת המחדל)
+   -------------------------------------------------------------------------- */
+:root {
+  --bg: #080A16;
+  --surface: #10132A;
+  --surface-2: #171B38;
+  --surface-3: #1F2448;
+  --surface-raised: #131733;
+  --surface-inset: #060814;
+  --highlight: rgba(255, 255, 255, .06);
+
+  --glass: rgba(16, 19, 42, .62);
+  --glass-strong: rgba(19, 23, 51, .82);
+  --glass-line: rgba(196, 190, 255, .14);
+
+  --line: rgba(196, 190, 255, .11);
+  --line-strong: rgba(196, 190, 255, .22);
+  --line-input: #7C77A8;
+  --line-accent: rgba(242, 196, 109, .6);
+
+  --ink-1: #F5F3FF;
+  --ink-2: #D2CEEE;
+  --ink-3: #ACA7D0;
+  --ink-4: #9792BF;
+
+  --accent: #F2C46D;
+  --accent-strong: #FFD68A;
+  --accent-press: #DDAE55;
+  --on-accent: #1A1206;
+  --accent-ink: #F5CD80;
+  --accent-tint-1: rgba(242, 196, 109, .08);
+  --accent-tint-2: rgba(242, 196, 109, .15);
+  --accent-tint-3: rgba(242, 196, 109, .26);
+
+  /* אורות האווירה */
+  --aura-1: #8B7CFF;
+  --aura-2: #39D5DF;
+  --aura-3: #F2C46D;
+  --aura-4: #FF7EB6;
+  --aura-opacity: .55;
+  --grid-line: rgba(196, 190, 255, .045);
+  --gold-gradient: linear-gradient(100deg, #FFE7B0 0%, #F2C46D 38%, #E09A3E 62%, #FFE2A3 100%);
+  --aura-gradient: linear-gradient(120deg, #8B7CFF, #39D5DF 45%, #F2C46D 85%);
+
+  --overlay: rgba(4, 5, 14, .72);
+  --skeleton-shine: rgba(196, 190, 255, .07);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2: 0 14px 34px -14px rgba(0, 0, 0, .7), 0 0 0 1px rgba(196, 190, 255, .04);
+  --shadow-3: 0 34px 80px -24px rgba(0, 0, 0, .85), 0 0 0 1px rgba(196, 190, 255, .05);
+  --glow-accent: 0 0 0 1px rgba(242, 196, 109, .35), 0 10px 40px -10px rgba(242, 196, 109, .55);
+  --glow-aura: 0 18px 50px -18px rgba(139, 124, 255, .6);
+
+  --r-xs: 6px; --r-sm: 12px; --r-md: 14px; --r-lg: 20px; --r-xl: 28px;
+  --header-h: 72px;
+
+  --media-scrim: linear-gradient(to top, rgba(6, 7, 18, .82), rgba(6, 7, 18, 0) 60%);
+  --cinema-bg: #05060F;
+  --cinema-accent: #F2C46D;
+  --cinema-focus: 0 0 0 2px #05060F, 0 0 0 4px #F2C46D;
+
+  --ease-spring: cubic-bezier(.22, 1.25, .36, 1);
+}
+@media (max-width: 767px) {
+  :root { --header-h: 60px; }
+}
+
+/* "פנינה" (בהיר) */
+html[data-theme="light"] {
+  --bg: #F5F3FB;
+  --surface: #FFFFFF;
+  --surface-2: #EFECF8;
+  --surface-3: #E5E1F2;
+  --surface-raised: #FFFFFF;
+  --surface-inset: #ECE9F6;
+  --highlight: rgba(255, 255, 255, .85);
+
+  --glass: rgba(255, 255, 255, .66);
+  --glass-strong: rgba(255, 255, 255, .86);
+  --glass-line: rgba(40, 32, 100, .10);
+
+  --line: rgba(30, 24, 80, .10);
+  --line-strong: rgba(30, 24, 80, .20);
+  --line-input: #7D77A4;
+  --line-accent: rgba(138, 90, 18, .5);
+
+  --ink-1: #15122B;
+  --ink-2: #37325A;
+  --ink-3: #514B76;
+  --ink-4: #5F5984;
+
+  --accent: #8A5A12;
+  --accent-strong: #754B0D;
+  --accent-press: #633F0A;
+  --on-accent: #FFFFFF;
+  --accent-ink: #7A4F10;
+  --accent-tint-1: rgba(138, 90, 18, .06);
+  --accent-tint-2: rgba(138, 90, 18, .11);
+  --accent-tint-3: rgba(138, 90, 18, .2);
+
+  --aura-1: #B3A8FF;
+  --aura-2: #8FE6EC;
+  --aura-3: #FFD995;
+  --aura-4: #FFB3D4;
+  --aura-opacity: .6;
+  --grid-line: rgba(40, 32, 100, .05);
+  --gold-gradient: linear-gradient(100deg, #6E4408 0%, #9A6514 40%, #B7791C 60%, #7A4D0C 100%);
+
+  --overlay: rgba(21, 18, 43, .42);
+  --skeleton-shine: rgba(255, 255, 255, .7);
+  --shadow-1: 0 1px 2px rgba(30, 24, 80, .08);
+  --shadow-2: 0 14px 34px -16px rgba(30, 24, 80, .28), 0 1px 2px rgba(30, 24, 80, .05);
+  --shadow-3: 0 34px 80px -26px rgba(30, 24, 80, .38);
+  --glow-accent: 0 0 0 1px rgba(138, 90, 18, .25), 0 12px 32px -12px rgba(138, 90, 18, .45);
+  --glow-aura: 0 18px 50px -20px rgba(110, 90, 240, .45);
+}
+
+
+/* --------------------------------------------------------------------------
+   §3 בסיס
+   -------------------------------------------------------------------------- */
+body.app-shell,
+body {
+  background-color: var(--bg);
+}
+::selection { background: var(--accent-tint-3); color: var(--ink-1); }
+
+/* פסי גלילה דקים עם זוהר */
+html { scrollbar-color: color-mix(in srgb, var(--aura-1) 55%, var(--surface-3)) transparent; }
+::-webkit-scrollbar { inline-size: 10px; block-size: 10px; }
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(var(--aura-1), var(--aura-2)) padding-box;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* פס התקדמות הגלילה — קשת אורות */
+.scroll-progress {
+  background-image: var(--aura-gradient) !important;
+  block-size: 3px;
+  box-shadow: 0 0 12px rgba(139, 124, 255, .6);
+}
+
+
+/* --------------------------------------------------------------------------
+   §4 הרקע החי (#bg-container) — רק במסך
+   -------------------------------------------------------------------------- */
+@media screen {
+  body #bg-container {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    display: block;
+    overflow: hidden;
+    pointer-events: none;
+    background:
+      radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--aura-1) 18%, transparent), transparent 60%),
+      var(--bg);
+  }
+  body #bg-container .aurora-orb,
+  body #bg-container .aurora-orb::before,
+  body #bg-container .aurora-orb::after {
+    position: absolute;
+    display: block;
+    inline-size: 62vmax;
+    block-size: 62vmax;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: var(--aura-opacity);
+    mix-blend-mode: screen;
+    will-change: transform;
+  }
+  html[data-theme="light"] body #bg-container .aurora-orb,
+  html[data-theme="light"] body #bg-container .aurora-orb::before,
+  html[data-theme="light"] body #bg-container .aurora-orb::after { mix-blend-mode: multiply; }
+  body #bg-container .aurora-orb {
+    inset-block-start: -22vmax;
+    inset-inline-end: -14vmax;
+    background: radial-gradient(circle at 40% 40%, var(--aura-1), transparent 62%);
+    animation: aurora-drift-a 26s ease-in-out infinite alternate;
+  }
+  body #bg-container .aurora-orb::before {
+    content: "";
+    inset-block-start: 48vmax;
+    inset-inline-end: 34vmax;
+    background: radial-gradient(circle at 50% 50%, var(--aura-2), transparent 60%);
+    opacity: calc(var(--aura-opacity) * .8);
+    animation: aurora-drift-b 32s ease-in-out infinite alternate;
+  }
+  body #bg-container .aurora-orb::after {
+    content: "";
+    inset-block-start: 16vmax;
+    inset-inline-end: 70vmax;
+    background: radial-gradient(circle at 50% 50%, var(--aura-4), transparent 58%);
+    opacity: calc(var(--aura-opacity) * .45);
+    animation: aurora-drift-c 38s ease-in-out infinite alternate;
+  }
+  body #bg-container .bg-grid {
+    position: absolute;
+    inset: 0;
+    display: block;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  }
+  body #bg-container .bg-grain {
+    position: absolute;
+    inset: -50%;
+    display: block;
+    opacity: .06;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: grain-shift 1.2s steps(4) infinite;
+  }
+  body #bg-container #ambientCanvas { display: none; }
+}
+@keyframes aurora-drift-a {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-8vmax, 6vmax, 0) scale(1.12); }
+  100% { transform: translate3d(6vmax, 10vmax, 0) scale(.94); }
+}
+@keyframes aurora-drift-b {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(14vmax, -10vmax, 0) scale(1.18); }
+}
+@keyframes aurora-drift-c {
+  0% { transform: translate3d(0, 0, 0) scale(.9); }
+  100% { transform: translate3d(-12vmax, 8vmax, 0) scale(1.1); }
+}
+@keyframes grain-shift {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3%, 2%); }
+  50% { transform: translate(2%, -3%); }
+  75% { transform: translate(-1%, 3%); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes shine-sweep {
+  0% { transform: translateX(120%) skewX(-18deg); }
+  100% { transform: translateX(-220%) skewX(-18deg); }
+}
+@keyframes gradient-pan {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes halo-spin { to { rotate: 360deg; } }
+@keyframes float-soft {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -6px; }
+}
+
+
+/* --------------------------------------------------------------------------
+   §5 הכותרת — זכוכית
+   -------------------------------------------------------------------------- */
+.site-header {
+  border-block-end: 1px solid var(--glass-line);
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+.site-header::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -1px;
+  block-size: 1px;
+  background: var(--aura-gradient);
+  opacity: .55;
+  pointer-events: none;
+}
+html[data-scrolled] .site-header {
+  background-color: var(--glass-strong);
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, .6);
+}
+
+/* הסימן: מעוין זהב בתוך טבעת אורות מסתובבת */
+.brand-mark {
+  position: relative;
+  inline-size: 34px;
+  block-size: 34px;
+  overflow: visible;
+  border-radius: 50%;
+  background: transparent;
+  rotate: 0deg;
+}
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--aura-1), var(--aura-2), var(--aura-3), var(--aura-4), var(--aura-1));
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 61%);
+  mask: radial-gradient(circle, transparent 58%, #000 61%);
+  animation: halo-spin 9s linear infinite;
+}
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  background: var(--gold-gradient);
+  rotate: 45deg;
+  border-radius: 2px;
+  box-shadow: 0 0 14px rgba(242, 196, 109, .7);
+}
+.brand-kicker {
+  color: var(--ink-3);
+  letter-spacing: 0;
+}
+body .brand-title,
+.brand-title {
+  font: 700 1.35rem/1.15 var(--font-serif);
+  background: var(--gold-gradient);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-pan 8s linear infinite;
+}
+@media (forced-colors: active) {
+  body .brand-title, .brand-title { color: CanvasText; -webkit-text-fill-color: CanvasText; background: none; }
+}
+.header-status {
+  padding: 6px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-pill);
+  background-color: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.header-status[data-state="online"]::before { box-shadow: 0 0 10px var(--success); }
+.theme-toggle {
+  border-color: var(--glass-line);
+  border-radius: var(--r-pill);
+  background-color: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.theme-toggle:hover { border-color: var(--line-accent); color: var(--ink-1); }
+
+
+/* --------------------------------------------------------------------------
+   §6 כפתורים — זהב זוהר, זכוכית ורפאים
+   -------------------------------------------------------------------------- */
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.btn-accent-ghost,
+.btn-danger,
+.btn-danger-solid,
+.btn-success-solid,
+.btn-primary-gold,
+.btn-secondary-dark,
+.btn-danger-soft,
+.icon-button,
+.tool-button,
+.toolbar-icon-button,
+.gate-secondary {
+  border-radius: var(--r-md);
+  transition:
+    color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    opacity var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out),
+    transform var(--dur-2) var(--ease-spring);
+}
+.btn-primary,
+.btn-primary-gold {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: var(--accent);
+  background-image: var(--gold-gradient);
+  background-size: 180% 100%;
+  color: var(--on-accent);
+  box-shadow: var(--glow-accent);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .25);
+}
+html[data-theme="light"] .btn-primary,
+html[data-theme="light"] .btn-primary-gold { text-shadow: none; }
+.btn-primary::after,
+.btn-primary-gold::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 40%;
+  z-index: -1;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent);
+  transform: translateX(120%) skewX(-18deg);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .btn-primary:hover,
+  .btn-primary-gold:hover {
+    background-color: var(--accent-strong);
+    background-position: 100% 0;
+    box-shadow: 0 0 0 1px rgba(242, 196, 109, .55), 0 14px 44px -10px rgba(242, 196, 109, .75);
+    transform: translateY(-1px);
+  }
+  .btn-primary:hover::after,
+  .btn-primary-gold:hover::after { animation: shine-sweep .9s var(--ease-out); }
+}
+.btn-secondary,
+.btn-secondary-dark,
+.gate-secondary {
+  border-color: var(--glass-line);
+  background-color: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+@media (hover: hover) {
+  .btn-secondary:hover,
+  .btn-secondary-dark:hover,
+  .gate-secondary:hover {
+    border-color: var(--line-accent);
+    background-color: color-mix(in srgb, var(--surface-3) 80%, transparent);
+    color: var(--ink-1);
+    box-shadow: 0 8px 26px -14px rgba(242, 196, 109, .6);
+    transform: translateY(-1px);
+  }
+  .tool-button:hover,
+  .toolbar-icon-button:hover,
+  .icon-button:hover { box-shadow: 0 0 0 1px var(--glass-line), 0 8px 22px -14px rgba(139, 124, 255, .7); }
+}
+
+
+/* --------------------------------------------------------------------------
+   §7 פאנלים, שדות וחלונות — זכוכית מוגבהת
+   -------------------------------------------------------------------------- */
+.admin-panel {
+  border-color: var(--glass-line);
+  border-radius: var(--r-lg);
+  background-color: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+body :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) {
+  border-radius: var(--r-sm);
+  transition: border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+}
+body :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea):focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-tint-3), 0 0 22px -6px var(--accent);
+}
+
+[id$="Modal"]:not(#lightboxModal) {
+  background-color: var(--overlay);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.2);
+}
+.modal-card {
+  position: relative;
+  border-color: var(--glass-line);
+  background-color: var(--glass-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-3), var(--glow-aura);
+}
+.modal-card::before {
+  content: "";
+  position: absolute;
+  inset-inline: 24px;
+  inset-block-start: 0;
+  block-size: 2px;
+  border-radius: 2px;
+  background: var(--aura-gradient);
+  opacity: .8;
+  pointer-events: none;
+}
+.modal-head { border-block-end-color: var(--glass-line); }
+.modal-head h3 { font-weight: 700; }
+.modal-head h3 > :is(i, svg) { color: var(--accent); }
+.modal-foot { border-block-start-color: var(--glass-line); }
+.modal-animate-popup { animation-timing-function: var(--ease-spring); }
+
+.progress-track {
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: var(--surface-3);
+}
+.progress-bar {
+  border-radius: 999px;
+  background-image: var(--aura-gradient);
+  background-size: 200% 100%;
+  box-shadow: 0 0 14px rgba(139, 124, 255, .55);
+  animation: gradient-pan 2.4s linear infinite;
+}
+
+
+/* --------------------------------------------------------------------------
+   §8 רצועת הכניסה — במה זוהרת
+   -------------------------------------------------------------------------- */
+.gallery-hero {
+  border: 1px solid transparent;
+  border-radius: var(--r-xl);
+  background:
+    linear-gradient(var(--glass-strong), var(--glass-strong)) padding-box,
+    linear-gradient(135deg, color-mix(in srgb, var(--aura-1) 70%, transparent), color-mix(in srgb, var(--aura-2) 40%, transparent) 40%, transparent 60%, color-mix(in srgb, var(--aura-3) 70%, transparent)) border-box;
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: var(--shadow-3), var(--glow-aura);
+}
+.gallery-hero::before {
+  inset: auto;
+  inset-block-start: -40%;
+  inset-inline-start: -10%;
+  inline-size: 70%;
+  block-size: 140%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--aura-3) 30%, transparent), transparent);
+  filter: blur(30px);
+  animation: float-soft 9s ease-in-out infinite;
+}
+.gallery-hero::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-block-end: -50%;
+  inset-inline-end: -10%;
+  inline-size: 60%;
+  block-size: 120%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--aura-1) 32%, transparent), transparent);
+  filter: blur(30px);
+  pointer-events: none;
+}
+.entry-emblem {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  inline-size: 64px;
+  block-size: 64px;
+  border-radius: 20px;
+  color: var(--on-accent);
+  background: var(--gold-gradient);
+  box-shadow: var(--glow-accent);
+  animation: float-soft 6s ease-in-out infinite;
+}
+.entry-emblem::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  z-index: -1;
+  border-radius: 24px;
+  background: conic-gradient(from 0deg, var(--aura-1), var(--aura-2), var(--aura-3), var(--aura-4), var(--aura-1));
+  filter: blur(10px);
+  opacity: .75;
+  animation: halo-spin 7s linear infinite;
+}
+.entry-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  inline-size: fit-content;
+  padding: 5px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--ink-2);
+}
+.entry-eyebrow::before {
+  content: "";
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background: var(--aura-2);
+  box-shadow: 0 0 10px var(--aura-2);
+}
+.entry-title {
+  font-weight: 700;
+  font-size: clamp(2.4rem, 1.6rem + 3.2vw, 4.4rem);
+  line-height: 1.04;
+}
+.entry-title strong {
+  display: inline-block;
+  font-weight: 700;
+  background: var(--gold-gradient);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-pan 7s linear infinite;
+  filter: drop-shadow(0 6px 24px rgba(242, 196, 109, .35));
+}
+@media (forced-colors: active) {
+  .entry-title strong { color: CanvasText; -webkit-text-fill-color: CanvasText; background: none; filter: none; }
+}
+.entry-lede { color: var(--ink-2); }
+.entry-door { box-shadow: var(--glow-accent); }
+.entry-facts .stat-chip {
+  border-color: var(--glass-line);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  box-shadow: inset 0 1px 0 var(--highlight);
+}
+.entry-facts .stat-chip dd {
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* פסיפס הרגעים */
+.hero-mosaic { gap: 10px; }
+.hero-mosaic > span {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  transition: transform var(--dur-4) var(--ease-spring), box-shadow var(--dur-4) var(--ease-out);
+}
+.hero-mosaic > span:first-child { border-start-start-radius: var(--r-lg); border-end-start-radius: var(--r-lg); }
+.hero-mosaic > span::after {
+  background: linear-gradient(160deg, transparent 50%, rgba(6, 7, 18, .55));
+}
+@media (hover: hover) {
+  .hero-mosaic > span:hover {
+    transform: translateY(-4px) rotate(-.4deg);
+    box-shadow: var(--shadow-3), 0 0 0 1px var(--line-accent);
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   §9 הגלריה — כרטיסים צפים
+   -------------------------------------------------------------------------- */
+.gallery-media {
+  border-radius: var(--r-md);
+  outline-color: var(--glass-line);
+  box-shadow: 0 10px 28px -18px rgba(0, 0, 0, .8);
+  transition: box-shadow var(--dur-4) var(--ease-out), translate var(--dur-4) var(--ease-spring);
+}
+.gallery-card::before,
+.gallery-card::after { border-radius: var(--r-md); }
+.gallery-card::before {
+  background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 30%),
+    rgba(255, 255, 255, .14), transparent 65%);
+}
+.gallery-card::after {
+  box-shadow: inset 0 0 0 1px var(--line-accent), inset 0 0 26px -6px rgba(242, 196, 109, .45);
+}
+@media (hover: hover) and (pointer: fine) {
+  .gallery-card:hover .gallery-media {
+    translate: 0 -4px;
+    box-shadow: 0 22px 44px -18px rgba(0, 0, 0, .85), 0 0 0 1px var(--line-accent), 0 0 34px -10px rgba(139, 124, 255, .55);
+  }
+  .gallery-card:hover::before,
+  .gallery-card:hover::after { translate: 0 -4px; }
+  .gallery-card:hover .gallery-card-img { scale: 1.06; filter: saturate(1.12) contrast(1.04); }
+}
+.gallery-card::before,
+.gallery-card::after { transition: opacity var(--dur-2) var(--ease-out), translate var(--dur-4) var(--ease-spring); }
+
+/* סרגל הכלים. בלי backdrop-filter: הוא היה הופך את הסרגל לבלוק המכיל של
+   חלונית הסינון, שבטלפון היא גיליון fixed בתחתית המסך. */
+.gallery-toolbar {
+  border-color: var(--glass-line);
+  border-radius: var(--r-lg);
+  background-color: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: var(--shadow-2);
+}
+#bulkSelectionBar.bulk-bar {
+  border-color: var(--glass-line);
+  border-radius: var(--r-xl);
+  background-color: var(--glass-strong);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: var(--shadow-3), var(--glow-aura);
+}
+
+/* כותרות קבוצה והסרגל */
+.rule-sargel::after,
+.rule-sargel::before { background: var(--gold-gradient); }
+
+
+/* --------------------------------------------------------------------------
+   §10 התצוגה המלאה — קולנוע עם הלוגו
+   -------------------------------------------------------------------------- */
+#lightboxModal { background-color: var(--cinema-bg); }
+.lightbox-bar {
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+.lightbox-stage { position: relative; }
+
+/* הלוגו של הגלריה מעל התמונה והסרטון (ראו syncLightboxBrand ב-gallery.js) */
+.lightbox-brand {
+  --brand-size: 15px;
+  position: absolute;
+  z-index: 4;
+  inset-block-end: clamp(12px, 3vw, 28px);
+  inset-inline-end: clamp(12px, 3vw, 28px);
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--brand-size) * .6);
+  opacity: var(--brand-opacity, .82);
+  color: #FFF4DC;
+  font: 700 var(--brand-size)/1 var(--font-sans);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .6);
+  pointer-events: none;
+  user-select: none;
+}
+.lightbox-brand[hidden] { display: none; }
+.lightbox-brand[data-size="s"] { --brand-size: 12px; }
+.lightbox-brand[data-size="l"] { --brand-size: 19px; }
+.lightbox-brand[data-position="bottom-right"] { inset-inline-end: auto; inset-inline-start: clamp(12px, 3vw, 28px); }
+.lightbox-brand[data-position="top-left"] { inset-block-end: auto; inset-block-start: clamp(12px, 3vw, 28px); }
+.lightbox-brand[data-position="top-right"] { inset-block-end: auto; inset-block-start: clamp(12px, 3vw, 28px); inset-inline-end: auto; inset-inline-start: clamp(12px, 3vw, 28px); }
+.lightbox-brand[data-position="center"] { inset: 50% auto auto 50%; translate: -50% -50%; }
+.lightbox-brand[data-style="badge"] {
+  padding: calc(var(--brand-size) * .5) calc(var(--brand-size) * .9);
+  border: 1px solid rgba(255, 236, 196, .45);
+  border-radius: 999px;
+  background: rgba(10, 12, 26, .48);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.lightbox-brand-seal {
+  position: relative;
+  flex: none;
+  inline-size: calc(var(--brand-size) * 1.9);
+  block-size: calc(var(--brand-size) * 1.9);
+  border: calc(var(--brand-size) * .11) solid #E2B866;
+  border-radius: 50%;
+  background: rgba(12, 14, 28, .55);
+  box-shadow: inset 0 0 0 calc(var(--brand-size) * .2) rgba(12, 14, 28, .55), inset 0 0 0 calc(var(--brand-size) * .25) rgba(226, 184, 102, .8);
+}
+.lightbox-brand-seal::after {
+  content: "";
+  position: absolute;
+  inset: 32%;
+  background: linear-gradient(135deg, #FBE7B5, #E2B866 45%, #A8742C);
+  rotate: 45deg;
+  border-radius: 1px;
+}
+.lightbox-brand[data-style="text"] .lightbox-brand-seal { display: none; }
+
+
+/* --------------------------------------------------------------------------
+   §11 יוצר הסרטונים (#videoMakerModal)
+   -------------------------------------------------------------------------- */
+.video-maker-card { max-inline-size: min(1100px, 100%); }
+.video-maker-body { display: grid; gap: 14px; overflow: auto; }
+.video-maker-summary {
+  margin: 0;
+  color: var(--ink-2);
+  font: 600 var(--t-small)/1.4 var(--font-sans);
+}
+.video-maker-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .video-maker-layout { grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); }
+}
+.video-maker-stage-col { display: grid; gap: 12px; align-content: start; min-inline-size: 0; }
+.video-maker-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(80% 80% at 30% 20%, color-mix(in srgb, var(--aura-1) 25%, transparent), transparent 70%),
+    radial-gradient(70% 70% at 80% 90%, color-mix(in srgb, var(--aura-3) 20%, transparent), transparent 70%),
+    #05060F;
+  box-shadow: var(--shadow-3);
+  min-block-size: 200px;
+}
+.video-maker-stage canvas {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: min(60vh, 560px);
+  inline-size: auto;
+  block-size: auto;
+}
+.video-maker-stage-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: rgba(245, 243, 255, .75);
+  font: 600 var(--t-small)/1.4 var(--font-sans);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity var(--dur-4) var(--ease-out);
+}
+.video-maker-stage-empty :is(i, svg) { color: #F2C46D; animation: float-soft 3s ease-in-out infinite; }
+#videoMakerModal:is([data-mode="preview"], [data-mode="recording"]) .video-maker-stage-empty { opacity: 0; }
+#videoMakerModal[data-mode="recording"] .video-maker-stage {
+  box-shadow: var(--shadow-3), 0 0 0 2px rgba(255, 90, 110, .7), 0 0 40px -6px rgba(255, 90, 110, .6);
+}
+#videoMakerModal[data-mode="recording"] .video-maker-stage::after {
+  content: "● מקליט";
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(220, 40, 70, .85);
+  color: #FFFFFF;
+  font: 700 12px/1.2 var(--font-sans);
+  animation: float-soft 1.6s ease-in-out infinite;
+}
+.video-maker-options {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+.video-maker-checks { display: grid; gap: 8px; }
+.video-maker-options input[type="file"] { inline-size: 100%; color: var(--ink-2); font-size: var(--t-small); }
+.video-maker-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent-tint-1) 80%, transparent);
+  box-shadow: var(--glow-accent);
+}
+.video-maker-result[hidden] { display: none; }
+.video-maker-result video {
+  display: block;
+  inline-size: 100%;
+  max-block-size: 50vh;
+  border-radius: var(--r-md);
+  background: #000;
+}
+.video-maker-result-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.video-maker-result-row > span { margin-inline-end: auto; color: var(--ink-3); font-size: var(--t-small); }
+.event-video-btn :is(i, svg) { color: var(--accent); }
+#videoMakerStopBtn[hidden] { display: none; }
+
+
+/* --------------------------------------------------------------------------
+   §12 הנעת־פחות: בלי רקע נע, בלי זוהר נע ובלי ריחוף
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  body #bg-container .aurora-orb,
+  body #bg-container .aurora-orb::before,
+  body #bg-container .aurora-orb::after,
+  body #bg-container .bg-grain,
+  .brand-mark::before,
+  .brand-title,
+  .entry-title strong,
+  .entry-emblem,
+  .entry-emblem::before,
+  .gallery-hero::before,
+  .progress-bar,
+  .video-maker-stage-empty :is(i, svg) { animation: none !important; }
+  .gallery-card:hover .gallery-media,
+  .gallery-card:hover::before,
+  .gallery-card:hover::after,
+  .hero-mosaic > span:hover { translate: none; transform: none; }
+}
+
+/* הדפסה: בלי הרקע החי ובלי זכוכית */
+@media print {
+  .site-header::after,
+  .modal-card::before { display: none; }
+}

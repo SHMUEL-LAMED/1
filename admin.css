@@ -981,29 +981,26 @@ body .invite-created-row input { flex: 1 1 240px; min-inline-size: 0; direction:
 /* התצוגה מדמה פינה של תצלום, ולכן מותר כאן מעבר צבעים קבוע */
 .download-watermark-preview {
   position: relative;
-  block-size: 96px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: linear-gradient(135deg, #3a342c, #15130f);
+  border-radius: var(--r-lg);
+  background: #15130f;
+  box-shadow: var(--shadow-2);
+  transition: opacity var(--dur-2) var(--ease-out), filter var(--dur-2) var(--ease-out);
 }
-.download-watermark-preview > span {
-  position: absolute;
-  inset-block-end: 10px;
-  inset-inline-end: 12px;
-  max-inline-size: calc(100% - 24px);
-  overflow: hidden;
-  padding: 3px 8px;
-  border-radius: var(--r-xs);
-  background-color: var(--media-chip);
-  color: var(--media-ink);
-  font: 600 var(--t-micro)/1.3 var(--font-sans);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: opacity var(--dur-2) var(--ease-out);
+.download-watermark-preview canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  aspect-ratio: 16 / 9;
 }
-.download-watermark-preview > span:empty { display: none; }
-.download-watermark-preview.is-off > span { opacity: .3; }
+.download-watermark-preview.is-off { opacity: .45; filter: grayscale(.6); }
+.brand-mark-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.brand-mark-options input[type="range"] { inline-size: 100%; accent-color: var(--accent); }
 
 /* --- 5. משתמשים: פעולה מרובה, תיבות בחירה והערות ---------------------------- */
 .users-bulk-bar {

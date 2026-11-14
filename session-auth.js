@@ -479,6 +479,8 @@ function clearPrivateGalleryViews() {
     window.resetMediaLinkState?.();
     window.resetNewUpdatesState?.();
     window.resetPrintAlbum?.();
+    // יוצר הסרטונים (video-maker-ui.js, רק אם נטען): ההכנה נעצרת והסרטון נמחק מהדף.
+    window.resetVideoMaker?.();
     // "ההעלאות שלי" וחלון התיוג הידני (רק אם נטענו): הרשימה והתיוגים נמחקים מהדף.
     window.resetMyUploads?.();
     window.resetManualTagger?.();

@@ -1,6 +1,6 @@
 // מעטפת האפליקציה והסמל נשמרים לעבודה מהירה וגם במצב לא מקוון.
 // שם המטמון נושא מספר גרסה; העלאת המספר מפילה את הגרסאות הישנות ב-activate.
-const CACHE_VERSION = "v81";
+const CACHE_VERSION = "v82";
 const CACHE_NAME = `simchat-gallery-shell-${CACHE_VERSION}`;
 const CACHE_PREFIX = "simchat-gallery-shell-";
 
@@ -27,6 +27,7 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
+  "./aurora.css",
   "./tailwind.generated.css",
   "./app.js",
   "./error-monitor.js",

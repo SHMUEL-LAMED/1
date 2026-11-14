@@ -624,6 +624,9 @@ window.openEventPage = function(event, folderId) {
     // אלבום להדפסה של התיקייה כולה (print-album-ui.js); עמוד האירוע נשאר פתוח מתחתיו.
     const printButton = document.getElementById('eventPrintAlbumBtn');
     if (printButton) printButton.onclick = () => window.openFolderPrintAlbum(id);
+    // סרטון מתמונות האירוע (video-maker-ui.js); גם הוא נפתח מעל עמוד האירוע.
+    const videoButton = document.getElementById('eventVideoMakerBtn');
+    if (videoButton) videoButton.onclick = () => window.openFolderVideoMaker(id);
     const slideshowButton = document.getElementById('eventStartSlideshowBtn');
     if (slideshowButton) slideshowButton.onclick = showFolderThen(() => window.startGallerySlideshow());
     const bigScreenButton = document.getElementById('eventBigScreenBtn');
@@ -3429,8 +3432,37 @@ function openLightbox(imageId, items = null) {
     updateLightbox(true);
     // קישור לפריט אחר כשהתצוגה כבר פתוחה: openModal שוב היה שומר כ"מוקד
     // הקודם" כפתור שבתוך התצוגה, והסגירה הייתה מחזירה את המוקד לחלון מוסתר.
-    if (!wasOpen) window.openModal('lightboxModal');
+    if (!wasOpen) {
+        window.openModal('lightboxModal');
+        syncLightboxBrand();
+    }
     return true;
+}
+
+// הלוגו של הגלריה מעל התצוגה המלאה — אותו לוגו שמצויר בהורדה (brand-mark.js):
+// לצופה, כשמנהל־העל הפעיל סימן מים; מנהלים רואים את התמונה נקייה. ההגדרה
+// נקראת ממטמון של חמש דקות (download-privacy-ui.js), ולכן אינה מאטה את הפתיחה.
+let lightboxBrandModule = null;
+async function syncLightboxBrand() {
+    const badge = document.getElementById('lightboxBrand');
+    if (!badge) return;
+    if (window.state.isAdminLoggedIn) { badge.hidden = true; return; }
+    try {
+        lightboxBrandModule ||= Promise.all([import('./download-privacy-ui.js'), import('./download-privacy.js')]);
+        const [{ loadDownloadSettings }, { watermarkTextFor }] = await lightboxBrandModule;
+        const settings = await loadDownloadSettings();
+        badge.hidden = !settings.watermarkEnabled;
+        if (!settings.watermarkEnabled) return;
+        badge.dataset.position = settings.watermarkPosition || 'bottom-left';
+        badge.dataset.style = settings.watermarkStyle || 'seal';
+        badge.dataset.size = settings.watermarkSize || 'm';
+        badge.style.setProperty('--brand-opacity', String(settings.watermarkOpacity ?? 0.82));
+        const text = document.getElementById('lightboxBrandText');
+        if (text) text.textContent = watermarkTextFor(settings);
+    } catch (error) {
+        lightboxBrandModule = null;
+        badge.hidden = true;
+    }
 }
 
 function isLightboxOpen() {
