@@ -25,6 +25,8 @@
 // כי עדיף קובץ שלם עם מטא־דאטה מקובץ שבור. PNG, WebP, HEIC, GIF וסרטונים אינם
 // עוברים כאן כלל — ראו README, "הורדה בלי מיקום וסימן מים".
 
+import { normalizeBrandOptions } from './brand-mark.js';
+
 export const JPEG_PRIVACY_MODES = Object.freeze(['gps', 'all']);
 
 // --- קריאת בתים ---
@@ -539,11 +541,18 @@ export function normalizeWatermarkText(value) {
         .trim();
 }
 
+// השדות watermarkStyle/Position/Size/Opacity מעצבים את הלוגו (brand-mark.js).
+// מסמך ישן בלעדיהם מקבל את ברירות המחדל: חותם וטקסט, למטה משמאל.
 export function normalizeDownloadSettings(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
+    const brand = normalizeBrandOptions(source);
     return {
         watermarkEnabled: source.watermarkEnabled === true,
         watermarkText: normalizeWatermarkText(source.watermarkText),
+        watermarkStyle: brand.style,
+        watermarkPosition: brand.position,
+        watermarkSize: brand.size,
+        watermarkOpacity: brand.opacity,
         stripAllMetadata: source.stripAllMetadata === true
     };
 }

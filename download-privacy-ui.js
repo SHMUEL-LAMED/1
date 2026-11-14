@@ -12,8 +12,9 @@
 
 import {
     DOWNLOAD_SETTINGS_DOC_ID, normalizeDownloadSettings, normalizeMimeType, isJpegBytes,
-    stripJpegMetadata, shouldWatermark, watermarkOutputType, watermarkLayout, watermarkTextFor
+    stripJpegMetadata, shouldWatermark, watermarkOutputType, watermarkTextFor
 } from './download-privacy.js';
+import { drawBrandMark } from './brand-mark.js';
 
 // ההגדרה נקראת פעם אחת לכמה דקות, ולא לכל קובץ ב-ZIP.
 const SETTINGS_TTL_MS = 5 * 60 * 1000;
@@ -49,29 +50,14 @@ async function sniffJpeg(blob) {
 // תמונות של 48 מגה־פיקסל מפוענחות יחד היו מפילות דפדפן בטלפון.
 let watermarkQueue = Promise.resolve();
 
-function drawWatermark(context, width, height, text) {
+// הלוגו של הגלריה (brand-mark.js): חותם וטקסט, תווית זכוכית או טקסט בלבד,
+// במיקום, בגודל ובשקיפות שמנהל־העל בחר.
+function drawWatermark(context, width, height, text, settings) {
     const fontFamily = getComputedStyle(document.documentElement).getPropertyValue('--font-body').trim() || 'sans-serif';
-    const fontFor = size => `600 ${size}px ${fontFamily}`;
-    const layout = watermarkLayout(width, height, size => {
-        context.font = fontFor(size);
-        return context.measureText(text).width;
-    });
-    context.save();
-    context.font = fontFor(layout.fontSize);
-    // הטקסט עברי ומצויר מימין לשמאל; העוגן הוא קצהו השמאלי, בפינה התחתונה.
-    context.direction = 'rtl';
-    context.textAlign = 'left';
-    context.textBaseline = 'alphabetic';
-    // לבן שקוף עם צל עדין: נקרא על רקע בהיר וכהה, ואינו משתלט על התמונה.
-    context.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    context.shadowBlur = Math.max(2, Math.round(layout.fontSize * 0.18));
-    context.shadowOffsetY = Math.max(1, Math.round(layout.fontSize * 0.04));
-    context.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    context.fillText(text, layout.x, layout.y);
-    context.restore();
+    drawBrandMark(context, width, height, text, settings, fontFamily);
 }
 
-async function watermarkBlob(blob, mimeType, text) {
+async function watermarkBlob(blob, mimeType, text, settings) {
     const output = watermarkOutputType(mimeType);
     if (!output) return null;
     const { decodeImageBlob, canvasToBlob } = await import('./media-variants-generate.js');
@@ -85,7 +71,7 @@ async function watermarkBlob(blob, mimeType, text) {
         const context = canvas.getContext('2d');
         if (!context) throw new Error('הדפדפן אינו תומך ב-Canvas.');
         context.drawImage(decoded.source, 0, 0, decoded.width, decoded.height);
-        drawWatermark(context, decoded.width, decoded.height, text);
+        drawWatermark(context, decoded.width, decoded.height, text, settings);
         const result = await canvasToBlob(canvas, output.type, output.quality);
         canvas.width = 0;
         canvas.height = 0;
@@ -95,8 +81,8 @@ async function watermarkBlob(blob, mimeType, text) {
     }
 }
 
-function queuedWatermark(blob, mimeType, text) {
-    const run = watermarkQueue.then(() => watermarkBlob(blob, mimeType, text));
+function queuedWatermark(blob, mimeType, text, settings) {
+    const run = watermarkQueue.then(() => watermarkBlob(blob, mimeType, text, settings));
     watermarkQueue = run.catch(() => {});
     return run;
 }
@@ -109,7 +95,7 @@ export async function prepareDownloadBlob(blob, item = {}) {
 
     if (shouldWatermark(settings, { isAdmin: Boolean(window.state?.isAdminLoggedIn), mimeType })) {
         try {
-            const marked = await queuedWatermark(blob, mimeType, watermarkTextFor(settings));
+            const marked = await queuedWatermark(blob, mimeType, watermarkTextFor(settings), settings);
             if (marked) return marked;
         } catch (error) {
             console.warn('Watermark failed, downloading without it:', error);

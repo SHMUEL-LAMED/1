@@ -38,6 +38,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@400;500;700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="./styles.css">
+    <!-- שפת העיצוב "זוהר" (aurora.css): אחרי styles.css ולפני Tailwind. -->
+    <link rel="stylesheet" href="./aurora.css">
     <!-- tailwind.generated.css חייב לבוא אחרי styles.css: כך ה-utilities
          (ובראשם hidden) גוברים על כללי הרכיבים. -->
     <link rel="stylesheet" href="./tailwind.generated.css">
@@ -103,8 +105,7 @@
 </head>
 <body class="app-shell min-h-screen flex flex-col">
 
-    <!-- שכבת הרקע נשמרת בסימון בלבד (מחלקות החוזה): בשפת "קטלוג" הרקע שטוח,
-         והבסיס מסתיר את כל השכבה. -->
+    <!-- הרקע החי של שפת "זוהר" (aurora.css): הילות אור נעות, רשת דקה וגרעין. -->
     <div id="bg-container" aria-hidden="true">
         <span class="aurora-orb"></span>
         <span class="bg-grid"></span>
@@ -159,7 +160,7 @@
         <section class="gallery-hero home-intro" aria-labelledby="homeIntroTitle">
             <div class="entry-top">
                 <div class="entry-identity">
-                    <span class="entry-emblem" aria-hidden="true"><i data-lucide="aperture" class="w-7 h-7"></i></span>
+                    <span class="entry-emblem" aria-hidden="true"><i data-lucide="sparkles" class="w-7 h-7"></i></span>
                     <div class="entry-naming">
                         <p class="entry-eyebrow">הארכיון הדיגיטלי של הישיבה</p>
                         <h2 id="homeIntroTitle" class="entry-title">גלריית <strong>שמחת התורה</strong></h2>
@@ -556,6 +557,7 @@
                     <button type="button" onclick="openBulkMoveDialog()" class="btn-secondary-dark btn-sm"><i data-lucide="folder-input" class="w-3.5 h-3.5"></i> העבר</button>
                     <button type="button" onclick="downloadSelectedMedia(this)" class="btn-secondary-dark btn-sm"><i data-lucide="download" class="w-3.5 h-3.5"></i> הורד</button>
                     <button type="button" onclick="openSelectionPrintAlbum()" class="btn-secondary-dark btn-sm"><i data-lucide="book-image" class="w-3.5 h-3.5"></i> אלבום PDF</button>
+                    <button type="button" onclick="openSelectionVideoMaker()" class="btn-secondary-dark btn-sm"><i data-lucide="clapperboard" class="w-3.5 h-3.5"></i> סרטון</button>
                     <button type="button" onclick="deleteSelectedMedia()" class="btn-danger-soft btn-sm"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> מחק</button>
                     <button type="button" onclick="toggleBulkSelectionMode(false)" class="btn-secondary-dark btn-sm">סיום</button>
                 </div>
@@ -631,6 +633,7 @@
                     <button type="button" id="eventOpenGalleryBtn" class="btn btn-primary"><i data-lucide="images" class="w-4 h-4"></i> פתח את תמונות האירוע</button>
                     <button type="button" id="eventStartSlideshowBtn" class="btn btn-secondary"><i data-lucide="play" class="w-4 h-4"></i> הפעל מצגת</button>
                     <button type="button" id="eventPrintAlbumBtn" class="btn btn-secondary"><i data-lucide="book-image" class="w-4 h-4"></i> אלבום להדפסה</button>
+                    <button type="button" id="eventVideoMakerBtn" class="btn btn-secondary event-video-btn"><i data-lucide="clapperboard" class="w-4 h-4"></i> צור סרטון מהאלבום</button>
                     <button type="button" id="eventBigScreenBtn" class="btn btn-secondary" title="מצגת במסך מלא לאולם, שמתעדכנת בפריטים חדשים"><i data-lucide="tv" class="w-4 h-4"></i> מסך גדול</button>
                     <button type="button" id="eventFollowButton" class="btn btn-secondary"><i data-lucide="bell-plus" class="w-4 h-4"></i> עקוב אחר התיקייה</button>
                     <button type="button" id="eventEditToggleBtn" data-admin-profile-launcher onclick="toggleEventEdit(true)" class="hidden btn btn-ghost"><i data-lucide="pencil" class="w-4 h-4"></i> עריכת פרטי האירוע</button>
@@ -888,6 +891,11 @@
             <div id="lightboxStage" class="lightbox-stage">
                 <!-- מסך גדול: פריט שנוסף בזמן ההצגה, עד שהסבב עובר הלאה (big-screen.js). -->
                 <span id="bigScreenNewBadge" class="big-screen-new" hidden>חדש</span>
+                <!-- הלוגו של הגלריה על התמונה והסרטון שבתצוגה (gallery.js, syncLightboxBrand):
+                     מוצג לצופה כשסימן המים מופעל, באותו מיקום שנבחר להורדות. -->
+                <div id="lightboxBrand" class="lightbox-brand" data-position="bottom-left" data-style="seal" hidden aria-hidden="true">
+                    <span class="lightbox-brand-seal"></span><span id="lightboxBrandText" class="lightbox-brand-text"></span>
+                </div>
                 <picture class="media-picture"><source id="lightboxImageAvif" type="image/avif"><img id="lightboxImage" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" decoding="async" alt="תצוגת תמונה" class="max-w-full max-h-full object-contain modal-animate-popup" onerror="handleImageError(this)"></picture>
                 <video id="lightboxVideo" controls playsinline preload="metadata" class="hidden max-w-full max-h-full modal-animate-popup"></video>
             </div>
@@ -1249,6 +1257,72 @@
             <div class="modal-foot">
                 <button type="button" onclick="closeModal('printAlbumModal')" class="btn btn-secondary">ביטול</button>
                 <button type="button" id="printAlbumStartBtn" onclick="startPrintAlbum()" class="btn btn-primary"><i data-lucide="printer" class="w-4 h-4"></i> הכן והדפס</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- יוצר הסרטונים (video-maker-ui.js): סרטון מתמונות האלבום עם מעברים, תנועת
+         מצלמה, שקופיות פתיחה וסיום והלוגו של הגלריה. נוצר כולו בדפדפן. -->
+    <div id="videoMakerModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="videoMakerHeading" aria-describedby="videoMakerSummary" data-mode="idle">
+        <div class="modal-card modal-animate-popup video-maker-card">
+            <div class="modal-head">
+                <h3 id="videoMakerHeading"><i data-lucide="clapperboard" class="w-5 h-5"></i> יצירת סרטון מהאלבום</h3>
+                <button type="button" onclick="closeModal('videoMakerModal')" class="modal-close" aria-label="סגירת יוצר הסרטונים"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="modal-body video-maker-body">
+                <p id="videoMakerSummary" class="video-maker-summary u-num"></p>
+                <div class="video-maker-layout">
+                    <div class="video-maker-stage-col">
+                        <div id="videoMakerStage" class="video-maker-stage">
+                            <canvas id="videoMakerCanvas" width="1280" height="720" aria-label="תצוגה מקדימה של הסרטון"></canvas>
+                            <div class="video-maker-stage-empty" aria-hidden="true">
+                                <i data-lucide="sparkles" class="w-8 h-8"></i>
+                                <span>לחצו "תצוגה מקדימה" כדי לראות את הסרטון</span>
+                            </div>
+                        </div>
+                        <div id="videoMakerProgress" class="print-album-progress" hidden>
+                            <div class="progress-track"><div id="videoMakerProgressBar" class="progress-bar"></div></div>
+                            <p id="videoMakerStatus" class="u-num" role="status" aria-live="polite"></p>
+                        </div>
+                        <div id="videoMakerResultBox" class="video-maker-result" hidden>
+                            <video id="videoMakerResult" controls playsinline></video>
+                            <div class="video-maker-result-row">
+                                <span id="videoMakerResultMeta" class="u-num"></span>
+                                <button type="button" id="videoMakerShareBtn" class="btn btn-secondary" hidden><i data-lucide="share-2" class="w-4 h-4"></i> שיתוף</button>
+                                <button type="button" id="videoMakerDownloadBtn" class="btn btn-primary"><i data-lucide="download" class="w-4 h-4"></i> הורדת הסרטון</button>
+                            </div>
+                        </div>
+                    </div>
+                    <form id="videoMakerForm" class="video-maker-options" onsubmit="event.preventDefault()">
+                        <label class="field"><span class="field-label">סגנון המעברים</span><select name="transition"></select></label>
+                        <label class="field"><span class="field-label">פורמט</span><select name="aspect"></select></label>
+                        <label class="field"><span class="field-label">ערכת צבע</span><select name="theme"></select></label>
+                        <label class="field"><span class="field-label">זמן לכל תמונה</span>
+                            <select name="slideSeconds">
+                                <option value="2">2 שניות — קצבי</option>
+                                <option value="3">3 שניות</option>
+                                <option value="4">4 שניות</option>
+                                <option value="5">5 שניות</option>
+                                <option value="6">6 שניות — רגוע</option>
+                            </select>
+                        </label>
+                        <div class="video-maker-checks">
+                            <label class="admin-check-row"><input type="checkbox" name="kenBurns"> <span>תנועת מצלמה (זום ותזוזה)</span></label>
+                            <label class="admin-check-row"><input type="checkbox" name="titleCard"> <span>שקופיות פתיחה וסיום</span></label>
+                            <label class="admin-check-row"><input type="checkbox" name="captions"> <span>כיתובים מתחת לתמונות</span></label>
+                            <label class="admin-check-row"><input type="checkbox" name="logo"> <span>הלוגו של הגלריה</span></label>
+                        </div>
+                        <label class="field"><span class="field-label">מוזיקת רקע (רשות, מהמכשיר שלך)</span>
+                            <input type="file" id="videoMakerMusic" accept="audio/*">
+                        </label>
+                        <p class="field-hint">הסרטון נוצר במכשיר שלך בזמן אמת — השאירו את הלשונית פתוחה עד הסוף. שום קובץ אינו נשלח לשרת.</p>
+                    </form>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="button" id="videoMakerStopBtn" onclick="stopVideoMaker()" class="btn btn-secondary" hidden><i data-lucide="square" class="w-4 h-4"></i> עצור</button>
+                <button type="button" id="videoMakerPreviewBtn" onclick="previewVideoMaker()" class="btn btn-secondary"><i data-lucide="play" class="w-4 h-4"></i> תצוגה מקדימה</button>
+                <button type="button" id="videoMakerRecordBtn" onclick="recordVideoMaker()" class="btn btn-primary"><i data-lucide="clapperboard" class="w-4 h-4"></i> צור סרטון</button>
             </div>
         </div>
     </div>

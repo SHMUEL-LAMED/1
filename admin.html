@@ -35,6 +35,7 @@
          tailwind.generated.css — כך ה-utilities (ובראשם hidden) גוברים. -->
     <link rel="stylesheet" href="./styles.css">
     <link rel="stylesheet" href="./admin.css">
+    <link rel="stylesheet" href="./aurora.css">
     <link rel="stylesheet" href="./tailwind.generated.css">
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -464,15 +465,45 @@
                                 <input type="checkbox" id="downloadWatermarkEnabled" aria-describedby="downloadWatermarkHint" onchange="window.updateDownloadWatermarkPreview()">
                                 <span>סימן מים בתמונות שיורדות</span>
                             </label>
-                            <p id="downloadWatermarkHint" class="field-hint">טקסט עדין בפינה התחתונה של תמונות JPEG, PNG ו־WebP. התמונה מקודדת מחדש באיכות גבוהה ובלי שום EXIF. מנהלים מורידים בלי סימן מים.</p>
+                            <p id="downloadWatermarkHint" class="field-hint">לוגו מעוצב (חותם פליז וטקסט) על תמונות JPEG, PNG ו־WebP, וגם על סרטונים שנוצרים מהאלבום. התמונה מקודדת מחדש באיכות גבוהה ובלי שום EXIF. מנהלים מורידים בלי סימן מים.</p>
                         </div>
 
                         <label class="field"><span class="field-label">טקסט סימן המים</span>
                             <input type="text" id="downloadWatermarkText" maxlength="60" dir="rtl" autocomplete="off" placeholder="גלריית שמחת התורה" oninput="window.updateDownloadWatermarkPreview()">
                         </label>
-                        <!-- תצוגה מקדימה: פינה של "תמונה", והטקסט בפינה התחתונה. -->
+                        <!-- עיצוב הלוגו (brand-mark.js): אותו לוגו מצויר בתמונות שיורדות ובסרטונים שנוצרים מהאלבום. -->
+                        <div class="brand-mark-options">
+                            <label class="field"><span class="field-label">סגנון הלוגו</span>
+                                <select id="downloadWatermarkStyle" onchange="window.updateDownloadWatermarkPreview()">
+                                    <option value="seal">חותם וטקסט</option>
+                                    <option value="badge">תווית זכוכית</option>
+                                    <option value="text">טקסט בלבד</option>
+                                </select>
+                            </label>
+                            <label class="field"><span class="field-label">מיקום</span>
+                                <select id="downloadWatermarkPosition" onchange="window.updateDownloadWatermarkPreview()">
+                                    <option value="bottom-left">למטה משמאל</option>
+                                    <option value="bottom-right">למטה מימין</option>
+                                    <option value="top-left">למעלה משמאל</option>
+                                    <option value="top-right">למעלה מימין</option>
+                                    <option value="center">במרכז</option>
+                                </select>
+                            </label>
+                            <label class="field"><span class="field-label">גודל</span>
+                                <select id="downloadWatermarkSize" onchange="window.updateDownloadWatermarkPreview()">
+                                    <option value="s">קטן</option>
+                                    <option value="m">בינוני</option>
+                                    <option value="l">גדול</option>
+                                </select>
+                            </label>
+                            <label class="field"><span class="field-label">אטימות: <output id="downloadWatermarkOpacityValue" class="u-num">82%</output></span>
+                                <input type="range" id="downloadWatermarkOpacity" min="0.25" max="1" step="0.05" value="0.82" oninput="window.updateDownloadWatermarkPreview()">
+                            </label>
+                        </div>
+                        <!-- תצוגה מקדימה: "תמונה" לדוגמה, והלוגו מצויר עליה בדיוק כמו בהורדה. -->
                         <div class="download-watermark-preview" aria-hidden="true">
-                            <span id="downloadWatermarkPreview"></span>
+                            <canvas id="downloadWatermarkCanvas" width="640" height="360"></canvas>
+                            <span id="downloadWatermarkPreview" class="sr-only"></span>
                         </div>
 
                         <button type="submit" id="downloadPrivacySaveButton" class="btn btn-primary is-block">שמור</button>

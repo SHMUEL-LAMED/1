@@ -182,10 +182,15 @@ test("findJpegEnd מדלג על FF00, RST וקטעים שבין סריקות", (
 });
 
 test("הגדרות ההורדה: נרמול, טקסט ברירת מחדל ותווי כיווניות", () => {
-    assert.deepEqual(normalizeDownloadSettings(null), { watermarkEnabled: false, watermarkText: "", stripAllMetadata: false });
+    const brandDefaults = { watermarkStyle: "seal", watermarkPosition: "bottom-left", watermarkSize: "m", watermarkOpacity: 0.82 };
+    assert.deepEqual(normalizeDownloadSettings(null), { watermarkEnabled: false, watermarkText: "", ...brandDefaults, stripAllMetadata: false });
     assert.deepEqual(
         normalizeDownloadSettings({ watermarkEnabled: "true", watermarkText: "  שמחת   תורה\n2026 ", stripAllMetadata: true }),
-        { watermarkEnabled: false, watermarkText: "שמחת תורה 2026", stripAllMetadata: true }
+        { watermarkEnabled: false, watermarkText: "שמחת תורה 2026", ...brandDefaults, stripAllMetadata: true }
+    );
+    assert.deepEqual(
+        normalizeDownloadSettings({ watermarkStyle: "badge", watermarkPosition: "top-right", watermarkSize: "l", watermarkOpacity: 5 }),
+        { watermarkEnabled: false, watermarkText: "", watermarkStyle: "badge", watermarkPosition: "top-right", watermarkSize: "l", watermarkOpacity: 1, stripAllMetadata: false }
     );
     assert.equal(normalizeWatermarkText("‮גלריה‬"), "גלריה");
     assert.equal(normalizeWatermarkText("א".repeat(100)).length, WATERMARK_TEXT_MAX);

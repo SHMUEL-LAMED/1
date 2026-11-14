@@ -48,7 +48,7 @@ window.CLOUD_BACKGROUND_JOBS = true;
 // גרסת האתר, כפי שהיא מצורפת לכל דיווח שגיאה. אין לקוד גישה ל-git, ולכן
 // הערך חייב להיות זהה ל-CACHE_VERSION שב-sw.js ולעלות יחד איתו בכל פריסה;
 // error-monitor.test.mjs נועל את ההתאמה בין השניים.
-const SITE_VERSION = 'v81';
+const SITE_VERSION = 'v82';
 window.SITE_VERSION = SITE_VERSION;
 
 // מודולים שנקודות הכניסה שלהם נמצאות כולן מאחורי פעולה מפורשת של המשתמש
@@ -108,6 +108,8 @@ defineLazyModule(() => import('./manual-tags.js'), ['openManualTagger']);
 // אלבום להדפסה (print-album-ui.js) — נטען רק בלחיצה על "אלבום להדפסה" בעמוד
 // האירוע או על "אלבום PDF" בסרגל הבחירה המרובה.
 defineLazyModule(() => import('./print-album-ui.js'), ['openFolderPrintAlbum', 'openSelectionPrintAlbum']);
+// יוצר הסרטונים מתמונות האלבום (video-maker-ui.js) — נטען רק בלחיצה על "צור סרטון".
+defineLazyModule(() => import('./video-maker-ui.js'), ['openFolderVideoMaker', 'openSelectionVideoMaker']);
 window.ensurePeopleModule = ensurePeopleModule;
 window.ensureMyUploadsModule = ensureMyUploadsModule;
 
@@ -411,6 +413,8 @@ function closeModal(id) {
     }
     // סגירת חלון האלבום (ביטול, X או Escape) עוצרת את הטעינה שעוד רצה.
     if (id === 'printAlbumModal') window.abortPrintAlbum?.();
+    // סגירת יוצר הסרטונים עוצרת תצוגה מקדימה או הקלטה שרצות.
+    if (id === 'videoMakerModal') window.stopVideoMaker?.();
     if (id === 'lightboxModal') {
         // עוצר מצגת פעילה ומאפס זום גם כשהתצוגה נסגרת ב-Escape הכללי.
         window.onLightboxClosed?.();
